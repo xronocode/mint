@@ -94,7 +94,7 @@
 
     <!-- Phase 2: Generation Pipeline (G2) -->
 
-    <M-SKILLS NAME="Skill Prompts" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-SKILLS NAME="Skill Prompts" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Skill prompt selection by model tier and document format; injects design tokens</purpose>
       <path>src/mint/skills/</path>
       <depends>none</depends>
