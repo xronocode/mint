@@ -1,0 +1,80 @@
+rules:
+  - id: D-H01
+    severity: hard
+    xpath: "//w:tbl/w:tblGrid/w:gridCol"
+    check: count_gt_zero
+    fix_category: destructive
+    hint: "Set explicit column widths in twips. sum(gridCol/@w:w) must equal table width."
+    description: "Table column widths mismatch table width"
+
+  - id: D-H02
+    severity: hard
+    xpath: "//w:rPr/w:rFonts[contains(@w:ascii, 'Symbol') or contains(@w:ascii, 'Wingdings') or contains(@w:ascii, 'Webdings')]"
+    check: exists
+    fix_category: destructive
+    hint: "Replace symbol fonts with standard Unicode characters."
+    description: "Symbol font used — will break cross-platform rendering"
+
+  - id: D-H03
+    severity: hard
+    xpath: "//w:tblW[@w:w and @w:type='pct']"
+    check: exists
+    fix_category: destructive
+    hint: "Use fixed twips (w:type='dxa') instead of percentage widths."
+    description: "Percentage-based table width may render inconsistently"
+
+  - id: D-H04
+    severity: hard
+    xpath: "//w:spacing[@w:before or @w:after]"
+    check: exists
+    fix_category: visual
+    hint: "Use paragraph spacing via styles, not direct formatting."
+    description: "Direct paragraph spacing may cause inconsistent layout"
+
+  - id: D-H05
+    severity: hard
+    xpath: "//w:sz[@w:val]"
+    check: exists
+    fix_category: visual
+    hint: "Define font sizes via styles for consistency."
+    description: "Direct font size formatting"
+
+  - id: D-H06
+    severity: hard
+    xpath: "//w:ind[@w:left > 0 or @w:right > 0]"
+    check: exists
+    fix_category: visual
+    hint: "Use paragraph indentation via styles."
+    description: "Direct paragraph indentation"
+
+  - id: D-H07
+    severity: hard
+    xpath: "//w:rPr/w:color[@w:val]"
+    check: exists
+    fix_category: visual
+    hint: "Define colors via theme/styles, not direct formatting."
+    description: "Direct color formatting instead of theme"
+
+  - id: D-H08
+    severity: hard
+    xpath: "//w:pPr/w:jc[@w:val]"
+    check: exists
+    fix_category: visual
+    hint: "Use paragraph alignment via styles."
+    description: "Direct paragraph alignment"
+
+  - id: D-H09
+    severity: hard
+    xpath: "//w:t[contains(text(), '\n')]"
+    check: exists
+    fix_category: safe
+    hint: "Replace raw newlines in w:t with separate w:p elements."
+    description: "Raw newline character in text run"
+
+  - id: D-H10
+    severity: hard
+    xpath: "//w:hyperlink[@r:id]"
+    check: exists
+    fix_category: safe
+    hint: "Ensure all hyperlinks have valid relationship IDs."
+    description: "Hyperlink with relationship reference"

@@ -1,0 +1,40 @@
+rules:
+  - id: D-S01
+    severity: soft
+    xpath: "//w:rPr/w:b"
+    check: exists
+    fix_category: safe
+    hint: "Use bold via styles rather than direct formatting."
+    description: "Direct bold formatting"
+
+  - id: D-S02
+    severity: soft
+    xpath: "//w:rPr/w:i"
+    check: exists
+    fix_category: safe
+    hint: "Use italic via styles rather than direct formatting."
+    description: "Direct italic formatting"
+
+  - id: D-S03
+    severity: soft
+    xpath: "//w:rPr/w:u"
+    check: exists
+    fix_category: visual
+    hint: "Use underline via styles."
+    description: "Direct underline formatting"
+
+  - id: D-S04
+    severity: soft
+    xpath: "//w:pPr/w:rPr/w:sz"
+    check: exists
+    fix_category: visual
+    hint: "Define font size in paragraph properties via styles."
+    description: "Direct font size in paragraph properties"
+
+  - id: D-S05
+    severity: soft
+    xpath: "//w:sectPr[w:pgSz or w:pgMar]"
+    check: exists
+    fix_category: safe
+    hint: "Define page setup via document defaults."
+    description: "Section properties with page setup"

@@ -1,0 +1,40 @@
+rules:
+  - id: P-H01
+    severity: hard
+    xpath: "//p:sp/p:txBody/a:p/a:r/a:rPr[contains(@lang, 'en')]"
+    check: exists
+    fix_category: visual
+    hint: "Set language attribute via slide master or theme."
+    description: "Direct language attribute on text run"
+
+  - id: P-H02
+    severity: hard
+    xpath: "//a:rPr/a:latin[contains(@typeface, 'Arial') or contains(@typeface, 'Times') or contains(@typeface, 'Courier')]"
+    check: exists
+    fix_category: destructive
+    hint: "Embed fonts or use theme fonts for cross-platform compatibility."
+    description: "Non-embedded system font"
+
+  - id: P-H03
+    severity: hard
+    xpath: "//p:sp[p:spPr/a:xfrm/a:off and p:spPr/a:xfrm/a:ext]"
+    check: count_gt_zero
+    fix_category: visual
+    hint: "Ensure shapes do not overlap slide boundaries."
+    description: "Shape potentially outside slide boundaries"
+
+  - id: P-H04
+    severity: hard
+    xpath: "//p:sp/p:txBody/a:bodyPr[contains(@anchor, 'ctr')]"
+    check: exists
+    fix_category: visual
+    hint: "Use consistent text anchor settings via slide layout."
+    description: "Direct text anchor override"
+
+  - id: P-H05
+    severity: hard
+    xpath: "//a:solidFill/a:srgbClr"
+    check: exists
+    fix_category: visual
+    hint: "Use theme colors (a:schemeClr) instead of direct RGB."
+    description: "Direct RGB color instead of theme color"
