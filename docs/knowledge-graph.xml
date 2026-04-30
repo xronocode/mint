@@ -106,7 +106,7 @@
       </annotations>
     </M-SKILLS>
 
-    <M-TEMPLATES NAME="Template Engine" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-TEMPLATES NAME="Template Engine" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Fill master templates (.pptx/.docx) from model-provided JSON content; unpack → replace → repack</purpose>
       <path>src/mint/templates/</path>
       <depends>M-CONFIG, M-VALIDATE</depends>
