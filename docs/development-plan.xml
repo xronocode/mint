@@ -214,7 +214,7 @@
       <verification-ref>V-M-SANDBOX</verification-ref>
     </M-SANDBOX>
 
-    <M-MCP-G1 NAME="MCP Tools G1" TYPE="ENTRY_POINT" LAYER="2" ORDER="1" STATUS="planned">
+    <M-MCP-G1 NAME="MCP Tools G1" TYPE="ENTRY_POINT" LAYER="2" ORDER="1" STATUS="done">
       <contract>
         <purpose>FastMCP server exposing G1 tools: mint_validate, mint_fix, mint_fingerprint as MCP tool calls</purpose>
         <inputs>

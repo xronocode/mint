@@ -67,7 +67,7 @@
       </annotations>
     </M-FIX>
 
-    <M-FINGERPRINT NAME="StyleFingerprint" TYPE="UTILITY" STATUS="planned">
+    <M-FINGERPRINT NAME="StyleFingerprint" TYPE="UTILITY" STATUS="done">
       <purpose>SHA256 hash of styles.xml+numbering.xml (DOCX) or theme1.xml (PPTX) for structural drift detection</purpose>
       <path>src/mint/fingerprint.py</path>
       <depends>M-CONFIG</depends>
