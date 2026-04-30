@@ -4,7 +4,6 @@ import pytest
 
 from mint.config import SeverityMode
 from mint.fix import (
-    CascadeDetectedError,
     DestructiveRejectedError,
     FixReport,
     apply_fixes,
