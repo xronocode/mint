@@ -5,7 +5,7 @@
 
     <!-- Phase 1: Foundation + Validation (G0+G1) -->
 
-    <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="planned">
+    <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="done">
       <purpose>Application configuration: model endpoint, tier, severity mode, paths</purpose>
       <path>src/mint/config.py</path>
       <depends>none</depends>
