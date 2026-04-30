@@ -1,0 +1,62 @@
+<TechnologyStack VERSION="0.2.0">
+  <Runtime>Node.js 22.x (execution sandbox) + Python 3.12 (orchestration, validation, MCP)</Runtime>
+  <Language>JavaScript (model-generated code) + Python (runtime infrastructure)</Language>
+  <Framework>FastMCP (MCP server) + FastAPI (internal APIs)</Framework>
+
+  <Dependencies>
+    <dep name="docx" version="9.x" purpose="Word document generation via docx-js in Node.js sandbox" />
+    <dep name="pptxgenjs" version="3.x" purpose="PowerPoint generation in Node.js sandbox" />
+    <dep name="exceljs" version="4.x" purpose="Excel generation in Node.js sandbox" />
+    <dep name="lxml" version="5.x" purpose="OOXML parsing, validation, style extraction, GRACE injection" />
+    <dep name="pyyaml" version="6.x" purpose="Validation rule definitions" />
+    <dep name="fastmcp" version="2.x" purpose="MCP tool server for LLM integration" />
+    <dep name="gotenberg-client" version="1.x" purpose="PDF/PNG rendering via Gotenberg for QA" />
+    <dep name="librechat" version="latest" purpose="Multi-model UI with MCP and Artifacts support" />
+  </Dependencies>
+
+  <VersionConstraints>
+    <constraint lib="docx" min="9.0.0" max="9.x" reason="API surface for OOXML generation stabilized in 9.x" />
+    <constraint lib="lxml" min="5.0.0" max="5.x" reason="Custom XML Part manipulation relies on lxml 5.x API" />
+    <constraint lib="fastmcp" min="2.0.0" max="2.x" reason="MCP tool registration patterns" />
+  </VersionConstraints>
+
+  <Tooling>
+    <tool name="runtime" value="Node.js 22.x + Python 3.12" />
+    <tool name="sandbox" value="Node.js VM (vm2 or isolated-vm)" />
+    <tool name="linter-python" value="ruff" version="0.11.x" />
+    <tool name="linter-js" value="eslint" version="9.x" />
+    <tool name="typecheck" value="mypy" version="1.15.x" />
+    <tool name="formatter" value="ruff format" />
+    <tool name="test-runner-python" value="pytest" version="8.x" />
+    <tool name="test-runner-js" value="vitest" version="3.x" />
+    <tool name="containers" value="docker-compose" />
+    <tool name="render" value="gotenberg" version="8.x" />
+  </Tooling>
+
+  <Testing>
+    <module-level>
+      <command>pytest tests/unit/ -x</command>
+      <focus>Fast deterministic unit and contract checks per module</focus>
+    </module-level>
+    <wave-level>
+      <command>pytest tests/integration/ -x --timeout=60</command>
+      <focus>End-to-end flows: skill → model → execute → validate → output</focus>
+    </wave-level>
+    <phase-level>
+      <command>pytest tests/ -x && vitest run</command>
+      <focus>Full regression across Python validation + Node.js execution</focus>
+    </phase-level>
+    <mocking-policy>Prefer fakes for model responses and file fixtures over mocking internal APIs.</mocking-policy>
+  </Testing>
+
+  <Observability>
+    <logger>Python stdlib logging + structlog for JSON output</logger>
+    <log-format>[Module][function][BLOCK_NAME] message</log-format>
+    <required-fields>correlationId, modelTier, severityMode, ruleId</required-fields>
+    <redaction>Never log model API keys, user document content, or raw OOXML payloads exceeding 10KB.</redaction>
+  </Observability>
+
+  <DeliveryShape>
+    <shape>Three-container Docker Compose: LibreChat (UI), MINT (Python MCP + Node.js sandbox), Gotenberg (render). Optional fourth container for local model (Ollama/vLLM). Single docker-compose up.</shape>
+  </DeliveryShape>
+</TechnologyStack>

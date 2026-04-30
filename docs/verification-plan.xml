@@ -1,0 +1,523 @@
+<VerificationPlan VERSION="0.3.0">
+  <GlobalPolicy>
+    <log-format>[Module][function][BLOCK_NAME] message</log-format>
+    <deterministic-first>true</deterministic-first>
+    <module-level-focus>Fast deterministic checks per module with trace assertions</module-level-focus>
+    <wave-level-focus>Integration checks for merged surfaces touched by current wave only</wave-level-focus>
+    <phase-level-focus>Full regression + traceability + fixture corpus validation</phase-level-focus>
+    <redaction>Never log model API keys, user document content, or raw OOXML payloads exceeding 10KB.</redaction>
+    <evidence-types>
+      <type-1 name="deterministic">Exact assert on return value, state, or file content hash</type-1>
+      <type-2 name="trace">Required log markers appeared in correct order; forbidden markers absent</type-2>
+      <type-3 name="integration">End-to-end file produced + passes validation pipeline</type-3>
+      <type-4 name="semantic">Bounded evaluation against rubric (only where exact assert impossible)</type-4>
+    </evidence-types>
+  </GlobalPolicy>
+
+  <TestFixtures>
+    <fixture-1 name="minimal_valid_docx" path="tests/fixtures/minimal_valid.docx">Well-formed DOCX passing all D-H rules</fixture-1>
+    <fixture-2 name="bad_column_widths_docx" path="tests/fixtures/bad_column_widths.docx">sum(columnWidths) != table width for D-H01</fixture-2>
+    <fixture-3 name="percentage_width_docx" path="tests/fixtures/percentage_width.docx">WidthType=PERCENTAGE for D-H03</fixture-3>
+    <fixture-4 name="raw_newline_docx" path="tests/fixtures/raw_newline.docx">Raw \n in w:t for D-H09</fixture-4>
+    <fixture-5 name="minimal_valid_pptx" path="tests/fixtures/minimal_valid.pptx">Well-formed PPTX passing all P-H rules</fixture-5>
+    <fixture-6 name="bad_font_pptx" path="tests/fixtures/bad_font.pptx">Non-embedded system font for P-H02</fixture-6>
+    <fixture-7 name="docx_js_hello_world" path="tests/fixtures/hello_world_docx.js">Minimal docx-js code producing valid DOCX</fixture-7>
+    <fixture-8 name="pptxgenjs_hello_world" path="tests/fixtures/hello_world_pptx.js">Minimal pptxgenjs code producing valid PPTX</fixture-8>
+    <fixture-9 name="malicious_fs_js" path="tests/fixtures/malicious_fs.js">Code with require('fs') for sandbox violation test</fixture-9>
+    <fixture-10 name="malicious_net_js" path="tests/fixtures/malicious_net.js">Code with require('net') for sandbox violation test</fixture-10>
+    <fixture-11 name="sample_template_json" path="tests/fixtures/template_content.json">Valid JSON content for template fill test</fixture-11>
+    <fixture-12 name="design_tokens_sample" path="tests/fixtures/design_tokens.json">Reference design-tokens.json for extraction comparison</fixture-12>
+    <fixture-13 name="docx_with_grace" path="tests/fixtures/with_grace.docx">DOCX with GRACE Custom XML Parts already injected</fixture-13>
+    <fixture-14 name="docx_with_vendor_xml" path="tests/fixtures/with_vendor_xml.docx">DOCX with non-GRACE Custom XML Parts for preservation test</fixture-14>
+  </TestFixtures>
+
+  <CriticalFlows>
+    <VF-001 NAME="CodeGenerationPipeline" USE_CASES="UC-001,UC-002" DATA_FLOW="DF-001" PRIORITY="high">
+      <scenario>Frontier/medium model writes JS code → sandbox executes → file produced</scenario>
+      <expected-outcome>Valid DOCX/PPTX file passes L1 validation, no P0 errors</expected-outcome>
+      <invariants>
+        <inv-1>Sandbox returns within 30s or raises SANDBOX_TIMEOUT</inv-1>
+        <inv-2>Output file is well-formed OOXML (zip + XML parse)</inv-2>
+        <inv-3>No forbidden patterns in executed code</inv-3>
+      </invariants>
+      <required-signals>
+        <log-marker>[Create][orchestrate][BLOCK_ORCHESTRATE]</log-marker>
+        <log-marker>[Skills][select][BLOCK_SELECT_SKILL]</log-marker>
+        <log-marker>[Sandbox][execute][BLOCK_EXECUTE_CODE]</log-marker>
+        <log-marker>[Validate][run_checks][BLOCK_RUN_CHECKS]</log-marker>
+        <trace-sequence>BLOCK_ORCHESTRATE -> BLOCK_SELECT_SKILL -> BLOCK_EXECUTE_CODE -> BLOCK_RUN_CHECKS -> RETURNED</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>[Sandbox][execute][BLOCK_FS_ACCESS]</forbidden-1>
+        <forbidden-2>[Sandbox][execute][BLOCK_NET_ACCESS]</forbidden-2>
+      </forbidden-signals>
+    </VF-001>
+
+    <VF-002 NAME="TemplateFillPipeline" USE_CASES="UC-001,UC-002" DATA_FLOW="DF-001" PRIORITY="high">
+      <scenario>Small model provides JSON → template engine fills master → file produced</scenario>
+      <expected-outcome>Valid DOCX/PPTX from template, design tokens applied, no P0 errors</expected-outcome>
+      <invariants>
+        <inv-1>Template output is valid OOXML ZIP</inv-1>
+        <inv-2>All placeholders from template replaced</inv-2>
+        <inv-3>Design token colors/fonts match input</inv-3>
+      </invariants>
+      <required-signals>
+        <log-marker>[Create][orchestrate][BLOCK_ORCHESTRATE]</log-marker>
+        <log-marker>[Templates][fill][BLOCK_FILL_TEMPLATE]</log-marker>
+        <log-marker>[Validate][run_checks][BLOCK_RUN_CHECKS]</log-marker>
+        <trace-sequence>BLOCK_ORCHESTRATE -> BLOCK_FILL_TEMPLATE -> BLOCK_RUN_CHECKS -> RETURNED</trace-sequence>
+      </required-signals>
+    </VF-002>
+
+    <VF-003 NAME="ValidateAndFix" USE_CASES="UC-003,UC-007" DATA_FLOW="DF-002" PRIORITY="high">
+      <scenario>Document with violations → validation detects → auto-fix applies safe/visual fixes</scenario>
+      <expected-outcome>Safe fixes silent, visual fixes with diff, destructive rejected with hint</expected-outcome>
+      <invariants>
+        <inv-1>Backup file exists before any fix</inv-1>
+        <inv-2>Max 3 fix iterations</inv-2>
+        <inv-3>Destructive fixes never applied</inv-3>
+        <inv-4>Cascade detected if violations not converging</inv-4>
+      </invariants>
+      <required-signals>
+        <log-marker>[Validate][run_checks][BLOCK_RUN_CHECKS]</log-marker>
+        <log-marker>[Fix][backup][BLOCK_CREATE_BACKUP]</log-marker>
+        <log-marker>[Fix][apply][BLOCK_APPLY_FIX]</log-marker>
+        <trace-sequence>BLOCK_RUN_CHECKS -> BLOCK_CREATE_BACKUP -> BLOCK_APPLY_FIX -> BLOCK_RUN_CHECKS(recheck) -> RETURNED</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>[Fix][apply] applied destructive fix without DESTRUCTIVE_REJECTED</forbidden-1>
+      </forbidden-signals>
+    </VF-003>
+
+    <VF-004 NAME="StyleExtraction" USE_CASES="UC-004" DATA_FLOW="DF-003" PRIORITY="medium">
+      <scenario>Existing PPTX/DOCX → style extraction → design-tokens.json</scenario>
+      <expected-outcome>JSON contains colors, typography, layout; Layer 1 = 100% accurate</expected-outcome>
+      <invariants>
+        <inv-1>Layer 1 output exactly matches theme/styles.xml content</inv-1>
+        <inv-2>Output JSON is valid against design-tokens schema</inv-2>
+      </invariants>
+      <required-signals>
+        <log-marker>[Extract][parse][BLOCK_PARSE_THEME]</log-marker>
+        <log-marker>[Extract][analyze][BLOCK_ANALYZE_LAYOUTS]</log-marker>
+        <trace-sequence>BLOCK_PARSE_THEME -> BLOCK_ANALYZE_LAYOUTS -> RETURNED</trace-sequence>
+      </required-signals>
+    </VF-004>
+
+    <VF-005 NAME="VisualQA" USE_CASES="UC-005" DATA_FLOW="DF-004" PRIORITY="medium">
+      <scenario>Document → Gotenberg render → overlap/margin/font detection</scenario>
+      <expected-outcome>QA report with confidence scores; overlap >2% = violation</expected-outcome>
+      <invariants>
+        <inv-1>L1 completes in &lt;1s</inv-1>
+        <inv-2>L2 confidence score between 0 and 1</inv-2>
+        <inv-3>Overlap threshold enforced: >0.5% warn, >2% violation</inv-3>
+      </invariants>
+      <required-signals>
+        <log-marker>[QA][l1][BLOCK_L1_CHECK]</log-marker>
+        <log-marker>[QA][l2][BLOCK_L2_RENDER]</log-marker>
+        <trace-sequence>BLOCK_L1_CHECK -> (async) BLOCK_L2_RENDER -> RETURNED</trace-sequence>
+      </required-signals>
+    </VF-005>
+
+    <VF-006 NAME="GRACEInjection" USE_CASES="UC-006" DATA_FLOW="DF-005" PRIORITY="medium">
+      <scenario>Document → GRACE manifest + instructions injected as Custom XML Parts</scenario>
+      <expected-outcome>Metadata readable via OOXML parsers; existing Custom XML preserved</expected-outcome>
+      <invariants>
+        <inv-1>Namespace urn:mint:grace:2026:manifest present in output</inv-1>
+        <inv-2>Non-GRACE Custom XML Parts byte-identical after injection</inv-2>
+        <inv-3>Manifest contains fingerprint field</inv-3>
+      </invariants>
+      <required-signals>
+        <log-marker>[GRACE][inject][BLOCK_INJECT_MANIFEST]</log-marker>
+        <log-marker>[GRACE][preserve][BLOCK_PRESERVE_EXISTING]</log-marker>
+        <trace-sequence>BLOCK_INJECT_MANIFEST -> BLOCK_PRESERVE_EXISTING -> RETURNED</trace-sequence>
+      </required-signals>
+    </VF-006>
+  </CriticalFlows>
+
+  <ModuleVerification>
+    <!-- ===== PHASE 1: Foundation + Validation (G0+G1) ===== -->
+
+    <V-M-CONFIG MODULE="M-CONFIG" PRIORITY="high">
+      <test-files><file>tests/unit/test_config.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_config.py -x</check-1>
+        <check-2>ruff check src/mint/config.py</check-2>
+        <check-3>mypy src/mint/config.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">loadConfig reads LLM_BASE_URL + LLM_MODEL + MINT_MODEL_TIER from env → valid MintConfig</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">loadConfig reads .env file when env vars absent → valid MintConfig</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">Missing LLM_BASE_URL raises CONFIG_MISSING with message containing "LLM_BASE_URL"</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic">Invalid MINT_MODEL_TIER (e.g. "huge") raises CONFIG_INVALID with valid options listed</scenario-4>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>Never returns None — must raise or return valid MintConfig</forbidden-1>
+        <forbidden-2>Never logs API keys at INFO level</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SAFE — no external deps, pure config loading, fully deterministic</autonomy-assessment>
+    </V-M-CONFIG>
+
+    <V-M-SANDBOX MODULE="M-SANDBOX" PRIORITY="high">
+      <test-files><file>tests/unit/test_sandbox.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_sandbox.py -x</check-1>
+        <check-2>mypy src/mint/sandbox/</check-2>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">execute(hello_world_docx.js) → SandboxResult(success=True, output_path exists, duration_ms > 0)</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">execute(hello_world_pptx.js) → SandboxResult(success=True, output_path exists)</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">execute(malicious_fs.js) → raises SANDBOX_VIOLATION_FS with "fs" in message</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic">execute(malicious_net.js) → raises SANDBOX_VIOLATION_NET with "net" in message</scenario-4>
+        <scenario-5 kind="failure" evidence="trace">execute(infinite_loop.js) → SANDBOX_TIMEOUT within 30s + 2s tolerance, BLOCK_EXECUTE_CODE logged</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">execute(syntax_error.js) → SANDBOX_RUNTIME_ERROR with stderr containing error line</scenario-6>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Sandbox][execute][BLOCK_VALIDATE_CODE]</marker-1>
+        <marker-2>[Sandbox][execute][BLOCK_EXECUTE_CODE]</marker-2>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Code with require('fs'), require('net'), require('child_process'), require('http'), require('https') must be rejected in validate_code BEFORE execution</forbidden-1>
+        <forbidden-2>process.exit() in user code must be rejected</forbidden-2>
+        <forbidden-3>Never write files outside designated output directory</forbidden-3>
+      </forbidden-behaviors>
+      <autonomy-assessment>CAUTIOUS — security-critical, requires manual review of sandbox isolation before autonomous execution</autonomy-assessment>
+    </V-M-SANDBOX>
+
+    <V-M-RULES MODULE="M-RULES" PRIORITY="high">
+      <test-files><file>tests/unit/test_rules/</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_rules/ -x</check-1>
+        <check-2>ruff check src/mint/rules/</check-2>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">D-H01 rule: bad_column_widths.docx → Violation(rule_id="D-H01", severity="hard")</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">D-H03 rule: percentage_width.docx → Violation(rule_id="D-H03", severity="hard", fix_category="destructive")</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">D-H09 rule: raw_newline.docx → Violation(rule_id="D-H09")</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">D-H01..D-H10 rules: minimal_valid.docx → zero violations (0 false positives)</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic">D-S01..D-S05 soft rules classify as fix_category safe or visual</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic">P-H01..P-H05 rules detect violations in crafted bad PPTX fixtures</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic">get_hint("D-H03") → dict with keys: rule, reason, fix_instruction</scenario-7>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>evaluate must never modify the input document</forbidden-1>
+        <forbidden-2>Rule loading must fail fast on invalid YAML schema</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SAFE — pure functions, no side effects, fully deterministic</autonomy-assessment>
+    </V-M-RULES>
+
+    <V-M-VALIDATE MODULE="M-VALIDATE" PRIORITY="high">
+      <test-files><file>tests/unit/test_validate.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_validate.py -x</check-1>
+        <check-2>mypy src/mint/validate.py</check-2>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">run_checks(minimal_valid.docx, audit) → ValidationReport(passed=True, violations=[], mode="audit")</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">run_checks(minimal_valid.docx, lenient) → ValidationReport(passed=True)</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">run_checks(bad_column_widths.docx, audit) → ValidationReport(passed=True, hard_count=1) — audit logs but does not reject</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic">run_checks(bad_column_widths.docx, lenient) → ValidationReport(passed=False, hard_count=1)</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">run_checks(docx_with_soft_violation, strict) → ValidationReport(passed=False) — strict rejects on warnings</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">run_checks(nonexistent.docx, ...) → raises INVALID_DOCUMENT</scenario-6>
+        <scenario-7 kind="success" evidence="trace">BLOCK_RUN_CHECKS logged with violation count and mode</scenario-7>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Validate][run_checks][BLOCK_RUN_CHECKS]</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must never modify the input document</forbidden-1>
+        <forbidden-2>Must not silently drop violations</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SAFE — pure read-only analysis, deterministic</autonomy-assessment>
+    </V-M-VALIDATE>
+
+    <V-M-FIX MODULE="M-FIX" PRIORITY="high">
+      <test-files><file>tests/unit/test_fix.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_fix.py -x</check-1>
+        <check-2>mypy src/mint/fix.py</check-2>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">apply_fixes(docx_with_safe_violation) → FixReport(applied_fixes > 0, backup_path exists, iterations=1)</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">apply_fixes(docx_with_visual_violation) → FixReport with non-empty diff field</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">apply_fixes(docx_with_destructive_violation) → raises DESTRUCTIVE_REJECTED with educational hint</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic">apply_fixes(docx_with_cascading_violation, max_iterations=3) → raises CASCADE_DETECTED after 3 iterations</scenario-4>
+        <scenario-5 kind="success" evidence="trace">BLOCK_CREATE_BACKUP logged before BLOCK_APPLY_FIX</scenario-5>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Fix][backup][BLOCK_CREATE_BACKUP]</marker-1>
+        <marker-2>[Fix][apply][BLOCK_APPLY_FIX]</marker-2>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must never fix without creating backup first</forbidden-1>
+        <forbidden-2>Must never apply destructive fixes</forbidden-2>
+        <forbidden-3>Must stop after 3 iterations even if violations remain</forbidden-3>
+      </forbidden-behaviors>
+      <autonomy-assessment>CAUTIOUS — modifies files, but backup + max iterations + destructive rejection provide safety</autonomy-assessment>
+    </V-M-FIX>
+
+    <V-M-FINGERPRINT MODULE="M-FINGERPRINT" PRIORITY="high">
+      <test-files><file>tests/unit/test_fingerprint.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_fingerprint.py -x</check-1>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">compute(minimal_valid.docx) twice → identical hex hash</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">compute(bad_column_widths.docx) != compute(minimal_valid.docx) — different styles.xml</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">compare(hash1, hash1) → DriftStatus.MATCH</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">compare(hash1, hash2) → DriftStatus.DRIFT</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic">compare(hash1, None) → DriftStatus.BASELINE_MISSING</scenario-5>
+      </scenarios>
+      <autonomy-assessment>SAFE — pure computation, no side effects, fully deterministic</autonomy-assessment>
+    </V-M-FINGERPRINT>
+
+    <V-M-MCP-G1 MODULE="M-MCP-G1" PRIORITY="high">
+      <test-files><file>tests/integration/test_mcp_g1.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mcp_g1.py -x</check-1>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="integration">mint_validate(minimal_valid.docx) → JSON with passed=True, violations=[]</scenario-1>
+        <scenario-2 kind="success" evidence="integration">mint_validate(bad_column_widths.docx) → JSON with passed=False, violations[0].rule_id="D-H01"</scenario-2>
+        <scenario-3 kind="success" evidence="integration">mint_fix(docx_with_safe_violation) → JSON with applied_fixes, diff, backup_path</scenario-3>
+        <scenario-4 kind="success" evidence="integration">mint_fingerprint(minimal_valid.docx) → JSON with hash (64-char hex) and drift_status</scenario-4>
+      </scenarios>
+      <wave-follow-up>Verify MCP-G1 works with MCP-G2 mounted (no tool name collisions)</wave-follow-up>
+      <autonomy-assessment>SAFE — thin adapter over tested modules</autonomy-assessment>
+    </V-M-MCP-G1>
+
+    <!-- ===== PHASE 2: Generation Pipeline (G2) ===== -->
+
+    <V-M-SKILLS MODULE="M-SKILLS" PRIORITY="medium">
+      <test-files><file>tests/unit/test_skills.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_skills.py -x</check-1>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">select_skill(frontier, docx) → file path matching "*frontier*docx*"</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">select_skill(small, pptx) → file path matching "*small*pptx*"</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">select_skill(frontier, xlsx) → raises SKILL_NOT_FOUND</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">render_prompt(skill, design_tokens={...}) → prompt string containing "colors" and "primary"</scenario-4>
+      </scenarios>
+      <autonomy-assessment>SAFE — file I/O only, deterministic</autonomy-assessment>
+    </V-M-SKILLS>
+
+    <V-M-TEMPLATES MODULE="M-TEMPLATES" PRIORITY="medium">
+      <test-files><file>tests/unit/test_templates.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_templates.py -x</check-1>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">fill(board_deck.pptx, template_content.json) → output.pptx that is valid ZIP with replaced content</scenario-1>
+        <scenario-2 kind="failure" evidence="deterministic">fill(board_deck.pptx, invalid_json) → raises JSON_SCHEMA_ERROR with field path</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">fill with design_tokens → output font/color matches token values (XPath assertion)</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">list_templates() → list containing at least "board-deck" and "business-memo"</scenario-4>
+      </scenarios>
+      <autonomy-assessment>SAFE — file manipulation with validation, deterministic</autonomy-assessment>
+    </V-M-TEMPLATES>
+
+    <V-M-EXTRACT MODULE="M-EXTRACT" PRIORITY="medium">
+      <test-files><file>tests/unit/test_extract.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_extract.py -x</check-1>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">extract_style(docx_with_known_theme) → DesignTokens.colors.primary == "#E6007E" (exact match to known fixture)</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">extract_style(docx_with_known_theme) → DesignTokens.typography.heading.font == "Arial"</scenario-2>
+        <scenario-3 kind="success" evidence="semantic">extract_style(complex_pptx) → detected_layouts list with at least 1 entry (statistical, ~80%)</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic">extract_style(non_ooxml_file) → raises EXTRACTION_FAILED</scenario-4>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Extract][parse][BLOCK_PARSE_THEME]</marker-1>
+        <marker-2>[Extract][analyze][BLOCK_ANALYZE_LAYOUTS]</marker-2>
+      </required-log-markers>
+      <autonomy-assessment>SAFE — read-only analysis</autonomy-assessment>
+    </V-M-EXTRACT>
+
+    <V-M-CREATE MODULE="M-CREATE" PRIORITY="high">
+      <test-files><file>tests/integration/test_create.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_create.py -x --timeout=60</check-1>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="integration">create(CreateRequest with model_response_override=hello_world_docx.js, tier=frontier) → CreateResult(success=True, execution_mode="code")</scenario-1>
+        <scenario-2 kind="success" evidence="integration">create(CreateRequest with template_content.json, tier=small, template_name="board-deck") → CreateResult(success=True, execution_mode="template")</scenario-2>
+        <scenario-3 kind="failure" evidence="integration">create with sandbox violation code → CreateResult(success=False, error contains "SANDBOX")</scenario-3>
+        <scenario-4 kind="success" evidence="trace">BLOCK_ORCHESTRATE → BLOCK_SELECT_SKILL → (BLOCK_EXECUTE_CODE or BLOCK_FILL_TEMPLATE) → BLOCK_RUN_CHECKS all logged</scenario-4>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Create][orchestrate][BLOCK_ORCHESTRATE]</marker-1>
+      </required-log-markers>
+      <autonomy-assessment>CAUTIOUS — orchestrates multiple modules, depends on external model API</autonomy-assessment>
+    </V-M-CREATE>
+
+    <V-M-MCP-G2 MODULE="M-MCP-G2" PRIORITY="medium">
+      <test-files><file>tests/integration/test_mcp_g2.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mcp_g2.py -x --timeout=60</check-1>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="integration">mint_create with code mode → file + validation report</scenario-1>
+        <scenario-2 kind="success" evidence="integration">mint_extract_style(docx_fixture) → JSON with colors.typography.layout keys</scenario-2>
+        <scenario-3 kind="success" evidence="integration">mint_list_templates() → non-empty list with name + format fields</scenario-3>
+      </scenarios>
+      <wave-follow-up>Full pipeline test: extract_style → create with tokens → validate → QA</wave-follow-up>
+      <autonomy-assessment>SAFE — thin adapter over tested modules</autonomy-assessment>
+    </V-M-MCP-G2>
+
+    <!-- ===== PHASE 3: QA + GRACE (G3+G4) ===== -->
+
+    <V-M-QA MODULE="M-QA" PRIORITY="medium">
+      <test-files><file>tests/unit/test_qa.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_qa.py -x</check-1>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">run_l1(minimal_valid.docx) → L1Report with passed=True, duration_ms &lt; 1000</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">run_l1(bad_column_widths.docx) → L1Report with passed=False, violations non-empty</scenario-2>
+        <scenario-3 kind="success" evidence="integration">run_l2(docx_fixture) with Gotenberg mock → L2Report with confidence score 0.0-1.0</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic">run_l2(docx_fixture) with Gotenberg unavailable → raises GOTENBERG_UNAVAILABLE</scenario-4>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[QA][l1][BLOCK_L1_CHECK]</marker-1>
+        <marker-2>[QA][l2][BLOCK_L2_RENDER]</marker-2>
+      </required-log-markers>
+      <autonomy-assessment>SAFE — L1 is deterministic; L2 depends on Gotenberg availability</autonomy-assessment>
+    </V-M-QA>
+
+    <V-M-GRACE MODULE="M-GRACE" PRIORITY="medium">
+      <test-files><file>tests/unit/test_grace.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_grace.py -x</check-1>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">bootstrap(minimal_valid.docx) → output.docx with urn:mint:grace:2026:manifest in Custom XML Parts</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">bootstrap output: manifest contains document_structure + fingerprint fields</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">bootstrap(with_vendor_xml.docx): non-GRACE XML Parts byte-identical before/after (hash comparison)</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">describe(with_grace.docx) → GRACEManifest with instructions list length 5-10</scenario-4>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[GRACE][inject][BLOCK_INJECT_MANIFEST]</marker-1>
+        <marker-2>[GRACE][preserve][BLOCK_PRESERVE_EXISTING]</marker-2>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must not remove or alter existing Custom XML Parts from other namespaces</forbidden-1>
+      </forbidden-behaviors>
+      <autonomy-assessment>SAFE — deterministic XML manipulation</autonomy-assessment>
+    </V-M-GRACE>
+  </ModuleVerification>
+
+  <WaveChecks>
+    <Wave-1-1 PHASE="Phase-1" SCOPE="M-CONFIG, M-SANDBOX" STATUS="pending">
+      <goal>Foundation modules: config loads, sandbox executes valid code and blocks invalid</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_config.py tests/unit/test_sandbox.py -x</command-1>
+      </commands>
+      <required-evidence>
+        <evidence-1>Config loads from env vars</evidence-1>
+        <evidence-2>Sandbox produces valid DOCX from hello_world fixture</evidence-2>
+        <evidence-3>Sandbox blocks fs and net access</evidence-3>
+      </required-evidence>
+    </Wave-1-1>
+
+    <Wave-1-2 PHASE="Phase-1" SCOPE="M-RULES, M-VALIDATE, M-FIX, M-FINGERPRINT" STATUS="pending">
+      <goal>Full validation pipeline: rules → validate → fix → fingerprint</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_rules/ tests/unit/test_validate.py tests/unit/test_fix.py tests/unit/test_fingerprint.py -x</command-1>
+      </commands>
+      <required-evidence>
+        <evidence-1>All D-H01..D-H10 rules detect violations in crafted fixtures</evidence-1>
+        <evidence-2>Validation report correctly classified by severity mode</evidence-2>
+        <evidence-3>Safe fixes applied, destructive rejected, cascade detected</evidence-3>
+        <evidence-4>Fingerprint deterministic for same input</evidence-4>
+      </required-evidence>
+    </Wave-1-2>
+
+    <Wave-1-3 PHASE="Phase-1" SCOPE="M-MCP-G1" STATUS="pending">
+      <goal>MCP G1 tools integration: validate + fix + fingerprint via MCP protocol</goal>
+      <commands>
+        <command-1>pytest tests/integration/test_mcp_g1.py -x</command-1>
+      </commands>
+      <required-evidence>
+        <evidence-1>mint_validate returns structured violation report</evidence-1>
+        <evidence-2>mint_fix returns diff + backup path</evidence-2>
+        <evidence-3>mint_fingerprint returns hash</evidence-3>
+      </required-evidence>
+    </Wave-1-3>
+
+    <Wave-2-1 PHASE="Phase-2" SCOPE="M-SKILLS, M-TEMPLATES" STATUS="pending">
+      <goal>Skill prompt selection + template engine basic fill</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_skills.py tests/unit/test_templates.py -x</command-1>
+      </commands>
+    </Wave-2-1>
+
+    <Wave-2-2 PHASE="Phase-2" SCOPE="M-EXTRACT, M-CREATE, M-MCP-G2" STATUS="pending">
+      <goal>Full generation pipeline: extract → create → validate → MCP tools</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_extract.py tests/integration/test_create.py tests/integration/test_mcp_g2.py -x --timeout=60</command-1>
+      </commands>
+    </Wave-2-2>
+  </WaveChecks>
+
+  <PhaseGates>
+    <Gate-Phase-1 PHASE="Phase-1">
+      <goal>G0 hypothesis validated + G1 deterministic quality gate operational</goal>
+      <commands>
+        <command-1>pytest tests/unit/ -x</command-1>
+        <command-2>pytest tests/integration/test_mcp_g1.py -x</command-2>
+        <command-3>ruff check src/mint/</command-3>
+        <command-4>mypy src/mint/</command-4>
+      </commands>
+      <required-evidence>
+        <evidence-1>Sandbox executes docx-js code without violations</evidence-1>
+        <evidence-2>All D-H01..D-H10 and P-H01..P-H05 rules have tests with fixtures</evidence-2>
+        <evidence-3>Auto-fix handles safe/visual/destructive categories correctly</evidence-3>
+        <evidence-4>StyleFingerprint hash is deterministic for same input</evidence-4>
+        <evidence-5>0 false negatives, &lt;5% false positives on test fixture corpus</evidence-5>
+        <evidence-6>All trace markers logged for VF-003 critical flow</evidence-6>
+      </required-evidence>
+    </Gate-Phase-1>
+
+    <Gate-Phase-2 PHASE="Phase-2">
+      <goal>Any model + MINT ≈ Claude document quality (core promise)</goal>
+      <commands>
+        <command-1>pytest tests/ -x --timeout=60</command-1>
+        <command-2>ruff check src/mint/</command-2>
+        <command-3>mypy src/mint/</command-3>
+      </commands>
+      <required-evidence>
+        <evidence-1>Skill prompts auto-selected by tier and format</evidence-1>
+        <evidence-2>Template engine fills JSON → valid DOCX/PPTX</evidence-2>
+        <evidence-3>Style extraction produces design-tokens.json matching fixture</evidence-3>
+        <evidence-4>CreateResult.execution_mode correctly set based on tier</evidence-4>
+        <evidence-5>All trace markers logged for VF-001 and VF-002 critical flows</evidence-5>
+      </required-evidence>
+    </Gate-Phase-2>
+
+    <Gate-Phase-3 PHASE="Phase-3">
+      <goal>Visual QA + GRACE metadata + public launch readiness</goal>
+      <commands>
+        <command-1>pytest tests/ -x --timeout=120</command-1>
+      </commands>
+      <required-evidence>
+        <evidence-1>QA L2 detects overlap >2% as violation</evidence-1>
+        <evidence-2>GRACE metadata readable from injected documents</evidence-2>
+        <evidence-3>Cross-model edit test passes (GLM creates → Qwen edits → MINT validates)</evidence-3>
+        <evidence-4>All trace markers logged for VF-004, VF-005, VF-006</evidence-4>
+      </required-evidence>
+    </Gate-Phase-3>
+  </PhaseGates>
+
+  <FailurePackets>
+    <packet-template>
+      <expected-fields>scenario, expected-evidence, observed-evidence, first-divergent-block, next-action</expected-fields>
+    </packet-template>
+    <packet-example>
+      <scenario>V-M-FIX scenario-4: cascade detection</scenario>
+      <expected-evidence>CASCADE_DETECTED raised after 3 iterations</expected-evidence>
+      <observed-evidence>Fix loop ran 4 iterations without raising</observed-evidence>
+      <first-divergent-block>[Fix][apply][BLOCK_APPLY_FIX] iteration counter not incremented</first-divergent-block>
+      <next-action>Check iteration counting logic in M-FIX apply_fixes</next-action>
+    </packet-example>
+  </FailurePackets>
+</VerificationPlan>

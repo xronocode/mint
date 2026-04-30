@@ -1,0 +1,203 @@
+<KnowledgeGraph>
+  <Project NAME="MINT Runtime" VERSION="0.2.0">
+    <keywords>docx, pptx, xlsx, OOXML, docx-js, pptxgenjs, exceljs, validation, auto-fix, QA, GRACE, MCP, template-engine, style-extraction, design-tokens, model-agnostic, local-first</keywords>
+    <annotation>Model-Independent Normalization Toolkit — Claude-quality document generation for any LLM. Self-contained runtime with skill prompts, execution engine, validation, QA, and GRACE metadata injection.</annotation>
+
+    <!-- Phase 1: Foundation + Validation (G0+G1) -->
+
+    <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="planned">
+      <purpose>Application configuration: model endpoint, tier, severity mode, paths</purpose>
+      <path>src/mint/config.py</path>
+      <depends>none</depends>
+      <verification-ref>V-M-CONFIG</verification-ref>
+      <annotations>
+        <fn-loadConfig PURPOSE="Load and validate config from env vars and .env file" />
+        <type-MintConfig PURPOSE="Typed config dataclass with all runtime settings" />
+        <export-config PURPOSE="Singleton config instance" />
+      </annotations>
+    </M-CONFIG>
+
+    <M-SANDBOX NAME="Node.js Sandbox" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Sandboxed Node.js execution for model-generated JS code (docx-js/pptxgenjs/exceljs)</purpose>
+      <path>src/mint/sandbox/</path>
+      <depends>none</depends>
+      <verification-ref>V-M-SANDBOX</verification-ref>
+      <annotations>
+        <fn-execute PURPOSE="Run JS code in restricted sandbox, return output file" />
+        <fn-validate_code PURPOSE="Pre-check code for forbidden patterns (fs, net, child_process)" />
+        <export-sandbox PURPOSE="Sandbox executor instance" />
+      </annotations>
+    </M-SANDBOX>
+
+    <M-RULES NAME="Validation Rules" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>OOXML validation rule definitions: DOCX hard/soft (D-H01..D-S05), PPTX hard (P-H01..P-H05)</purpose>
+      <path>src/mint/rules/</path>
+      <depends>none</depends>
+      <verification-ref>V-M-RULES</verification-ref>
+      <annotations>
+        <fn-evaluate PURPOSE="Evaluate a single rule against document XML" />
+        <fn-classify_severity PURPOSE="Classify violation as hard/soft with auto-fix category" />
+        <fn-get_hint PURPOSE="Return educational reject hint for a rule ID" />
+        <export-all_rules PURPOSE="Registry of all loaded rules" />
+      </annotations>
+    </M-RULES>
+
+    <M-VALIDATE NAME="Validation Engine" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Run rule checks with severity modes (audit/lenient/strict), produce violation report</purpose>
+      <path>src/mint/validate.py</path>
+      <depends>M-CONFIG, M-RULES</depends>
+      <verification-ref>V-M-VALIDATE</verification-ref>
+      <annotations>
+        <fn-run_checks PURPOSE="Execute all rules against document, return report" />
+        <fn-classify_violations PURPOSE="Group violations by severity and auto-fix category" />
+        <export-validate PURPOSE="Main validation entry point" />
+      </annotations>
+    </M-VALIDATE>
+
+    <M-FIX NAME="Auto-Fix Engine" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Apply safe/visual auto-fixes with backup; reject destructive; max 3 iterations</purpose>
+      <path>src/mint/fix.py</path>
+      <depends>M-VALIDATE, M-RULES</depends>
+      <verification-ref>V-M-FIX</verification-ref>
+      <annotations>
+        <fn-apply_fixes PURPOSE="Apply classified fixes, return fixed file + diff report" />
+        <fn-create_backup PURPOSE="Backup document before modification" />
+        <fn-detect_cascade PURPOSE="Detect fix cascade and abort after 3 iterations" />
+        <export-fix PURPOSE="Main fix entry point" />
+      </annotations>
+    </M-FIX>
+
+    <M-FINGERPRINT NAME="StyleFingerprint" TYPE="UTILITY" STATUS="planned">
+      <purpose>SHA256 hash of styles.xml+numbering.xml (DOCX) or theme1.xml (PPTX) for structural drift detection</purpose>
+      <path>src/mint/fingerprint.py</path>
+      <depends>M-CONFIG</depends>
+      <verification-ref>V-M-FINGERPRINT</verification-ref>
+      <annotations>
+        <fn-compute PURPOSE="Compute fingerprint hash for a document" />
+        <fn-compare PURPOSE="Compare two fingerprints, return drift status" />
+        <export-fingerprint PURPOSE="Fingerprint utility instance" />
+      </annotations>
+    </M-FINGERPRINT>
+
+    <M-MCP-G1 NAME="MCP Tools G1" TYPE="ENTRY_POINT" STATUS="planned">
+      <purpose>FastMCP tool registration: mint_validate, mint_fix, mint_fingerprint</purpose>
+      <path>src/mint/mcp_g1.py</path>
+      <depends>M-VALIDATE, M-FIX, M-FINGERPRINT</depends>
+      <verification-ref>V-M-MCP-G1</verification-ref>
+      <annotations>
+        <fn-mint_validate PURPOSE="MCP tool: validate document against rules" />
+        <fn-mint_fix PURPOSE="MCP tool: auto-fix + diff + backup" />
+        <fn-mint_fingerprint PURPOSE="MCP tool: style drift check" />
+        <export-server_g1 PURPOSE="FastMCP server instance for G1 tools" />
+      </annotations>
+    </M-MCP-G1>
+
+    <!-- Phase 2: Generation Pipeline (G2) -->
+
+    <M-SKILLS NAME="Skill Prompts" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Skill prompt selection by model tier and document format; injects design tokens</purpose>
+      <path>src/mint/skills/</path>
+      <depends>none</depends>
+      <verification-ref>V-M-SKILLS</verification-ref>
+      <annotations>
+        <fn-select_skill PURPOSE="Select prompt by tier (small/medium/frontier) and format (docx/pptx)" />
+        <fn-render_prompt PURPOSE="Render prompt with design tokens injected" />
+        <export-skills PURPOSE="Skill registry instance" />
+      </annotations>
+    </M-SKILLS>
+
+    <M-TEMPLATES NAME="Template Engine" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Fill master templates (.pptx/.docx) from model-provided JSON content; unpack → replace → repack</purpose>
+      <path>src/mint/templates/</path>
+      <depends>M-CONFIG, M-VALIDATE</depends>
+      <verification-ref>V-M-TEMPLATES</verification-ref>
+      <annotations>
+        <fn-fill PURPOSE="Fill template from JSON content structure" />
+        <fn-list_templates PURPOSE="List available builtin/extracted/custom templates" />
+        <export-template_engine PURPOSE="Template engine instance" />
+      </annotations>
+    </M-TEMPLATES>
+
+    <M-EXTRACT NAME="Style Extraction" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Extract design-tokens.json from existing documents: Layer 1 (theme/styles.xml) + Layer 2 (statistical)</purpose>
+      <path>src/mint/extract.py</path>
+      <depends>M-CONFIG</depends>
+      <verification-ref>V-M-EXTRACT</verification-ref>
+      <annotations>
+        <fn-extract_style PURPOSE="Full extraction pipeline → design-tokens.json" />
+        <fn-parse_theme PURPOSE="Layer 1: parse theme/styles.xml for colors, fonts, dimensions" />
+        <fn-analyze_layouts PURPOSE="Layer 2: statistical layout pattern detection" />
+        <export-extract PURPOSE="Style extraction entry point" />
+      </annotations>
+    </M-EXTRACT>
+
+    <M-CREATE NAME="Create Orchestrator" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Orchestrate: skill → model → execute/template → validate → output file</purpose>
+      <path>src/mint/create.py</path>
+      <depends>M-SKILLS, M-SANDBOX, M-TEMPLATES, M-VALIDATE, M-CONFIG</depends>
+      <verification-ref>V-M-CREATE</verification-ref>
+      <annotations>
+        <fn-create PURPOSE="Main orchestration: generate document from user request" />
+        <export-create PURPOSE="Create orchestrator instance" />
+      </annotations>
+    </M-CREATE>
+
+    <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" STATUS="planned">
+      <purpose>FastMCP tool registration: mint_create, mint_extract_style, mint_list_templates</purpose>
+      <path>src/mint/mcp_g2.py</path>
+      <depends>M-CREATE, M-EXTRACT, M-TEMPLATES, M-MCP-G1</depends>
+      <verification-ref>V-M-MCP-G2</verification-ref>
+      <annotations>
+        <fn-mint_create PURPOSE="MCP tool: generate document (code or template mode)" />
+        <fn-mint_extract_style PURPOSE="MCP tool: extract design tokens from document" />
+        <fn-mint_list_templates PURPOSE="MCP tool: list available templates" />
+        <export-server_g2 PURPOSE="FastMCP server instance for G2 tools" />
+      </annotations>
+    </M-MCP-G2>
+
+    <!-- Phase 3: QA + GRACE (G3+G4) -->
+
+    <M-QA NAME="QA Pipeline" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>L1 programmatic check (instant) + L2 render-based via Gotenberg (async overlap/margin/font)</purpose>
+      <path>src/mint/qa/</path>
+      <depends>M-VALIDATE, M-CONFIG</depends>
+      <verification-ref>V-M-QA</verification-ref>
+      <annotations>
+        <fn-run_l1 PURPOSE="Programmatic check: all rules + XML + fingerprint" />
+        <fn-run_l2 PURPOSE="Render via Gotenberg → PDF → PNG → overlap/margin/font detection" />
+        <fn-run_qa PURPOSE="Full QA: L1 sync + L2 async → report with confidence scores" />
+        <export-qa PURPOSE="QA pipeline instance" />
+      </annotations>
+    </M-QA>
+
+    <M-GRACE NAME="GRACE Injection" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Inject manifest + instructions as Custom XML Parts (urn:mint:grace:2026:manifest); preserve existing vendor XML</purpose>
+      <path>src/mint/grace/</path>
+      <depends>M-CONFIG</depends>
+      <verification-ref>V-M-GRACE</verification-ref>
+      <annotations>
+        <fn-bootstrap PURPOSE="Inject manifest (structure + fingerprint) and instructions (5-10 rules)" />
+        <fn-describe PURPOSE="Read and summarize GRACE metadata from document" />
+        <fn-preserve_existing PURPOSE="Ensure non-GRACE Custom XML Parts survive injection" />
+        <export-grace PURPOSE="GRACE injection instance" />
+      </annotations>
+    </M-GRACE>
+
+    <!-- Cross-module dependencies -->
+    <CrossLink from="M-VALIDATE" to="M-RULES" relation="loads rules for evaluation" />
+    <CrossLink from="M-VALIDATE" to="M-CONFIG" relation="reads severity mode" />
+    <CrossLink from="M-FIX" to="M-VALIDATE" relation="re-validates after each fix iteration" />
+    <CrossLink from="M-MCP-G1" to="M-VALIDATE" relation="exposes validate via MCP" />
+    <CrossLink from="M-MCP-G1" to="M-FIX" relation="exposes fix via MCP" />
+    <CrossLink from="M-MCP-G1" to="M-FINGERPRINT" relation="exposes fingerprint via MCP" />
+    <CrossLink from="M-CREATE" to="M-SKILLS" relation="selects skill prompt by tier" />
+    <CrossLink from="M-CREATE" to="M-SANDBOX" relation="executes model-generated code" />
+    <CrossLink from="M-CREATE" to="M-TEMPLATES" relation="fills template for small models" />
+    <CrossLink from="M-CREATE" to="M-VALIDATE" relation="validates produced file" />
+    <CrossLink from="M-MCP-G2" to="M-CREATE" relation="exposes create via MCP" />
+    <CrossLink from="M-MCP-G2" to="M-EXTRACT" relation="exposes extract_style via MCP" />
+    <CrossLink from="M-MCP-G2" to="M-MCP-G1" relation="inherits G1 tools" />
+    <CrossLink from="M-QA" to="M-VALIDATE" relation="uses validation results for L1" />
+    <CrossLink from="M-QA" to="M-CONFIG" relation="reads Gotenberg endpoint" />
+  </Project>
+</KnowledgeGraph>

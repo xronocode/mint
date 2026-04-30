@@ -1,0 +1,563 @@
+<DevelopmentPlan VERSION="0.2.0">
+  <ArchitectureNotes>
+    <objective>MINT replicates Claude's document generation pipeline as a standalone, model-agnostic toolkit. Plan optimizes for G0→G1→G2→G5 minimum viable launch path.</objective>
+    <non-goal>No Claude API, no dvejsada dependency, no hosted SaaS, no macros/signatures/protection in v0.x.</non-goal>
+    <risk-1>Frontier models may fail to produce valid docx-js/pptxgenjs code — G0 kill criterion.</risk-1>
+    <risk-2>Code execution sandbox security — restricted environment with no fs/net/timeout.</risk-3>
+    <risk-3>Template engine must handle 7B model JSON reliably or G0 fails.</risk-3>
+  </ArchitectureNotes>
+
+  <Modules>
+    <!-- PHASE 1 (G0+G1): Foundation + Validation Engine -->
+
+    <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1" STATUS="planned">
+      <contract>
+        <purpose>Central configuration for MINT runtime: model endpoint, tier, severity mode, paths, timeouts</purpose>
+        <inputs>
+          <param name="env_vars" type="dict" />
+          <param name="env_file" type="Optional[Path]" />
+        </inputs>
+        <outputs>
+          <param name="MintConfig" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="CONFIG_MISSING" />
+          <error code="CONFIG_INVALID" />
+        </errors>
+      </contract>
+      <interface>
+        <export-config PURPOSE="Validated singleton config instance" />
+        <fn-loadConfig PURPOSE="Load from env + .env, validate, return MintConfig" />
+        <type-MintConfig PURPOSE="dataclass: base_url, model, tier, severity_mode, gotenberg_url, sandbox_timeout, rules_dir, skills_dir, templates_dir, tokens_dir" />
+      </interface>
+      <depends>none</depends>
+      <target>
+        <source>src/mint/config.py</source>
+        <tests>tests/unit/test_config.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Config]</log-prefix>
+      </observability>
+      <verification-ref>V-M-CONFIG</verification-ref>
+    </M-CONFIG>
+
+    <M-RULES NAME="Validation Rules" TYPE="CORE_LOGIC" LAYER="0" ORDER="2" STATUS="planned">
+      <contract>
+        <purpose>Declarative OOXML validation rules loaded from YAML: DOCX hard (D-H01..D-H10), soft (D-S01..D-S05), PPTX hard (P-H01..P-H05)</purpose>
+        <inputs>
+          <param name="rules_dir" type="Path" />
+          <param name="format" type="Literal['docx','pptx']" />
+        </inputs>
+        <outputs>
+          <param name="list[Rule]" type="list" />
+          <param name="Violation" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="RULE_LOAD_FAILED" />
+          <error code="RULE_EVAL_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-evaluate PURPOSE="Evaluate one rule against lxml-parsed document XML, return Violation or None" />
+        <fn-classify_severity PURPOSE="Classify violation: hard/soft, auto-fix category (safe/visual/destructive)" />
+        <fn-get_hint PURPOSE="Return educational reject hint dict for a rule ID" />
+        <export-all_rules PURPOSE="Registry: load all YAML rules, return list[Rule]" />
+        <type-Rule PURPOSE="dataclass: id, format, severity, xpath, check, fix_category, hint" />
+        <type-Violation PURPOSE="dataclass: rule_id, severity, fix_category, message, hint, location" />
+      </interface>
+      <depends>none</depends>
+      <target>
+        <source>src/mint/rules/</source>
+        <tests>tests/unit/test_rules/</tests>
+      </target>
+      <observability>
+        <log-prefix>[Rules]</log-prefix>
+        <critical-block>BLOCK_EVALUATE_RULE</critical-block>
+      </observability>
+      <verification-ref>V-M-RULES</verification-ref>
+    </M-RULES>
+
+    <M-VALIDATE NAME="Validation Engine" TYPE="CORE_LOGIC" LAYER="1" ORDER="1" STATUS="planned">
+      <contract>
+        <purpose>Run all applicable rules against an OOXML document with severity mode enforcement (audit/lenient/strict)</purpose>
+        <inputs>
+          <param name="document_path" type="Path" />
+          <param name="severity_mode" type="Literal['audit','lenient','strict']" />
+        </inputs>
+        <outputs>
+          <param name="ValidationReport" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="INVALID_DOCUMENT" />
+          <error code="XML_PARSE_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-run_checks PURPOSE="Execute all rules against document, return ValidationReport with violations grouped by severity" />
+        <fn-classify_violations PURPOSE="Group violations: hard_reject, soft_fixable (safe/visual), soft_warn, destructive" />
+        <export-validate PURPOSE="Main validation entry point accepting document path + config" />
+        <type-ValidationReport PURPOSE="dataclass: violations, total, hard_count, soft_count, mode, passed" />
+      </interface>
+      <depends>M-CONFIG, M-RULES</depends>
+      <target>
+        <source>src/mint/validate.py</source>
+        <tests>tests/unit/test_validate.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Validate]</log-prefix>
+        <critical-block>BLOCK_RUN_CHECKS</critical-block>
+      </observability>
+      <verification-ref>V-M-VALIDATE</verification-ref>
+    </M-VALIDATE>
+
+    <M-FIX NAME="Auto-Fix Engine" TYPE="CORE_LOGIC" LAYER="1" ORDER="2" STATUS="planned">
+      <contract>
+        <purpose>Apply safe and visual auto-fixes to OOXML document with backup; reject destructive; max 3 iterations; detect cascade</purpose>
+        <inputs>
+          <param name="document_path" type="Path" />
+          <param name="violations" type="list[Violation]" />
+          <param name="max_iterations" type="int" default="3" />
+        </inputs>
+        <outputs>
+          <param name="FixReport" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="CASCADE_DETECTED" />
+          <error code="BACKUP_FAILED" />
+          <error code="DESTRUCTIVE_REJECTED" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-apply_fixes PURPOSE="Iterate: apply safe+visual fixes, re-validate, return FixReport with diffs" />
+        <fn-create_backup PURPOSE="Copy document to .bak before any modification" />
+        <fn-detect_cascade PURPOSE="Compare violation sets across iterations; abort if not converging" />
+        <export-fix PURPOSE="Main fix entry point" />
+        <type-FixReport PURPOSE="dataclass: fixed_path, backup_path, iterations, applied_fixes, remaining_violations, diff" />
+      </interface>
+      <depends>M-VALIDATE, M-RULES</depends>
+      <target>
+        <source>src/mint/fix.py</source>
+        <tests>tests/unit/test_fix.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Fix]</log-prefix>
+        <critical-block>BLOCK_APPLY_FIX</critical-block>
+      </observability>
+      <verification-ref>V-M-FIX</verification-ref>
+    </M-FIX>
+
+    <M-FINGERPRINT NAME="StyleFingerprint" TYPE="UTILITY" LAYER="1" ORDER="3" STATUS="planned">
+      <contract>
+        <purpose>Compute SHA256 hash of structural style XML for drift detection: styles.xml+numbering.xml (DOCX), theme1.xml (PPTX)</purpose>
+        <inputs>
+          <param name="document_path" type="Path" />
+        </inputs>
+        <outputs>
+          <param name="FingerprintResult" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="MISSING_STYLE_XML" />
+          <error code="HASH_FAILED" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-compute PURPOSE="Extract relevant XML from ZIP, concatenate, SHA256 → hex string" />
+        <fn-compare PURPOSE="Compare two hex hashes, return DriftStatus (match/drift/missing)" />
+        <export-fingerprint PURPOSE="Fingerprint utility instance" />
+        <type-FingerprintResult PURPOSE="dataclass: hash, document_path, format, xml_sources" />
+        <type-DriftStatus PURPOSE="Enum: MATCH, DRIFT, BASELINE_MISSING" />
+      </interface>
+      <depends>M-CONFIG</depends>
+      <target>
+        <source>src/mint/fingerprint.py</source>
+        <tests>tests/unit/test_fingerprint.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Fingerprint]</log-prefix>
+      </observability>
+      <verification-ref>V-M-FINGERPRINT</verification-ref>
+    </M-FINGERPRINT>
+
+    <M-SANDBOX NAME="Node.js Sandbox" TYPE="CORE_LOGIC" LAYER="0" ORDER="3" STATUS="planned">
+      <contract>
+        <purpose>Sandboxed Node.js execution of model-generated JS code using docx-js/pptxgenjs/exceljs; no fs/net, 30s timeout</purpose>
+        <inputs>
+          <param name="code" type="str" />
+          <param name="libraries" type="dict[str,str]" />
+          <param name="timeout" type="int" default="30" />
+        </inputs>
+        <outputs>
+          <param name="SandboxResult" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="SANDBOX_VIOLATION_FS" />
+          <error code="SANDBOX_VIOLATION_NET" />
+          <error code="SANDBOX_TIMEOUT" />
+          <error code="SANDBOX_RUNTIME_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-execute PURPOSE="Pre-check code for forbidden patterns, run in isolated VM, return output file bytes" />
+        <fn-validate_code PURPOSE="Static check: reject require('fs'), require('net'), child_process, process.exit, etc." />
+        <export-sandbox PURPOSE="Sandbox executor instance" />
+        <type-SandboxResult PURPOSE="dataclass: success, output_path, error, stdout, stderr, duration_ms" />
+      </interface>
+      <depends>none</depends>
+      <target>
+        <source>src/mint/sandbox/</source>
+        <tests>tests/unit/test_sandbox.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Sandbox]</log-prefix>
+        <critical-block>BLOCK_EXECUTE_CODE</critical-block>
+      </observability>
+      <verification-ref>V-M-SANDBOX</verification-ref>
+    </M-SANDBOX>
+
+    <M-MCP-G1 NAME="MCP Tools G1" TYPE="ENTRY_POINT" LAYER="2" ORDER="1" STATUS="planned">
+      <contract>
+        <purpose>FastMCP server exposing G1 tools: mint_validate, mint_fix, mint_fingerprint as MCP tool calls</purpose>
+        <inputs>
+          <param name="document_path" type="str" />
+          <param name="severity_mode" type="Optional[str]" />
+        </inputs>
+        <outputs>
+          <param name="MCPToolResponse" type="dict" />
+        </outputs>
+        <errors>
+          <error code="MCP_TOOL_ERROR" />
+          <error code="FILE_NOT_FOUND" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-mint_validate PURPOSE="MCP tool: validate document → ValidationReport as JSON" />
+        <fn-mint_fix PURPOSE="MCP tool: auto-fix → FixReport as JSON with diff" />
+        <fn-mint_fingerprint PURPOSE="MCP tool: compute hash → FingerprintResult as JSON" />
+        <export-server_g1 PURPOSE="FastMCP server instance with G1 tools registered" />
+      </interface>
+      <depends>M-VALIDATE, M-FIX, M-FINGERPRINT</depends>
+      <target>
+        <source>src/mint/mcp_g1.py</source>
+        <tests>tests/integration/test_mcp_g1.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[MCP-G1]</log-prefix>
+      </observability>
+      <verification-ref>V-M-MCP-G1</verification-ref>
+    </M-MCP-G1>
+
+    <!-- PHASE 2 (G2): Generation Pipeline -->
+
+    <M-SKILLS NAME="Skill Prompts" TYPE="CORE_LOGIC" LAYER="0" ORDER="4" STATUS="planned">
+      <contract>
+        <purpose>Skill prompt registry: select and render prompts by model tier (small/medium/frontier) and format (docx/pptx); inject design tokens</purpose>
+        <inputs>
+          <param name="tier" type="Literal['small','medium','frontier']" />
+          <param name="format" type="Literal['docx','pptx']" />
+          <param name="design_tokens" type="Optional[dict]" />
+        </inputs>
+        <outputs>
+          <param name="str" type="rendered prompt" />
+        </outputs>
+        <errors>
+          <error code="SKILL_NOT_FOUND" />
+          <error code="TOKENS_INVALID" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-select_skill PURPOSE="Lookup prompt file by tier+format from skills/ directory" />
+        <fn-render_prompt PURPOSE="Load prompt template, inject design_tokens JSON block, return final prompt string" />
+        <export-skills PURPOSE="Skill registry instance" />
+      </interface>
+      <depends>none</depends>
+      <target>
+        <source>src/mint/skills/</source>
+        <tests>tests/unit/test_skills.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Skills]</log-prefix>
+      </observability>
+      <verification-ref>V-M-SKILLS</verification-ref>
+    </M-SKILLS>
+
+    <M-TEMPLATES NAME="Template Engine" TYPE="CORE_LOGIC" LAYER="1" ORDER="4" STATUS="planned">
+      <contract>
+        <purpose>Fill master templates (.pptx/.docx) from model-provided JSON content: unpack OOXML ZIP → replace placeholders → apply design tokens → repack</purpose>
+        <inputs>
+          <param name="template_path" type="Path" />
+          <param name="content_json" type="dict" />
+          <param name="design_tokens" type="Optional[dict]" />
+        </inputs>
+        <outputs>
+          <param name="Path" type="output file path" />
+        </outputs>
+        <errors>
+          <error code="TEMPLATE_NOT_FOUND" />
+          <error code="JSON_SCHEMA_ERROR" />
+          <error code="PLACEHOLDER_MISSING" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-fill PURPOSE="Unpack template ZIP, replace named placeholders from JSON, apply tokens, repack → output path" />
+        <fn-list_templates PURPOSE="Scan builtin/extracted/custom dirs, return template metadata list" />
+        <export-template_engine PURPOSE="Template engine instance" />
+      </interface>
+      <depends>M-CONFIG, M-VALIDATE</depends>
+      <target>
+        <source>src/mint/templates/</source>
+        <tests>tests/unit/test_templates.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Templates]</log-prefix>
+      </observability>
+      <verification-ref>V-M-TEMPLATES</verification-ref>
+    </M-TEMPLATES>
+
+    <M-EXTRACT NAME="Style Extraction" TYPE="CORE_LOGIC" LAYER="1" ORDER="5" STATUS="planned">
+      <contract>
+        <purpose>Extract design-tokens.json from existing OOXML documents: Layer 1 (theme/styles.xml = 100% accurate), Layer 2 (statistical layout analysis = ~80%)</purpose>
+        <inputs>
+          <param name="document_path" type="Path" />
+        </inputs>
+        <outputs>
+          <param name="DesignTokens" type="TypedDict" />
+        </outputs>
+        <errors>
+          <error code="EXTRACTION_FAILED" />
+          <error code="UNSUPPORTED_FORMAT" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-extract_style PURPOSE="Full pipeline: Layer 1 + Layer 2 → design-tokens.json" />
+        <fn-parse_theme PURPOSE="Layer 1: parse theme.xml / styles.xml → colors, typography, dimensions (deterministic)" />
+        <fn-analyze_layouts PURPOSE="Layer 2: statistical analysis of slide/page layouts → detected_layouts with frequency" />
+        <export-extract PURPOSE="Style extraction entry point" />
+      </interface>
+      <depends>M-CONFIG</depends>
+      <target>
+        <source>src/mint/extract.py</source>
+        <tests>tests/unit/test_extract.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Extract]</log-prefix>
+      </observability>
+      <verification-ref>V-M-EXTRACT</verification-ref>
+    </M-EXTRACT>
+
+    <M-CREATE NAME="Create Orchestrator" TYPE="CORE_LOGIC" LAYER="2" ORDER="2" STATUS="planned">
+      <contract>
+        <purpose>Orchestrate full document generation: select skill → send to model → execute code or fill template → validate → output</purpose>
+        <inputs>
+          <param name="request" type="CreateRequest" />
+        </inputs>
+        <outputs>
+          <param name="CreateResult" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="MODEL_CALL_FAILED" />
+          <error code="EXECUTION_FAILED" />
+          <error code="VALIDATION_FAILED" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-create PURPOSE="Main orchestration: (1) select skill by tier, (2) send prompt+tokens to model API, (3a) sandbox exec or (3b) template fill, (4) validate, (5) return CreateResult" />
+        <export-create PURPOSE="Create orchestrator instance" />
+        <type-CreateRequest PURPOSE="dataclass: format, tier, prompt, design_tokens_path, template_name, model_response_override" />
+        <type-CreateResult PURPOSE="dataclass: output_path, validation_report, qa_report, execution_mode, duration_ms" />
+      </interface>
+      <depends>M-SKILLS, M-SANDBOX, M-TEMPLATES, M-VALIDATE, M-CONFIG</depends>
+      <target>
+        <source>src/mint/create.py</source>
+        <tests>tests/integration/test_create.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Create]</log-prefix>
+        <critical-block>BLOCK_ORCHESTRATE</critical-block>
+      </observability>
+      <verification-ref>V-M-CREATE</verification-ref>
+    </M-CREATE>
+
+    <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" LAYER="3" ORDER="1" STATUS="planned">
+      <contract>
+        <purpose>FastMCP server extending G1 with generation tools: mint_create, mint_extract_style, mint_list_templates</purpose>
+        <inputs>
+          <param name="format" type="str" />
+          <param name="prompt" type="str" />
+          <param name="document_path" type="Optional[str]" />
+        </inputs>
+        <outputs>
+          <param name="MCPToolResponse" type="dict" />
+        </outputs>
+        <errors>
+          <error code="MCP_TOOL_ERROR" />
+          <error code="GENERATION_FAILED" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-mint_create PURPOSE="MCP tool: generate document → CreateResult as JSON" />
+        <fn-mint_extract_style PURPOSE="MCP tool: extract design tokens → DesignTokens JSON" />
+        <fn-mint_list_templates PURPOSE="MCP tool: list available templates → metadata list" />
+        <export-server_g2 PURPOSE="FastMCP server with G1+G2 tools, mounts G1 server" />
+      </interface>
+      <depends>M-CREATE, M-EXTRACT, M-TEMPLATES, M-MCP-G1</depends>
+      <target>
+        <source>src/mint/mcp_g2.py</source>
+        <tests>tests/integration/test_mcp_g2.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[MCP-G2]</log-prefix>
+      </observability>
+      <verification-ref>V-M-MCP-G2</verification-ref>
+    </M-MCP-G2>
+
+    <!-- PHASE 3 (G3+G4+G5): QA + GRACE + Launch -->
+
+    <M-QA NAME="QA Pipeline" TYPE="CORE_LOGIC" LAYER="2" ORDER="3" STATUS="planned">
+      <contract>
+        <purpose>Two-level QA: L1 programmatic (rules + XML + fingerprint, &lt;1s) + L2 render-based via Gotenberg (PDF→PNG, overlap/margin/font, 3-5s async)</purpose>
+        <inputs>
+          <param name="document_path" type="Path" />
+          <param name="design_tokens" type="Optional[dict]" />
+        </inputs>
+        <outputs>
+          <param name="QAReport" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="GOTENBERG_UNAVAILABLE" />
+          <error code="RENDER_FAILED" />
+          <error code="IMAGE_ANALYSIS_FAILED" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-run_l1 PURPOSE="Programmatic: run validation + fingerprint + XML well-formedness → L1Report (instant)" />
+        <fn-run_l2 PURPOSE="Render: Gotenberg → PDF → PNG → overlap detection + margin check + font substitution → L2Report (async)" />
+        <fn-run_qa PURPOSE="Full QA: L1 sync + L2 async → QAReport with confidence scores (0-1)" />
+        <export-qa PURPOSE="QA pipeline instance" />
+        <type-QAReport PURPOSE="dataclass: l1_report, l2_report, overall_confidence, violations" />
+      </interface>
+      <depends>M-VALIDATE, M-CONFIG</depends>
+      <target>
+        <source>src/mint/qa/</source>
+        <tests>tests/unit/test_qa.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[QA]</log-prefix>
+        <critical-block>BLOCK_L1_CHECK</critical-block>
+        <critical-block>BLOCK_L2_RENDER</critical-block>
+      </observability>
+      <verification-ref>V-M-QA</verification-ref>
+    </M-QA>
+
+    <M-GRACE NAME="GRACE Injection" TYPE="CORE_LOGIC" LAYER="2" ORDER="4" STATUS="planned">
+      <contract>
+        <purpose>Inject GRACE manifest (structure + fingerprint) and instructions (5-10 rules) as Custom XML Parts into OOXML documents; preserve existing vendor XML</purpose>
+        <inputs>
+          <param name="document_path" type="Path" />
+          <param name="rules" type="Optional[list[str]]" />
+        </inputs>
+        <outputs>
+          <param name="GRACEManifest" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="GRACE_INJECTION_FAILED" />
+          <error code="NAMESPACE_COLLISION" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-bootstrap PURPOSE="Inject manifest + instructions into document as Custom XML Parts (urn:mint:grace:2026:manifest)" />
+        <fn-describe PURPOSE="Read existing GRACE metadata from document → structure summary" />
+        <fn-preserve_existing PURPOSE="Verify non-GRACE Custom XML Parts survive injection unchanged" />
+        <export-grace PURPOSE="GRACE injection instance" />
+        <type-GRACEManifest PURPOSE="dataclass: document_structure, fingerprint, instructions, namespace" />
+      </interface>
+      <depends>M-CONFIG</depends>
+      <target>
+        <source>src/mint/grace/</source>
+        <tests>tests/unit/test_grace.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[GRACE]</log-prefix>
+      </observability>
+      <verification-ref>V-M-GRACE</verification-ref>
+    </M-GRACE>
+  </Modules>
+
+  <DataFlow>
+    <DF-001 NAME="Document Generation" TRIGGER="EndUser request via MCP">
+      <step-1>M-CREATE selects skill prompt by model tier (M-SKILLS)</step-1>
+      <step-2>Model receives prompt + design tokens → returns JS code or JSON content</step-2>
+      <step-3>Frontier/Medium: M-SANDBOX executes JS → file; Small: M-TEMPLATES fills template → file</step-3>
+      <step-4>M-VALIDATE runs rule checks on produced file</step-4>
+      <step-5>M-FINGERPRINT checks style drift against baseline</step-5>
+      <step-6>M-QA L1 programmatic check (instant)</step-6>
+      <step-7>Output: file + QA report</step-7>
+      <evidence>[Create][orchestrate][BLOCK_ORCHESTRATE], [Validate][run_checks][BLOCK_RUN_CHECKS], QA report with confidence scores</evidence>
+    </DF-001>
+
+    <DF-002 NAME="Validate and Fix" TRIGGER="mint_validate or mint_fix MCP call">
+      <step-1>M-VALIDATE loads rules (M-RULES) and runs against document</step-1>
+      <step-2>Violations classified: safe / visual / destructive</step-2>
+      <step-3>If fix requested: M-FIX applies safe+visual fixes, rejects destructive</step-3>
+      <step-4>Backup before any fix; max 3 iterations</step-4>
+      <step-5>M-FINGERPRINT checks structural drift</step-5>
+      <evidence>[Validate][run_checks][BLOCK_RUN_CHECKS], [Fix][apply][BLOCK_APPLY_FIX], diff report</evidence>
+    </DF-002>
+
+    <DF-003 NAME="Style Extraction" TRIGGER="mint_extract_style MCP call">
+      <step-1>M-EXTRACT opens document (ZIP), reads theme/styles.xml (Layer 1: 100%)</step-1>
+      <step-2>Statistical analysis of layouts and patterns (Layer 2: ~80%)</step-2>
+      <step-3>Output: design-tokens.json for model constraints and validation baseline</step-3>
+      <evidence>[Extract] produced design-tokens.json with colors, typography, layout</evidence>
+    </DF-003>
+
+    <DF-004 NAME="Visual QA" TRIGGER="mint_qa MCP call">
+      <step-1>M-QA sends document to Gotenberg → PDF → PNG</step-1>
+      <step-2>Overlap detection: >0.5% = warn, >2% = violation</step-2>
+      <step-3>Margin check, font substitution detection</step-3>
+      <step-4>Output: QA report with confidence scores (0-1)</step-4>
+      <evidence>[QA][l2_render][BLOCK_L2_RENDER], confidence scores in report</evidence>
+    </DF-004>
+
+    <DF-005 NAME="GRACE Injection" TRIGGER="mint_bootstrap MCP call">
+      <step-1>M-GRACE reads document structure</step-1>
+      <step-2>Generates manifest (structure + fingerprint) and instructions (5-10 rules)</step-2>
+      <step-3>Injects as Custom XML Parts (urn:mint:grace:2026:manifest)</step-3>
+      <step-4>Preserves existing Custom XML from other vendors</step-4>
+      <evidence>[GRACE] manifest + instructions readable via OOXML parsers</evidence>
+    </DF-005>
+  </DataFlow>
+
+  <ImplementationOrder>
+    <Phase-1 name="Foundation + Validation (G0+G1)" status="pending">
+      <goal>Prove hypothesis (G0) and build deterministic quality gate (G1)</goal>
+      <step-1 module="M-CONFIG" status="pending" verification="V-M-CONFIG">Configuration and environment management</step-1>
+      <step-2 module="M-SANDBOX" status="pending" verification="V-M-SANDBOX">Node.js execution sandbox with security constraints</step-2>
+      <step-3 module="M-RULES" status="pending" verification="V-M-RULES">Validation rule definitions (DOCX hard+soft, PPTX hard)</step-3>
+      <step-4 module="M-VALIDATE" status="pending" verification="V-M-VALIDATE">Validation engine with severity modes (audit/lenient/strict)</step-4>
+      <step-5 module="M-FIX" status="pending" verification="V-M-FIX">Auto-fix engine with safe/visual/destructive categories</step-5>
+      <step-6 module="M-FINGERPRINT" status="pending" verification="V-M-FINGERPRINT">StyleFingerprint hash for structural drift detection</step-6>
+      <step-7 module="M-MCP-G1" status="pending" verification="V-M-MCP-G1">MCP tools: mint_validate, mint_fix, mint_fingerprint</step-7>
+    </Phase-1>
+
+    <Phase-2 name="Claude-Quality Generation (G2)" status="pending">
+      <goal>Any model + MINT ≈ Claude document quality</goal>
+      <step-1 module="M-SKILLS" status="pending" verification="V-M-SKILLS">Skill prompts per tier and format (docx/pptx × small/medium/frontier)</step-1>
+      <step-2 module="M-TEMPLATES" status="pending" verification="V-M-TEMPLATES">Template engine with master templates and JSON fill</step-2>
+      <step-3 module="M-EXTRACT" status="pending" verification="V-M-EXTRACT">Style extraction: design-tokens.json from existing documents</step-3>
+      <step-4 module="M-CREATE" status="pending" verification="V-M-CREATE">Create orchestrator: skill → model → execute → validate → output</step-4>
+      <step-5 module="M-MCP-G2" status="pending" verification="V-M-MCP-G2">MCP tools: mint_create, mint_extract_style, mint_list_templates</step-5>
+    </Phase-2>
+
+    <Phase-3 name="QA + GRACE + Launch (G3+G4+G5)" status="pending">
+      <goal>Visual QA, GRACE metadata, and public launch</goal>
+      <step-1 module="M-QA" status="pending" verification="V-M-QA">QA pipeline: L1 programmatic + L2 render-based via Gotenberg</step-1>
+      <step-2 module="M-GRACE" status="pending" verification="V-M-GRACE">GRACE injection: manifest + instructions as Custom XML Parts</step-2>
+    </Phase-3>
+  </ImplementationOrder>
+
+  <ExecutionPolicy>
+    <default-profile>balanced</default-profile>
+    <controller-owns>docs/development-plan.xml, docs/knowledge-graph.xml, docs/verification-plan.xml</controller-owns>
+    <worker-owns>Only module source files and module-local tests inside the approved write scope.</worker-owns>
+  </ExecutionPolicy>
+</DevelopmentPlan>

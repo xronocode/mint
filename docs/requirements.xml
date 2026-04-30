@@ -1,0 +1,119 @@
+<RequirementsAnalysis VERSION="0.2.0">
+  <Project>
+    <name>MINT Runtime</name>
+    <annotation>Model-Independent Normalization Toolkit — Claude-quality document generation for any LLM. Self-contained runtime with skill prompts, execution engine, validation, QA, and GRACE metadata injection.</annotation>
+    <keywords>docx, pptx, xlsx, OOXML, docx-js, pptxgenjs, exceljs, validation, auto-fix, QA, GRACE, MCP, template-engine, style-extraction, design-tokens, model-agnostic, local-first</keywords>
+  </Project>
+
+  <Actors>
+    <actor-EndUser>User requesting document generation via LibreChat or direct MCP call.</actor-EndUser>
+    <actor-LLM>Any OpenAI-compatible model (cloud or local) producing JS code or JSON content.</actor-LLM>
+    <actor-Operator>Devops managing MINT deployment, rules, templates, and config.</actor-Operator>
+    <actor-ExternalConsumer>Any tool or agent reading GRACE metadata from produced documents.</actor-ExternalConsumer>
+  </Actors>
+
+  <UseCases>
+    <UC-001>
+      <Actor>EndUser</Actor>
+      <Action>Requests document generation through LLM</Action>
+      <Goal>Get a production-quality DOCX/PPTX/XLSX file matching design-token specifications</Goal>
+      <Preconditions>MINT runtime running, model endpoint configured, template or skill selected</Preconditions>
+      <AcceptanceCriteria>File passes L1 validation; no P0 errors; style fingerprint matches or drift logged</AcceptanceCriteria>
+      <Priority>high</Priority>
+      <RelatedFlows>DF-001</RelatedFlows>
+    </UC-001>
+
+    <UC-002>
+      <Actor>LLM</Actor>
+      <Action>Writes JS code (frontier/medium) or JSON content (small models)</Action>
+      <Goal>Produce executable input for MINT runtime</Goal>
+      <Preconditions>Skill prompt selected by tier; design tokens loaded</Preconditions>
+      <AcceptanceCriteria>Code runs without sandbox violation within 30s; JSON validates against schema</AcceptanceCriteria>
+      <Priority>high</Priority>
+      <RelatedFlows>DF-001</RelatedFlows>
+    </UC-003>
+
+    <UC-003>
+      <Actor>EndUser</Actor>
+      <Action>Validates an existing document against rules</Action>
+      <Goal>Identify OOXML errors, style drift, or structural violations</Goal>
+      <Preconditions>Document file available; rules configured</Preconditions>
+      <AcceptanceCriteria>Validation report lists all violations with rule IDs, severity, and fix hints</AcceptanceCriteria>
+      <Priority>high</Priority>
+      <RelatedFlows>DF-002</RelatedFlows>
+    </UC-003>
+
+    <UC-004>
+      <Actor>Operator</Actor>
+      <Action>Extracts design tokens from an existing document</Action>
+      <Goal>Create a design-tokens.json for reuse as model constraints and validation baseline</Goal>
+      <Preconditions>Source document available (PPTX or DOCX)</Preconditions>
+      <AcceptanceCriteria>design-tokens.json contains colors, typography, layout; user can review and edit</AcceptanceCriteria>
+      <Priority>medium</Priority>
+      <RelatedFlows>DF-003</RelatedFlows>
+    </UC-004>
+
+    <UC-005>
+      <Actor>EndUser</Actor>
+      <Action>Runs visual QA on a generated document</Action>
+      <Goal>Detect rendering issues invisible to programmatic checks (overlaps, margin violations, font substitution)</Goal>
+      <Preconditions>Gotenberg service running; document file produced</Preconditions>
+      <AcceptanceCriteria>QA report with confidence scores; overlap >0.5% = warn, >2% = violation</AcceptanceCriteria>
+      <Priority>medium</Priority>
+      <RelatedFlows>DF-004</RelatedFlows>
+    </UC-005>
+
+    <UC-006>
+      <Actor>ExternalConsumer</Actor>
+      <Action>Reads GRACE metadata from a document</Action>
+      <Goal>Navigate document structure and rules without prior knowledge</Goal>
+      <Preconditions>Document has GRACE Custom XML Parts injected</Preconditions>
+      <AcceptanceCriteria>manifest and instructions readable via standard OOXML parsers; existing Custom XML preserved</AcceptanceCriteria>
+      <Priority>medium</Priority>
+      <RelatedFlows>DF-005</RelatedFlows>
+    </UC-006>
+
+    <UC-007>
+      <Actor>Operator</Actor>
+      <Action>Auto-fixes validation violations in a document</Action>
+      <Goal>Resolve safe and visual violations automatically; backup before fix; reject destructive ones</Goal>
+      <Preconditions>Document has violations with auto-fix categories classified</Preconditions>
+      <AcceptanceCriteria>Safe fixes applied silently; visual fixes applied with diff in report; destructive rejected with educational hint; max 3 iterations</AcceptanceCriteria>
+      <Priority>high</Priority>
+      <RelatedFlows>DF-002</RelatedFlows>
+    </UC-007>
+  </UseCases>
+
+  <NonGoals>
+    <item-1>No Claude API dependency — Claude is an external benchmark only.</item-1>
+    <item-2>No dvejsada or upstream MCP server dependency — MINT is the full pipeline.</item-2>
+    <item-3>No macro, signature, or document protection support in v0.x.</item-3>
+    <item-4>No inline formatting drift detection (only structural via StyleFingerprint).</item-4>
+    <item-5>No hosted SaaS in initial release.</item-5>
+    <item-6>No L3 multimodal QA as blocking gate — advisory only.</item-6>
+  </NonGoals>
+
+  <Constraints>
+    <constraint-1>Code sandbox: no filesystem access outside output dir, no network, 30s timeout.</constraint-1>
+    <constraint-2>Single OpenAI-compatible API endpoint — one line in config to switch model.</constraint-2>
+    <constraint-3>All OOXML manipulation must preserve existing Custom XML Parts from other vendors.</constraint-3>
+    <constraint-4>Three-container deployment: LibreChat + MINT + Gotenberg (plus optional Ollama).</constraint-4>
+    <constraint-5>GRACE namespace: urn:mint:grace:2026:manifest — must not collide with existing namespaces.</constraint-5>
+    <constraint-6>RAM budget: ~4GB without local model; ~8GB with 7B; ~48GB with 70B quantized.</constraint-6>
+  </Constraints>
+
+  <Risks>
+    <risk-1>GLM-5.1 or other frontier models may produce invalid docx-js/pptxgenjs code in >50% of tasks (G0 kill criterion).</risk-1>
+    <risk-2>7B models may fail to fill JSON templates reliably (G0 kill criterion).</risk-2>
+    <risk-3>Code execution sandbox escape — restricted by no fs, no net, timeout.</risk-3>
+    <risk-4>Validation false positives may block legitimate documents — mitigated by severity modes.</risk-4>
+    <risk-5>Skill prompts may not close the quality gap — mitigated by template-first fallback.</risk-5>
+    <risk-6>Anthropic open-sources full pipeline — different market positioning (local-first, model-agnostic).</risk-6>
+  </Risks>
+
+  <OpenQuestions>
+    <question-1>Which models to include in G0 hypothesis testing beyond GLM-5.1 and Qwen-7B?</question-1>
+    <question-2>Should template engine support Jinja2-style expressions or only simple placeholder substitution?</question-2>
+    <question-3>What is the minimum viable set of builtin templates for launch?</question-3>
+  </OpenQuestions>
+</RequirementsAnalysis>
