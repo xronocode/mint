@@ -41,7 +41,7 @@
       <verification-ref>V-M-CONFIG</verification-ref>
     </M-CONFIG>
 
-    <M-RULES NAME="Validation Rules" TYPE="CORE_LOGIC" LAYER="0" ORDER="2" STATUS="planned">
+    <M-RULES NAME="Validation Rules" TYPE="CORE_LOGIC" LAYER="0" ORDER="2" STATUS="done">
       <contract>
         <purpose>Declarative OOXML validation rules loaded from YAML: DOCX hard (D-H01..D-H10), soft (D-S01..D-S05), PPTX hard (P-H01..P-H05)</purpose>
         <inputs>

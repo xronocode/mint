@@ -29,7 +29,7 @@
       </annotations>
     </M-SANDBOX>
 
-    <M-RULES NAME="Validation Rules" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-RULES NAME="Validation Rules" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>OOXML validation rule definitions: DOCX hard/soft (D-H01..D-S05), PPTX hard (P-H01..P-H05)</purpose>
       <path>src/mint/rules/</path>
       <depends>none</depends>
