@@ -118,7 +118,7 @@
       </annotations>
     </M-TEMPLATES>
 
-    <M-EXTRACT NAME="Style Extraction" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-EXTRACT NAME="Style Extraction" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Extract design-tokens.json from existing documents: Layer 1 (theme/styles.xml) + Layer 2 (statistical)</purpose>
       <path>src/mint/extract.py</path>
       <depends>M-CONFIG</depends>
