@@ -178,7 +178,7 @@
       <verification-ref>V-M-FINGERPRINT</verification-ref>
     </M-FINGERPRINT>
 
-    <M-SANDBOX NAME="Node.js Sandbox" TYPE="CORE_LOGIC" LAYER="0" ORDER="3" STATUS="planned">
+    <M-SANDBOX NAME="Node.js Sandbox" TYPE="CORE_LOGIC" LAYER="0" ORDER="3" STATUS="done">
       <contract>
         <purpose>Sandboxed Node.js execution of model-generated JS code using docx-js/pptxgenjs/exceljs; no fs/net, 30s timeout</purpose>
         <inputs>

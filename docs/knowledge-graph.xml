@@ -17,7 +17,7 @@
       </annotations>
     </M-CONFIG>
 
-    <M-SANDBOX NAME="Node.js Sandbox" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-SANDBOX NAME="Node.js Sandbox" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Sandboxed Node.js execution for model-generated JS code (docx-js/pptxgenjs/exceljs)</purpose>
       <path>src/mint/sandbox/</path>
       <depends>none</depends>
