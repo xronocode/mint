@@ -1,0 +1,45 @@
+services:
+  mint:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://librechat:3080/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o}
+      - MINT_MODEL_TIER=${MINT_MODEL_TIER:-frontier}
+      - MINT_SEVERITY_MODE=${MINT_SEVERITY_MODE:-audit}
+      - GOTENBERG_URL=http://gotenberg:3000
+    depends_on:
+      - gotenberg
+    restart: unless-stopped
+    volumes:
+      - mint-output:/app/output
+      - mint-tokens:/app/tokens
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    ports:
+      - "3000:3000"
+    environment:
+      - GOTENBERG_API_ROOT_PATH=/
+      - GOTENBERG_CHROMIUM_DISABLE_JAVASCRIPT=true
+    restart: unless-stopped
+
+  librechat:
+    image: ghcr.io/danny-avila/librechat:latest
+    ports:
+      - "3080:3080"
+    environment:
+      - MCP_ENDPOINTS=mcp=http://mint:8080/sse
+    depends_on:
+      - mint
+    restart: unless-stopped
+    volumes:
+      - librechat-data:/app/data
+
+volumes:
+  mint-output:
+  mint-tokens:
+  librechat-data:

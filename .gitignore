@@ -8,3 +8,9 @@ output/
 tokens/
 .venv/
 node_modules/
+dist/
+*.egg-info/
+.env
+*.bak
+*.docx.bak
+*.pptx.bak
