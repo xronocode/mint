@@ -128,6 +128,9 @@ def cmd_create(args: argparse.Namespace) -> None:
         design_tokens=design_tokens,
         template_name=args.template,
         model_response_override=model_response,
+        llm_base_url=args.llm_base_url,
+        llm_api_key=args.llm_api_key,
+        llm_model=args.llm_model,
     )
     result = create(
         req,
@@ -193,6 +196,9 @@ def build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--rules-dir", default=None)
     cr.add_argument("--skills-dir", default=None)
     cr.add_argument("--templates-dir", default=None)
+    cr.add_argument("--llm-base-url", default=None, help="LLM API base URL")
+    cr.add_argument("--llm-api-key", default=None, help="LLM API key")
+    cr.add_argument("--llm-model", default=None, help="LLM model name")
 
     # extract
     ex = sub.add_parser("extract", help="Extract design tokens from document")

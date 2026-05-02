@@ -47,11 +47,13 @@ class TestCreateCodeMode:
         assert result.success is False
         assert "SANDBOX" in result.error or "Sandbox" in result.error
 
-    def test_code_mode_no_response_returns_error(self) -> None:
+    def test_code_mode_no_response_no_llm_returns_error(self) -> None:
         req = CreateRequest(
             format="docx",
             tier="frontier",
             prompt="Test",
+            llm_base_url="http://localhost:99999",
+            llm_model="test",
         )
         result = create(
             req,
@@ -61,6 +63,7 @@ class TestCreateCodeMode:
         )
         assert result.success is False
         assert result.error is not None
+        assert "LLM" in result.error or "model" in result.error.lower()
 
 
 class TestCreateTemplateMode:
@@ -125,6 +128,8 @@ class TestCreateEdgeCases:
             format="docx",
             tier="frontier",
             prompt="Test",
+            llm_base_url="http://localhost:99999",
+            llm_model="test",
         )
         result = create(
             req,

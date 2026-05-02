@@ -52,6 +52,9 @@ class CreateRequest:
     design_tokens_path: Path | None = None
     template_name: str | None = None
     model_response_override: str | None = None
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
 
 
 @dataclass
@@ -124,19 +127,67 @@ def create(
 # END_BLOCK_ORCHESTRATE
 
 
+def _call_model(request: CreateRequest, skill: SkillRef) -> str:
+    from mint.llm import LLMCallError, LLMClient
+
+    base_url = request.llm_base_url
+    if not base_url:
+        raise ModelCallFailedError(
+            "No model response provided and no LLM_BASE_URL configured. "
+            "Set model_response_override or configure LLM endpoint."
+        )
+
+    registry = SkillRegistry(Path(__file__).parent.parent.parent / "skills")
+    prompt = registry.render_prompt(skill, request.design_tokens)
+
+    code_or_json = (
+        "JavaScript code using docx-js/pptxgenjs"
+        if request.tier != "small"
+        else "JSON content"
+    )
+    system_prompt = (
+        f"You are a document generation assistant. "
+        f"Generate {code_or_json} "
+        f"to create a {request.format.upper()} document. "
+        f"Return ONLY the code/JSON, no explanations."
+    )
+
+    client = LLMClient(
+        base_url=base_url,
+        api_key=request.llm_api_key or "",
+        model=request.llm_model or "glm-5",
+    )
+
+    try:
+        response = client.call(prompt, system=system_prompt)
+    except LLMCallError as e:
+        raise ModelCallFailedError(str(e)) from e
+
+    logger.info(
+        "[Create][llm] Model responded: model=%s, tokens=%s, duration=%dms",
+        response.model,
+        response.usage,
+        response.duration_ms,
+    )
+    return response.text
+
+
 def _create_code_mode(
     request: CreateRequest,
     skill: SkillRef,
     rules_dir: Path,
 ) -> CreateResult:
-    if request.model_response_override is None:
-        return CreateResult(
-            error="No model response provided (model_response_override required in code mode)",
-            execution_mode="code",
-            success=False,
-        )
-
     code = request.model_response_override
+    if code is None:
+        try:
+            code = _call_model(request, skill)
+        except ModelCallFailedError as e:
+            return CreateResult(
+                error=str(e),
+                execution_mode="code",
+                success=False,
+            )
+
     try:
         sandbox_result: SandboxResult = sandbox_execute(code)
     except Exception as e:
@@ -183,12 +234,16 @@ def _create_template_mode(
 ) -> CreateResult:
     import json
 
-    if request.model_response_override is None:
-        return CreateResult(
-            error="No content JSON provided (model_response_override required in template mode)",
-            execution_mode="template",
-            success=False,
-        )
+    content_text = request.model_response_override
+    if content_text is None:
+        try:
+            content_text = _call_model(request, skill)
+        except ModelCallFailedError as e:
+            return CreateResult(
+                error=str(e),
+                execution_mode="template",
+                success=False,
+            )
 
     if templates_dir is None:
         templates_dir = Path(__file__).parent.parent.parent / "templates"
@@ -208,7 +263,7 @@ def _create_template_mode(
         )
 
     try:
-        content = json.loads(request.model_response_override)
+        content = json.loads(content_text)
     except json.JSONDecodeError as e:
         return CreateResult(
             error=f"Invalid JSON content: {e}",
