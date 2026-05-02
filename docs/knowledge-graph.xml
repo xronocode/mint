@@ -42,7 +42,7 @@
       </annotations>
     </M-RULES>
 
-    <M-VALIDATE NAME="Validation Engine" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-VALIDATE NAME="Validation Engine" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Run rule checks with severity modes (audit/lenient/strict), produce violation report</purpose>
       <path>src/mint/validate.py</path>
       <depends>M-CONFIG, M-RULES</depends>

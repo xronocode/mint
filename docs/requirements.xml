@@ -31,7 +31,7 @@
       <AcceptanceCriteria>Code runs without sandbox violation within 30s; JSON validates against schema</AcceptanceCriteria>
       <Priority>high</Priority>
       <RelatedFlows>DF-001</RelatedFlows>
-    </UC-003>
+    </UC-002>
 
     <UC-003>
       <Actor>EndUser</Actor>

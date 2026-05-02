@@ -280,7 +280,7 @@
       <verification-ref>V-M-SKILLS</verification-ref>
     </M-SKILLS>
 
-    <M-TEMPLATES NAME="Template Engine" TYPE="CORE_LOGIC" LAYER="1" ORDER="4" STATUS="planned">
+    <M-TEMPLATES NAME="Template Engine" TYPE="CORE_LOGIC" LAYER="1" ORDER="4" STATUS="done">
       <contract>
         <purpose>Fill master templates (.pptx/.docx) from model-provided JSON content: unpack OOXML ZIP → replace placeholders → apply design tokens → repack</purpose>
         <inputs>
@@ -305,7 +305,7 @@
       <depends>M-CONFIG, M-VALIDATE</depends>
       <target>
         <source>src/mint/templates/</source>
-        <tests>tests/unit/test_templates.py</tests>
+        <tests>tests/unit/test_templates/</tests>
       </target>
       <observability>
         <log-prefix>[Templates]</log-prefix>
@@ -448,7 +448,7 @@
       <verification-ref>V-M-QA</verification-ref>
     </M-QA>
 
-    <M-GRACE NAME="GRACE Injection" TYPE="CORE_LOGIC" LAYER="2" ORDER="4" STATUS="planned">
+    <M-GRACE NAME="GRACE Injection" TYPE="CORE_LOGIC" LAYER="2" ORDER="4" STATUS="done">
       <contract>
         <purpose>Inject GRACE manifest (structure + fingerprint) and instructions (5-10 rules) as Custom XML Parts into OOXML documents; preserve existing vendor XML</purpose>
         <inputs>
@@ -550,8 +550,8 @@
 
     <Phase-3 name="QA + GRACE + Launch (G3+G4+G5)" status="pending">
       <goal>Visual QA, GRACE metadata, and public launch</goal>
-      <step-1 module="M-QA" status="pending" verification="V-M-QA">QA pipeline: L1 programmatic + L2 render-based via Gotenberg</step-1>
-      <step-2 module="M-GRACE" status="pending" verification="V-M-GRACE">GRACE injection: manifest + instructions as Custom XML Parts</step-2>
+      <step-1 module="M-QA" status="done" verification="V-M-QA">QA pipeline: L1 programmatic + L2 render-based via Gotenberg</step-1>
+      <step-2 module="M-GRACE" status="done" verification="V-M-GRACE">GRACE injection: manifest + instructions as Custom XML Parts</step-2>
     </Phase-3>
   </ImplementationOrder>
 

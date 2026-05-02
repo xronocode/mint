@@ -42,10 +42,10 @@ class FingerprintResult:
     xml_sources: list[str]
 
 
-DOCX_STYLE_FILES = ("word/styles.xml", "word/numbering.xml")
-DOCX_FALLBACK_FILES = ("word/document.xml",)
-PPTX_STYLE_FILES = ("ppt/theme/theme1.xml",)
-PPTX_FALLBACK_FILES = ("ppt/presentation.xml",)
+DOCX_STYLE_FILES: tuple[str, ...] = ("word/styles.xml", "word/numbering.xml")
+DOCX_FALLBACK_FILES: tuple[str, ...] = ("word/document.xml",)
+PPTX_STYLE_FILES: tuple[str, ...] = ("ppt/theme/theme1.xml",)
+PPTX_FALLBACK_FILES: tuple[str, ...] = ("ppt/presentation.xml",)
 
 
 # START_CONTRACT: compute

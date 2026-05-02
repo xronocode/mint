@@ -25,8 +25,6 @@
     <fixture-8 name="pptxgenjs_hello_world" path="tests/fixtures/hello_world_pptx.js">Minimal pptxgenjs code producing valid PPTX</fixture-8>
     <fixture-9 name="malicious_fs_js" path="tests/fixtures/malicious_fs.js">Code with require('fs') for sandbox violation test</fixture-9>
     <fixture-10 name="malicious_net_js" path="tests/fixtures/malicious_net.js">Code with require('net') for sandbox violation test</fixture-10>
-    <fixture-11 name="sample_template_json" path="tests/fixtures/template_content.json">Valid JSON content for template fill test</fixture-11>
-    <fixture-12 name="design_tokens_sample" path="tests/fixtures/design_tokens.json">Reference design-tokens.json for extraction comparison</fixture-12>
     <fixture-13 name="docx_with_grace" path="tests/fixtures/with_grace.docx">DOCX with GRACE Custom XML Parts already injected</fixture-13>
     <fixture-14 name="docx_with_vendor_xml" path="tests/fixtures/with_vendor_xml.docx">DOCX with non-GRACE Custom XML Parts for preservation test</fixture-14>
   </TestFixtures>
@@ -367,7 +365,7 @@
     <!-- ===== PHASE 3: QA + GRACE (G3+G4) ===== -->
 
     <V-M-QA MODULE="M-QA" PRIORITY="medium">
-      <test-files><file>tests/unit/test_qa.py</file></test-files>
+      <test-files><file>tests/unit/test_qa/test_pipeline.py</file></test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_qa.py -x</check-1>
       </module-checks>
@@ -432,7 +430,7 @@
       </required-evidence>
     </Wave-1-2>
 
-    <Wave-1-3 PHASE="Phase-1" SCOPE="M-MCP-G1" STATUS="pending">
+    <Wave-1-3 PHASE="Phase-1" SCOPE="M-MCP-G1" STATUS="done">
       <goal>MCP G1 tools integration: validate + fix + fingerprint via MCP protocol</goal>
       <commands>
         <command-1>pytest tests/integration/test_mcp_g1.py -x</command-1>
@@ -520,4 +518,4 @@
       <next-action>Check iteration counting logic in M-FIX apply_fixes</next-action>
     </packet-example>
   </FailurePackets>
-</VerificationPlan>
+</VerificationPlan
