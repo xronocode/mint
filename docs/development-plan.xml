@@ -10,7 +10,7 @@
   <Modules>
     <!-- PHASE 1 (G0+G1): Foundation + Validation Engine -->
 
-    <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1" STATUS="planned">
+    <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1" STATUS="done">
       <contract>
         <purpose>Central configuration for MINT runtime: model endpoint, tier, severity mode, paths, timeouts</purpose>
         <inputs>
@@ -412,7 +412,7 @@
 
     <!-- PHASE 3 (G3+G4+G5): QA + GRACE + Launch -->
 
-    <M-QA NAME="QA Pipeline" TYPE="CORE_LOGIC" LAYER="2" ORDER="3" STATUS="planned">
+    <M-QA NAME="QA Pipeline" TYPE="CORE_LOGIC" LAYER="2" ORDER="3" STATUS="done">
       <contract>
         <purpose>Two-level QA: L1 programmatic (rules + XML + fingerprint, &lt;1s) + L2 render-based via Gotenberg (PDF→PNG, overlap/margin/font, 3-5s async)</purpose>
         <inputs>

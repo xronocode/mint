@@ -170,7 +170,7 @@
       </annotations>
     </M-QA>
 
-    <M-GRACE NAME="GRACE Injection" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-GRACE NAME="GRACE Injection" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Inject manifest + instructions as Custom XML Parts (urn:mint:grace:2026:manifest); preserve existing vendor XML</purpose>
       <path>src/mint/grace/</path>
       <depends>M-CONFIG</depends>
