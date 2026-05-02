@@ -131,7 +131,7 @@
       </annotations>
     </M-EXTRACT>
 
-    <M-CREATE NAME="Create Orchestrator" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-CREATE NAME="Create Orchestrator" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Orchestrate: skill → model → execute/template → validate → output file</purpose>
       <path>src/mint/create.py</path>
       <depends>M-SKILLS, M-SANDBOX, M-TEMPLATES, M-VALIDATE, M-CONFIG</depends>
