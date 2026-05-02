@@ -539,7 +539,7 @@
       <step-7 module="M-MCP-G1" status="pending" verification="V-M-MCP-G1">MCP tools: mint_validate, mint_fix, mint_fingerprint</step-7>
     </Phase-1>
 
-    <Phase-2 name="Claude-Quality Generation (G2)" status="pending">
+    <Phase-2 name="Claude-Quality Generation (G2)" status="done">
       <goal>Any model + MINT ≈ Claude document quality</goal>
       <step-1 module="M-SKILLS" status="done" verification="V-M-SKILLS">Skill prompts per tier and format (docx/pptx × small/medium/frontier)</step-1>
       <step-2 module="M-TEMPLATES" status="done" verification="V-M-TEMPLATES">Template engine with master templates and JSON fill</step-2>

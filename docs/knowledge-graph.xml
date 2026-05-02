@@ -142,7 +142,7 @@
       </annotations>
     </M-CREATE>
 
-    <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" STATUS="planned">
+    <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" STATUS="done">
       <purpose>FastMCP tool registration: mint_create, mint_extract_style, mint_list_templates</purpose>
       <path>src/mint/mcp_g2.py</path>
       <depends>M-CREATE, M-EXTRACT, M-TEMPLATES, M-MCP-G1</depends>
