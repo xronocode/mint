@@ -142,26 +142,38 @@ def _call_model(request: CreateRequest, skill: SkillRef) -> str:
     skill_prompt = registry.render_prompt(skill, request.design_tokens)
 
     code_or_json = (
-        "JavaScript code using docx-js/pptxgenjs"
-        if request.tier != "small"
+        "JavaScript code using docx-js"
+        if request.format == "docx"
+        else "JavaScript code using pptxgenjs"
+        if request.format == "pptx"
         else "JSON content"
     )
-    if request.tier != "small":
+    if request.tier != "small" and request.format == "docx":
         sandbox_note = (
             "CRITICAL RULES:\n"
             "1. Do NOT use import/require. Pre-loaded globals: "
             "Document, Packer, Paragraph, TextRun, HeadingLevel, "
             "AlignmentType, Table, TableRow, TableCell, WidthType, "
-            "BorderStyle, ImageRun, ExternalHyperlink, pptxgen, "
-            "writeFileSync. Use them directly: new Document(), etc.\n"
+            "BorderStyle, ImageRun, ExternalHyperlink, writeFileSync.\n"
             "2. Tables MUST use new Table({ rows: [...] }). "
             "NEVER put TableRow directly in sections.children.\n"
             "3. TableCell width MUST be an object: "
             "{ size: NUMBER, type: WidthType.DXA }. Never a bare number.\n"
             "4. Do NOT wrap code in async IIFE (runtime does this).\n"
-            "5. Save with: writeFileSync('output.docx', buffer). "
-            "For PPTX: const pptx = new pptxgen(); "
-            "pptx.writeFile({fileName: 'output.pptx'}).\n"
+            "5. Save: writeFileSync('output.docx', buffer).\n"
+            "6. Return ONLY raw JavaScript code, no markdown fences."
+        )
+    elif request.tier != "small" and request.format == "pptx":
+        sandbox_note = (
+            "CRITICAL RULES:\n"
+            "1. Do NOT use import/require. Pre-loaded globals: pptxgen, "
+            "writeFileSync.\n"
+            "2. Do NOT use docx-js classes (Document, Paragraph, etc). "
+            "Use ONLY pptxgenjs API.\n"
+            "3. Do NOT wrap code in async IIFE (runtime does this).\n"
+            "4. Save: const buffer = await pptx.write({ outputType: "
+            "'nodebuffer' }); writeFileSync('output.pptx', buffer).\n"
+            "5. Do NOT use pptx.writeFile() — it does not work in sandbox.\n"
             "6. Return ONLY raw JavaScript code, no markdown fences."
         )
     else:
