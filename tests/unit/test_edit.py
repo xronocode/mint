@@ -5,6 +5,73 @@ VF-010 invariant suite, the Wave-5-2 evidence checks, the build_edit_prompt
 forbidden-XML regex, and the trace-sequence test.
 """
 
+# FILE: tests/unit/test_edit.py
+# VERSION: 0.1.0
+# START_MODULE_CONTRACT
+#   PURPOSE: Coverage for V-M-EDIT scenarios 1-29, VF-010 invariants 1-10,
+#            Wave-5-2 evidence 1-7. Validates that the edit pipeline applies
+#            typed EditPlans deterministically, never feeds OOXML to the LLM,
+#            preserves backup discipline, and emits the documented trace.
+#   SCOPE: Deterministic + integration unit tests over src/mint/edit.py public
+#          surface (validate_plan, extract_text_with_anchors, build_edit_prompt,
+#          resolve_anchor, edit, edit_plan_from_dict, EditPlan, Anchor, EditOp,
+#          EditMetadata, EditResult, OpOutcome, EditError) plus a hash-collision
+#          monkeypatch test and a non-functional latency-budget skipif stub.
+#   DEPENDS: M-EDIT, M-OOXML (read fixtures), M-VALIDATE (chained validation)
+#   LINKS: docs/verification-plan.xml#V-M-EDIT, docs/verification-plan.xml#VF-010,
+#          docs/verification-plan.xml#Wave-5-2
+# END_MODULE_CONTRACT
+#
+# START_MODULE_MAP
+#   _docx_with_paragraphs / _read_docx_zip / _xml_part — fixture/IO helpers.
+#
+#   V-M-EDIT scenarios 1-29:
+#     test_v1_*  validate_plan accepts valid replace_text       (scenario-1)
+#     test_v2_*  validate_plan rejects empty ops                (scenario-2)
+#     test_v3_*  anchor.value control chars / oversize / empty  (scenario-3)
+#     test_v4_*  end-to-end replace_text                        (scenario-4)
+#     test_v5_*  text-anchor ambiguous                          (scenario-5)
+#     test_v6_*  text-anchor not found                          (scenario-6)
+#     test_v7_*  insert_paragraph(Heading2)                     (scenario-7)
+#     test_v8_*  tracked_replace emits del+ins siblings         (scenario-8)
+#     test_v9_*  tracked_delete marks paragraph mark            (scenario-9)
+#     test_v10_* add_comment reply via commentsExtended.xml     (scenario-10)
+#     test_v11_* commentRange markers are siblings of w:r       (scenario-11)
+#     test_v12_* accept/reject x insertion/deletion matrix      (scenario-12)
+#     test_v13_* build_edit_prompt has no raw OOXML             (scenario-13)
+#     test_v14_* unsupported op_type rejected pre-mutation      (scenario-14)
+#     test_v15_* full pipeline EditResult shape                 (scenario-15)
+#     test_v16_* set_paragraph_style happy path                 (scenario-16)
+#     test_v17_* set_paragraph_style with unknown style raises  (scenario-17)
+#     test_v18_* delete_paragraph removes subtree               (scenario-18)
+#     test_v19_* paragraph_index resolves against original tree (scenario-19)
+#     test_v20_* source_prompt_hash stable and internal         (scenario-20)
+#     test_v21_* anchor not found after earlier delete in plan  (scenario-21)
+#     test_v22_* strict severity raises EDIT_VALIDATION_FAILED  (scenario-22)
+#     test_v23_* JSON discriminator is 'type' on EditOp+Anchor  (scenario-23)
+#     test_v24_* hash collision raises EDIT_ANCHOR_AMBIGUOUS    (scenario-24, monkeypatch)
+#     test_v25_* BACKUP_FAILED when destination unwritable      (scenario-25)
+#     test_v26_* default output_path = <stem>.edited<ext>       (scenario-26)
+#     test_v27_* PPTX format raises EDIT_OP_UNSUPPORTED         (scenario-27)
+#     test_v28_* BLOCK_EDIT_BACKUP fires before BLOCK_OOXML_UNPACK (scenario-28)
+#     test_v29_* BLOCK_EDIT_EXTRACT_TEXT before BLOCK_EDIT_RESOLVE_ANCHOR (scenario-29)
+#
+#   VF-010 invariants 1-10:
+#     test_vf010_inv1_unique_op_ids                             (inv-1)
+#     test_vf010_inv2_anchor_value_bounded                      (inv-2)
+#     test_vf010_inv3_backup_before_mutation_via_pol2           (inv-3)
+#     test_vf010_inv9_binary_parts_byte_equal_for_unmodified    (inv-9)
+#     test_vf010_inv10_source_prompt_hash_internal              (inv-10)
+#     test_vf010_trace_sequence_happy_path                      (full trace)
+#
+#   Wave-5-2 evidence:
+#     test_wave52_evidence7_latency_budget_stub                 (non-functional skipif)
+# END_MODULE_MAP
+#
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial test coverage for Phase-5 Wave-5-2 (M-EDIT)
+# END_CHANGE_SUMMARY
+
 from __future__ import annotations
 
 import logging

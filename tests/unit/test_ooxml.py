@@ -4,6 +4,39 @@ One test per V-M-OOXML scenario plus the Wave-5-1 evidence checks (trace and
 static-imports). All tests are deterministic.
 """
 
+# FILE: tests/unit/test_ooxml.py
+# VERSION: 0.1.0
+# START_MODULE_CONTRACT
+#   PURPOSE: Coverage for V-M-OOXML scenarios 1-9 plus Wave-5-1 evidence-1
+#            (trace order) and evidence-5 (no-shellout static check).
+#   SCOPE: Deterministic unit tests over src/mint/ooxml.py public surface
+#          (unpack, pack, merge_runs, escape_smart_quotes, validate_relationships,
+#          UnpackResult, PackResult, OOXMLError) plus a handful of internal
+#          invariants (boundary types in merge_runs, alternation in escape).
+#   DEPENDS: M-OOXML
+#   LINKS: docs/verification-plan.xml#V-M-OOXML, docs/verification-plan.xml#Wave-5-1
+# END_MODULE_CONTRACT
+#
+# START_MODULE_MAP
+#   _trees_equal                                 - structural XML equality helper
+#   test_scenario_1_unpack_minimal_valid         - scenario-1: parts list + parse OK
+#   test_scenario_2_round_trip_tree_equal        - scenario-2: parametrized over 3 fixtures
+#   test_scenario_3_merge_runs_*                 - scenario-3: merge + boundary set
+#   test_scenario_4_*                            - scenario-4: apostrophe escape + idempotent
+#   test_scenario_4b_alternation_*               - scenario-4b: double-quote alternation
+#   test_scenario_5_pack_autorepair_*            - scenario-5: durableId + xml:space=preserve
+#   test_scenario_6_unpack_non_zip_raises        - scenario-6: OOXML_NOT_A_ZIP
+#   test_scenario_7_unpack_missing_content_types - scenario-7: OOXML_MISSING_CONTENT_TYPES
+#   test_scenario_8_validate_relationships_*     - scenario-8: dangling Target raises
+#   test_scenario_9_content_types_override_*     - scenario-9: Override entry order preserved
+#   test_wave_5_1_log_markers_fire_in_order      - Wave-5-1 evidence-1: trace order
+#   test_wave_5_1_static_no_shellout_imports     - Wave-5-1 evidence-5: import audit
+# END_MODULE_MAP
+#
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial test coverage for Phase-5 Wave-5-1 (M-OOXML)
+# END_CHANGE_SUMMARY
+
 from __future__ import annotations
 
 import logging

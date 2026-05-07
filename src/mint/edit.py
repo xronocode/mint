@@ -691,6 +691,7 @@ def _resolve_anchor_with_state(
     original_anchors: list[TextAnchor],
 ) -> tuple[etree._Element, str]:
     """Resolve and also return the part name of the live tree."""
+    # START_BLOCK_EDIT_RESOLVE_ANCHOR
     # Find the original TextAnchor(s) for this Anchor.
     candidates_by_part: dict[str, list[TextAnchor]] = {}
     if anchor.type == "paragraph_index":
@@ -816,6 +817,7 @@ def _resolve_anchor_with_state(
     raise EditError(  # pragma: no cover
         "resolve_anchor: no candidate part", code="EDIT_ANCHOR_NOT_FOUND"
     )
+    # END_BLOCK_EDIT_RESOLVE_ANCHOR
 
 
 def _find_live_paragraph_by_identity(
@@ -1063,6 +1065,7 @@ def _execute_op(
     on success; raises EditError on failure (caller turns it into a failed
     OpOutcome).
     """
+    # START_BLOCK_EDIT_APPLY_OP
     if op.type not in SUPPORTED_OP_TYPES:
         raise EditError(
             f"op_id={op.op_id} type={op.type!r} unsupported",
@@ -1088,21 +1091,29 @@ def _execute_op(
     elif op.type == "set_paragraph_style":
         _handle_set_paragraph_style(op, live_p, unpack_dir)
     elif op.type == "tracked_replace":
+        # START_BLOCK_EDIT_TRACKED_CHANGE
         _handle_tracked_replace(
             op, live_p, op_author, op_date, next_change_id_holder
         )
+        # END_BLOCK_EDIT_TRACKED_CHANGE
     elif op.type == "tracked_delete":
+        # START_BLOCK_EDIT_TRACKED_CHANGE
         _handle_tracked_delete(
             op, live_p, op_author, op_date, next_change_id_holder
         )
+        # END_BLOCK_EDIT_TRACKED_CHANGE
     elif op.type == "add_comment":
         _handle_add_comment(
             op, live_p, op_author, op_date, comments_state
         )
     elif op.type == "accept_change":
+        # START_BLOCK_EDIT_TRACKED_CHANGE
         _handle_accept_change(op, live_p)
+        # END_BLOCK_EDIT_TRACKED_CHANGE
     elif op.type == "reject_change":
+        # START_BLOCK_EDIT_TRACKED_CHANGE
         _handle_reject_change(op, live_p)
+        # END_BLOCK_EDIT_TRACKED_CHANGE
     else:  # pragma: no cover - validated above
         raise EditError(
             f"unknown op type: {op.type}", code="EDIT_OP_UNSUPPORTED"
@@ -1144,6 +1155,7 @@ def _execute_op(
         before_snippet=before_snippet,
         after_snippet=after_snippet,
     )
+    # END_BLOCK_EDIT_APPLY_OP
 
 
 def _flush_part_tree(
