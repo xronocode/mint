@@ -1,10 +1,10 @@
 # FILE: src/mint/mcp_g2.py
 # VERSION: 0.1.0
 # START_MODULE_CONTRACT
-#   PURPOSE: FastMCP server extending G1 with generation tools:
-#             mint_create, mint_extract_style, mint_list_templates
-#   SCOPE: MCP tool registration and dispatch for G2 generation pipeline
-#   DEPENDS: M-CREATE, M-EXTRACT, M-TEMPLATES
+#   PURPOSE: FastMCP server extending G1 with generation and edit tools:
+#             mint_create, mint_extract_style, mint_list_templates, mint_edit
+#   SCOPE: MCP tool registration and dispatch for G2 generation + edit pipeline
+#   DEPENDS: M-CREATE, M-EXTRACT, M-TEMPLATES, M-EDIT
 #   LINKS: docs/knowledge-graph.xml#M-MCP-G2, docs/verification-plan.xml#V-M-MCP-G2
 # END_MODULE_CONTRACT
 #
@@ -12,21 +12,24 @@
 #   mint_create - MCP tool: generate document (code, template, or modular mode)
 #   mint_extract_style - MCP tool: extract design tokens from document
 #   mint_list_templates - MCP tool: list available templates
+#   mint_edit - MCP tool: apply EditPlan JSON to existing DOCX (Phase-5)
 #   server_g2 - FastMCP server instance for G2 tools
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 - Initial implementation
+#   LAST_CHANGE: v0.2.0 - Added mint_edit for Phase-5 edit pipeline
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from fastmcp import FastMCP
 
 from mint.create import CreateRequest, create
+from mint.edit import EditError, edit, edit_plan_from_dict
 from mint.extract import extract_style
 from mint.templates import TemplateEngine
 
@@ -122,6 +125,97 @@ def mint_list_templates() -> str:
         ],
         indent=2,
     )
+
+
+@mcp_g2.tool()
+def mint_edit(
+    document_path: str,
+    edit_plan_json: str,
+    author: str = "MINT",
+) -> str:
+    """Apply a typed EditPlan to an existing DOCX without regeneration.
+
+    The LLM that produced the plan never sees raw OOXML — see M-EDIT contract.
+    PPTX is currently rejected with EDIT_OP_UNSUPPORTED (deferred to v0.5).
+
+    Args:
+        document_path: Path to DOCX file to edit.
+        edit_plan_json: EditPlan as JSON string (see M-EDIT.edit_plan_from_dict).
+        author: Author name applied to revision and comment ops; defaults to "MINT".
+
+    Returns:
+        EditResult JSON with success / ops_total / ops_succeeded / ops_failed /
+        output_path / backup_path / per-op diff / validation report summary /
+        duration_ms / error.
+    """
+    try:
+        raw = json.loads(edit_plan_json)
+    except json.JSONDecodeError as exc:
+        return json.dumps(
+            {
+                "success": False,
+                "error": f"MCP_TOOL_ERROR: invalid edit_plan_json — {exc}",
+                "output_path": None,
+                "backup_path": None,
+                "ops_total": 0,
+                "ops_succeeded": 0,
+                "ops_failed": 0,
+            },
+            indent=2,
+        )
+
+    try:
+        plan = edit_plan_from_dict(raw)
+    except EditError as exc:
+        return json.dumps(
+            {
+                "success": False,
+                "error": f"{exc.code or 'EDIT_PLAN_INVALID'}: {exc}",
+                "output_path": None,
+                "backup_path": None,
+                "ops_total": 0,
+                "ops_succeeded": 0,
+                "ops_failed": 0,
+            },
+            indent=2,
+        )
+
+    try:
+        result = edit(Path(document_path), plan, author=author)
+    except EditError as exc:
+        return json.dumps(
+            {
+                "success": False,
+                "error": f"{exc.code or 'EDIT_FAILED'}: {exc}",
+                "output_path": None,
+                "backup_path": None,
+                "ops_total": len(plan.ops),
+                "ops_succeeded": 0,
+                "ops_failed": len(plan.ops),
+            },
+            indent=2,
+        )
+
+    payload = {
+        "success": result.success,
+        "output_path": str(result.output_path) if result.output_path else None,
+        "backup_path": str(result.backup_path) if result.backup_path else None,
+        "ops_total": result.ops_total,
+        "ops_succeeded": result.ops_succeeded,
+        "ops_failed": result.ops_failed,
+        "duration_ms": result.duration_ms,
+        "error": result.error,
+        "diff": [asdict(o) for o in result.diff],
+        "validation": (
+            {
+                "passed": result.validation_report.passed,
+                "violations": len(result.validation_report.violations),
+            }
+            if result.validation_report
+            else None
+        ),
+    }
+    return json.dumps(payload, indent=2)
 
 
 server_g2 = mcp_g2

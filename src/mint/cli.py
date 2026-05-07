@@ -15,10 +15,11 @@
 #   cmd_fingerprint - compute style fingerprint
 #   cmd_create - generate document
 #   cmd_extract - extract design tokens
+#   cmd_edit - apply EditPlan JSON to existing DOCX (Phase-5)
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 - Initial implementation
+#   LAST_CHANGE: v0.2.0 - Added cmd_edit for Phase-5 edit pipeline
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -169,6 +170,60 @@ def cmd_extract(args: argparse.Namespace) -> None:
     print(json.dumps(tokens, indent=2))
 
 
+def cmd_edit(args: argparse.Namespace) -> None:
+    from dataclasses import asdict
+
+    from mint.edit import EditError, edit, edit_plan_from_dict
+
+    plan_path = Path(args.plan)
+    if not plan_path.exists():
+        print(
+            f"Error: plan file not found: {plan_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        raw = json.loads(plan_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid plan JSON: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        plan = edit_plan_from_dict(raw)
+    except EditError as exc:
+        print(f"Error: {exc.code or 'EDIT_PLAN_INVALID'}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    output_path = Path(args.output) if args.output else None
+
+    try:
+        result = edit(
+            Path(args.document),
+            plan,
+            author=args.author,
+            output_path=output_path,
+        )
+    except EditError as exc:
+        print(f"Error: {exc.code or 'EDIT_FAILED'}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    payload = {
+        "success": result.success,
+        "output_path": str(result.output_path) if result.output_path else None,
+        "backup_path": str(result.backup_path) if result.backup_path else None,
+        "ops_total": result.ops_total,
+        "ops_succeeded": result.ops_succeeded,
+        "ops_failed": result.ops_failed,
+        "duration_ms": result.duration_ms,
+        "error": result.error,
+        "diff": [asdict(o) for o in result.diff],
+    }
+    print(json.dumps(payload, indent=2))
+    if not result.success:
+        sys.exit(1)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mint",
@@ -218,6 +273,21 @@ def build_parser() -> argparse.ArgumentParser:
     ex = sub.add_parser("extract", help="Extract design tokens from document")
     ex.add_argument("document", help="Path to DOCX or PPTX file")
 
+    # edit
+    ed = sub.add_parser("edit", help="Apply EditPlan JSON to existing DOCX")
+    ed.add_argument("document", help="Path to existing DOCX file")
+    ed.add_argument(
+        "--plan", required=True, help="Path to EditPlan JSON file"
+    )
+    ed.add_argument(
+        "--author", default="MINT", help="Author for revision/comment ops"
+    )
+    ed.add_argument(
+        "--output",
+        default=None,
+        help="Output path (default: <stem>.edited<ext> next to input)",
+    )
+
     return parser
 
 
@@ -231,5 +301,10 @@ def main() -> None:
         "fingerprint": cmd_fingerprint,
         "create": cmd_create,
         "extract": cmd_extract,
+        "edit": cmd_edit,
     }
     commands[args.command](args)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()
