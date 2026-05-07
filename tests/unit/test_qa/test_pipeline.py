@@ -35,12 +35,19 @@ class TestRunL1:
 
 
 class TestRunL2:
-    def test_gotenberg_unavailable(self) -> None:
-        report = run_l2(
-            FIXTURES / "minimal_valid.docx",
-            gotenberg_url="http://localhost:99999",
-        )
+    def test_valid_docx_structural_analysis(self) -> None:
+        report = run_l2(FIXTURES / "minimal_valid.docx")
         assert isinstance(report, L2Report)
+        assert report.available is True
+        assert report.confidence >= 0.0
+
+    def test_bad_docx_still_analyzes(self) -> None:
+        report = run_l2(FIXTURES / "bad_column_widths.docx")
+        assert isinstance(report, L2Report)
+        assert report.available is True
+
+    def test_nonexistent_file_returns_error(self) -> None:
+        report = run_l2(FIXTURES / "nonexistent.docx")
         assert report.available is False
         assert report.error is not None
 
@@ -50,7 +57,6 @@ class TestRunQA:
         report = run_qa(
             FIXTURES / "minimal_valid.docx",
             rules_dir=RULES_DIR,
-            gotenberg_url="http://localhost:99999",
         )
         assert isinstance(report, QAReport)
         assert 0.0 <= report.overall_confidence <= 1.0
@@ -60,6 +66,5 @@ class TestRunQA:
         report = run_qa(
             FIXTURES / "bad_column_widths.docx",
             rules_dir=RULES_DIR,
-            gotenberg_url="http://localhost:99999",
         )
         assert report.passed is False

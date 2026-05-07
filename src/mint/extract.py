@@ -14,6 +14,10 @@
 #   analyze_layouts - Layer 2: statistical analysis of slide/page layouts
 # END_MODULE_MAP
 
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
+
 from __future__ import annotations
 
 import logging

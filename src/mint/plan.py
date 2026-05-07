@@ -1,0 +1,488 @@
+# FILE: src/mint/plan.py
+# VERSION: 0.1.0
+# START_MODULE_CONTRACT
+#   PURPOSE: Decompose user prompt into structured DocumentPlan JSON via LLM
+#   SCOPE: Plan generation, validation, retry, prompt rendering
+#   DEPENDS: M-LLM
+#   LINKS: docs/knowledge-graph.xml#M-PLAN, docs/verification-plan.xml#V-M-PLAN
+# END_MODULE_CONTRACT
+#
+# START_MODULE_MAP
+#   DocumentPlan - top-level plan dataclass
+#   SectionSpec - per-section specification
+#   StylesConfig - color/typography configuration
+#   NumberingConfig - numbering definition
+#   NumberingLevel - single numbering level
+#   HeaderFooterSpec - header/footer configuration
+#   PageSetup - page dimensions and margins
+#   PlanMetadata - plan metadata (correlation ID, timestamps)
+#   PlanError - base plan exception
+#   PlanGenerationFailedError - LLM call or parse failure
+#   PlanInvalidError - validation failure
+#   PlanEmptyError - empty plan rejection
+#   plan - main entry point for plan generation
+#   validate_plan - validate plan structure
+#   render_plan_prompt - build system prompt for plan generation
+#   SECTION_TYPES - tuple of valid section type strings
+#   STANDARD_STYLE_IDS - tuple of standard OOXML style ID strings
+#   DEFAULT_PAGE_WIDTH - default page width in DXA (12240)
+#   DEFAULT_PAGE_HEIGHT - default page height in DXA (15840)
+#   DEFAULT_MARGIN - default margin in DXA (1440)
+#   MAX_PLAN_RETRIES - default max retry count for plan generation (2)
+# END_MODULE_MAP
+
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation: DocumentPlan decomposition + validation
+# END_CHANGE_SUMMARY
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import re
+import uuid
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
+
+_LOG_PREFIX = "Plan"
+
+SECTION_TYPES = (
+    "cover",
+    "toc",
+    "heading",
+    "content",
+    "table",
+    "list",
+    "callout",
+    "code",
+    "images",
+    "appendix",
+)
+
+STANDARD_STYLE_IDS = (
+    "Heading1",
+    "Heading2",
+    "Heading3",
+    "Heading4",
+    "Heading5",
+    "Heading6",
+    "ListParagraph",
+    "Hyperlink",
+)
+
+DEFAULT_PAGE_WIDTH = 12240
+DEFAULT_PAGE_HEIGHT = 15840
+DEFAULT_MARGIN = 1440
+
+MAX_PLAN_RETRIES = 2
+
+
+class PlanError(Exception):
+    pass
+
+
+class PlanGenerationFailedError(PlanError):
+    pass
+
+
+class PlanInvalidError(PlanError):
+    pass
+
+
+class PlanEmptyError(PlanError):
+    pass
+
+
+@dataclass(frozen=True)
+class NumberingLevel:
+    level: int
+    format: str
+    text: str
+    indent_left: int
+    indent_hanging: int
+
+
+@dataclass(frozen=True)
+class NumberingConfig:
+    reference: str
+    levels: list[NumberingLevel]
+
+
+@dataclass(frozen=True)
+class StylesConfig:
+    colors: dict[str, str] = field(default_factory=lambda: {
+        "primary": "#1E40AF",
+        "accent": "#3B82F6",
+        "success": "#10B981",
+        "warning": "#F59E0B",
+        "error": "#EF4444",
+        "text": "#1F2937",
+        "muted": "#6B7280",
+        "bg": "#FFFFFF",
+        "surface": "#F9FAFB",
+    })
+    heading_sizes: dict[str, int] = field(default_factory=lambda: {
+        "h1": 32,
+        "h2": 28,
+        "h3": 24,
+    })
+    body_size: int = 22
+    code_font: str = "Courier New"
+
+
+@dataclass(frozen=True)
+class HeaderFooterSpec:
+    header_left: str = ""
+    header_right: str | None = None
+    footer_left: str = ""
+    page_numbers: bool = True
+
+
+@dataclass(frozen=True)
+class PageSetup:
+    width: int = DEFAULT_PAGE_WIDTH
+    height: int = DEFAULT_PAGE_HEIGHT
+    orientation: Literal["portrait", "landscape"] = "portrait"
+    margins: dict[str, int] = field(default_factory=lambda: {
+        "top": DEFAULT_MARGIN,
+        "right": DEFAULT_MARGIN,
+        "bottom": DEFAULT_MARGIN,
+        "left": DEFAULT_MARGIN,
+    })
+
+
+@dataclass(frozen=True)
+class PlanMetadata:
+    correlation_id: str
+    created_at: str
+    model: str
+    prompt_hash: str
+
+
+@dataclass(frozen=True)
+class SectionSpec:
+    id: str
+    type: str
+    title: str
+    description: str
+    level: int = 1
+    numbering_ref: str | None = None
+    column_count: int | None = None
+    page_break_before: bool = False
+    skip_header_footer: bool = False
+    order: int = 0
+
+
+@dataclass(frozen=True)
+class DocumentPlan:
+    format: str
+    sections: list[SectionSpec]
+    styles: StylesConfig = field(default_factory=StylesConfig)
+    numbering: list[NumberingConfig] = field(default_factory=list)
+    header_footer: HeaderFooterSpec = field(default_factory=HeaderFooterSpec)
+    page_setup: PageSetup = field(default_factory=PageSetup)
+    metadata: PlanMetadata | None = None
+
+
+# START_BLOCK_PLAN_VALIDATE
+def validate_plan(plan: DocumentPlan) -> None:
+    if not plan.sections:
+        raise PlanEmptyError("Plan must have at least 1 section")
+
+    section_ids: set[str] = set()
+    for sec in plan.sections:
+        if sec.id in section_ids:
+            raise PlanInvalidError(f"Duplicate section ID: {sec.id}")
+        section_ids.add(sec.id)
+
+        if sec.type not in SECTION_TYPES:
+            raise PlanInvalidError(
+                f"Invalid section type '{sec.type}' in section '{sec.id}'. "
+                f"Valid types: {SECTION_TYPES}"
+            )
+
+        if not sec.title.strip():
+            raise PlanInvalidError(
+                f"Section '{sec.id}' must have a non-empty title"
+            )
+
+        if not sec.description.strip():
+            raise PlanInvalidError(
+                f"Section '{sec.id}' must have a non-empty description"
+            )
+
+        if sec.level < 1 or sec.level > 3:
+            raise PlanInvalidError(
+                f"Section '{sec.id}' level must be 1-3, got {sec.level}"
+            )
+
+    if plan.page_setup.width <= 0:
+        raise PlanInvalidError(
+            f"Page width must be > 0, got {plan.page_setup.width}"
+        )
+
+    if plan.page_setup.height <= 0:
+        raise PlanInvalidError(
+            f"Page height must be > 0, got {plan.page_setup.height}"
+        )
+
+    for nc in plan.numbering:
+        if not nc.reference.strip():
+            raise PlanInvalidError("NumberingConfig reference must be non-empty")
+
+    logger.info(
+        f"[{_LOG_PREFIX}][validate][BLOCK_PLAN_VALIDATE] "
+        "Plan validated: %d sections, format=%s",
+        len(plan.sections),
+        plan.format,
+    )
+# END_BLOCK_PLAN_VALIDATE
+
+
+def render_plan_prompt(
+    fmt: str,
+    design_tokens: dict[str, Any] | None = None,
+) -> str:
+    tokens_block = ""
+    if design_tokens:
+        tokens_block = f"\nDesign tokens for reference:\n{json.dumps(design_tokens, indent=2)}\n"
+
+    dxa_note = ""
+    if fmt == "docx":
+        dxa_note = (
+            "\nDXA units: 1 inch = 1440 DXA, 1 cm = 567 DXA. "
+            "Standard page: width=12240, height=15840 (Letter). "
+            "Standard margins: 1440 DXA (1 inch) each side.\n"
+            "Standard style IDs: Heading1, Heading2, Heading3, Heading4, "
+            "Heading5, Heading6, ListParagraph, Hyperlink.\n"
+        )
+
+    return (
+        "You are a document planning assistant. "
+        "Given a user prompt, produce a structured document plan as JSON.\n\n"
+        "The plan MUST be a JSON object with this structure:\n"
+        "{\n"
+        '  "sections": [\n'
+        "    {\n"
+        '      "id": "unique-section-id",\n'
+        '      "type": "<section-type>",\n'
+        '      "title": "Section Title",\n'
+        '      "description": "What content this section should contain",\n'
+        '      "level": 1,\n'
+        '      "order": 0\n'
+        "    }\n"
+        "  ],\n"
+        '  "styles": {\n'
+        '    "colors": { "primary": "#hex", "accent": "#hex", ... },\n'
+        '    "heading_sizes": { "h1": 32, "h2": 28, "h3": 24 },\n'
+        '    "body_size": 22,\n'
+        '    "code_font": "Courier New"\n'
+        "  },\n"
+        '  "numbering": [],\n'
+        '  "header_footer": {\n'
+        '    "header_left": "",\n'
+        '    "footer_left": "",\n'
+        '    "page_numbers": true\n'
+        "  },\n"
+        '  "page_setup": {\n'
+        '    "width": 12240,\n'
+        '    "height": 15840,\n'
+        '    "orientation": "portrait",\n'
+        '    "margins": { "top": 1440, "right": 1440, "bottom": 1440, "left": 1440 }\n'
+        "  }\n"
+        "}\n\n"
+        f"Section types: {', '.join(SECTION_TYPES)}\n"
+        f"Level range: 1-3 (1=main, 2=sub, 3=detail)\n"
+        f"Format: {fmt}\n"
+        f"{dxa_note}"
+        f"{tokens_block}\n"
+        "Rules:\n"
+        "1. Minimum 1 section. For complex documents, create 3-8 sections.\n"
+        "2. Each section ID must be unique (use descriptive kebab-case).\n"
+        "3. Section descriptions must be specific enough for an LLM to generate content.\n"
+        "4. For the first section of type 'cover', set skip_header_footer=true.\n"
+        "5. Include a 'toc' section if the document has 4+ sections.\n"
+        "6. Use standard style IDs only (Heading1-6, ListParagraph, Hyperlink).\n"
+        "7. Return ONLY the JSON object, no markdown fences, no explanation.\n"
+    )
+
+
+def _parse_plan_json(raw: str, fmt: str) -> DocumentPlan:
+    clean = raw.strip()
+    if clean.startswith("```"):
+        match = re.search(r"```(?:json)?\s*\n(.*?)```", clean, re.DOTALL)
+        if match:
+            clean = match.group(1).strip()
+
+    data = json.loads(clean)
+
+    sections_data = data.get("sections", [])
+    sections: list[SectionSpec] = []
+    for i, s in enumerate(sections_data):
+        sections.append(SectionSpec(
+            id=s.get("id", f"s{i}"),
+            type=s.get("type", "content"),
+            title=s.get("title", ""),
+            description=s.get("description", ""),
+            level=s.get("level", 1),
+            numbering_ref=s.get("numbering_ref"),
+            column_count=s.get("column_count"),
+            page_break_before=s.get("page_break_before", False),
+            skip_header_footer=s.get("skip_header_footer", False),
+            order=s.get("order", i),
+        ))
+
+    styles_data = data.get("styles", {})
+    styles = StylesConfig(
+        colors=styles_data.get("colors", StylesConfig().colors),
+        heading_sizes=styles_data.get("heading_sizes", StylesConfig().heading_sizes),
+        body_size=styles_data.get("body_size", 22),
+        code_font=styles_data.get("code_font", "Courier New"),
+    )
+
+    numbering_data = data.get("numbering", [])
+    numbering: list[NumberingConfig] = []
+    for nc in numbering_data:
+        levels: list[NumberingLevel] = []
+        for lv in nc.get("levels", []):
+            levels.append(NumberingLevel(
+                level=lv.get("level", 0),
+                format=lv.get("format", "bullet"),
+                text=lv.get("text", ""),
+                indent_left=lv.get("indent_left", 720),
+                indent_hanging=lv.get("indent_hanging", 360),
+            ))
+        numbering.append(NumberingConfig(
+            reference=nc.get("reference", ""),
+            levels=levels,
+        ))
+
+    hf_data = data.get("header_footer", {})
+    header_footer = HeaderFooterSpec(
+        header_left=hf_data.get("header_left", ""),
+        header_right=hf_data.get("header_right"),
+        footer_left=hf_data.get("footer_left", ""),
+        page_numbers=hf_data.get("page_numbers", True),
+    )
+
+    ps_data = data.get("page_setup", {})
+    page_setup = PageSetup(
+        width=ps_data.get("width", DEFAULT_PAGE_WIDTH),
+        height=ps_data.get("height", DEFAULT_PAGE_HEIGHT),
+        orientation=ps_data.get("orientation", "portrait"),
+        margins=ps_data.get("margins", PageSetup().margins),
+    )
+
+    return DocumentPlan(
+        format=fmt,
+        sections=sections,
+        styles=styles,
+        numbering=numbering,
+        header_footer=header_footer,
+        page_setup=page_setup,
+    )
+
+
+# START_BLOCK_PLAN_DECOMPOSE
+def plan(
+    prompt_text: str,
+    fmt: str,
+    *,
+    llm_base_url: str,
+    llm_api_key: str = "",
+    llm_model: str = "qwen3.6:35b",
+    design_tokens: dict[str, Any] | None = None,
+    max_retries: int = MAX_PLAN_RETRIES,
+) -> DocumentPlan:
+    from mint.llm import LLMCallError, LLMClient
+
+    logger.info(
+        f"[{_LOG_PREFIX}][decompose][BLOCK_PLAN_DECOMPOSE] "
+        "Starting plan generation: format=%s, model=%s",
+        fmt,
+        llm_model,
+    )
+
+    system_prompt = render_plan_prompt(fmt, design_tokens)
+    client = LLMClient(
+        base_url=llm_base_url,
+        api_key=llm_api_key,
+        model=llm_model,
+    )
+
+    last_error: str = ""
+    prompt_hash = hashlib.sha256(prompt_text.encode()).hexdigest()[:12]
+
+    for attempt in range(1 + max_retries):
+        user_prompt = prompt_text
+        if last_error:
+            user_prompt = (
+                f"Your previous plan was rejected:\n"
+                f"Error: {last_error}\n\n"
+                f"Original request:\n{prompt_text}\n\n"
+                f"Fix the error and return a corrected plan JSON."
+            )
+
+        try:
+            response = client.call(user_prompt, system=system_prompt)
+            raw = response.text
+        except LLMCallError as e:
+            raise PlanGenerationFailedError(f"LLM call failed: {e}") from e
+
+        try:
+            doc_plan = _parse_plan_json(raw, fmt)
+        except json.JSONDecodeError as e:
+            last_error = f"Invalid JSON: {e}"
+            logger.warning(
+                f"[{_LOG_PREFIX}][decompose] Attempt %d: JSON parse error: %s",
+                attempt + 1,
+                e,
+            )
+            continue
+
+        try:
+            validate_plan(doc_plan)
+        except (PlanEmptyError, PlanInvalidError) as e:
+            last_error = str(e)
+            logger.warning(
+                f"[{_LOG_PREFIX}][decompose] Attempt %d: validation error: %s",
+                attempt + 1,
+                e,
+            )
+            continue
+
+        metadata = PlanMetadata(
+            correlation_id=str(uuid.uuid4())[:8],
+            created_at=datetime.now(UTC).isoformat(),
+            model=response.model,
+            prompt_hash=prompt_hash,
+        )
+
+        doc_plan = DocumentPlan(
+            format=doc_plan.format,
+            sections=doc_plan.sections,
+            styles=doc_plan.styles,
+            numbering=doc_plan.numbering,
+            header_footer=doc_plan.header_footer,
+            page_setup=doc_plan.page_setup,
+            metadata=metadata,
+        )
+
+        logger.info(
+            f"[{_LOG_PREFIX}][decompose][BLOCK_PLAN_DECOMPOSE] "
+            "Plan generated: %d sections, model=%s, attempt=%d",
+            len(doc_plan.sections),
+            response.model,
+            attempt + 1,
+        )
+        return doc_plan
+
+    raise PlanGenerationFailedError(
+        f"Plan generation failed after {1 + max_retries} attempts. "
+        f"Last error: {last_error}"
+    )
+# END_BLOCK_PLAN_DECOMPOSE

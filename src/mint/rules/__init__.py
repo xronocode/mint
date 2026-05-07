@@ -18,6 +18,10 @@
 #   all_rules - load all rules from YAML
 # END_MODULE_MAP
 
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
+
 from mint.rules.engine import (
     FixCategory,
     Rule,

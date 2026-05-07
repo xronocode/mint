@@ -15,6 +15,10 @@
 #   template_engine - module-level engine instance
 # END_MODULE_MAP
 
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
+
 from __future__ import annotations
 
 import logging
@@ -140,7 +144,7 @@ class TemplateEngine:
                         zf_out.write(file_path, arcname)
 
         logger.info(
-            "[Templates][fill][BLOCK_FILL_TEMPLATE] "
+            "[Templates][fill][BLOCK_FILL] "
             "Filled template: %s, replaced=%d placeholders, tokens=%s",
             template_meta.name,
             len(replaced),

@@ -3,14 +3,20 @@
 # START_MODULE_CONTRACT
 #   PURPOSE: OpenAI-compatible LLM client for document generation
 #   SCOPE: Send skill prompt to model API, return response text
-#   DEPENDS: M-CONFIG
-#   LINKS: docs/knowledge-graph.xml#M-CREATE
+#   DEPENDS: none
+#   LINKS: docs/knowledge-graph.xml#M-LLM
 # END_MODULE_CONTRACT
 #
 # START_MODULE_MAP
 #   LLMClient - httpx-based OpenAI-compatible client
-#   call_model - send prompt to model and return response
+#   LLMResponse - response dataclass with text, model, usage, duration_ms
+#   LLMCallError - exception for LLM call failures
+#   call - send prompt to model and return response
 # END_MODULE_MAP
+
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
@@ -41,7 +47,7 @@ class LLMClient:
         base_url: str,
         api_key: str = "",
         model: str = "glm-5",
-        timeout: int = 120,
+        timeout: int = 300,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
@@ -61,7 +67,10 @@ class LLMClient:
             "model": self._model,
             "messages": messages,
             "temperature": 0.3,
-            "max_tokens": 16384,
+            "max_tokens": 65536,
+            "options": {
+                "num_predict": 65536,
+            },
         }
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self._api_key:

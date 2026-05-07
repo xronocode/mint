@@ -1,7 +1,7 @@
 # FILE: src/mint/qa/__init__.py
-# VERSION: 0.1.0
+# VERSION: 0.2.0
 # START_MODULE_CONTRACT
-#   PURPOSE: Two-level QA pipeline: L1 programmatic (instant) + L2 render-based (async)
+#   PURPOSE: Two-level QA pipeline: L1 programmatic (instant) + L2 structural (async)
 #   SCOPE: QA report generation with confidence scores
 #   DEPENDS: M-VALIDATE, M-CONFIG
 #   LINKS: docs/knowledge-graph.xml#M-QA, docs/verification-plan.xml#V-M-QA
@@ -9,17 +9,22 @@
 #
 # START_MODULE_MAP
 #   L1Report - Level 1 programmatic QA report
-#   L2Report - Level 2 render-based QA report
+#   L2Report - Level 2 structural QA report
 #   QAReport - combined QA report with confidence scores
 #   run_l1 - run L1 programmatic checks
-#   run_l2 - run L2 render-based checks (requires Gotenberg)
+#   run_l2 - run L2 structural checks
 #   run_qa - full QA pipeline (L1 + L2)
 # END_MODULE_MAP
+
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
 import logging
 import time
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,14 +36,6 @@ from mint.validate import ValidationReport, run_checks
 logger = logging.getLogger(__name__)
 
 RULES_DIR = Path(__file__).parent.parent.parent.parent / "rules"
-
-
-class GotenbergUnavailableError(Exception):
-    pass
-
-
-class RenderFailedError(Exception):
-    pass
 
 
 @dataclass
@@ -54,10 +51,10 @@ class L1Report:
 class L2Report:
     available: bool = False
     confidence: float = 0.0
-    overlap_detected: bool = False
-    overlap_percentage: float = 0.0
-    margin_violations: int = 0
-    font_substitutions: int = 0
+    has_styles: bool = False
+    has_headers_footers: bool = False
+    has_numbering: bool = False
+    section_count: int = 0
     error: str | None = None
 
 
@@ -113,48 +110,81 @@ def run_l1(
 # END_BLOCK_L1_CHECK
 
 
-# START_BLOCK_L2_RENDER
+# START_BLOCK_L2_STRUCTURAL
 def run_l2(
     document_path: Path,
-    gotenberg_url: str = "http://localhost:3000",
 ) -> L2Report:
-    import urllib.error
-    import urllib.request
+    start = time.monotonic()
 
     try:
-        req = urllib.request.Request(
-            f"{gotenberg_url}/health",
-            method="GET",
-        )
-        with urllib.request.urlopen(req, timeout=2):
-            pass
-    except (urllib.error.URLError, OSError, TimeoutError) as e:
-        msg = f"Gotenberg unavailable at {gotenberg_url}: {e}"
-        logger.warning("[QA][l2][BLOCK_L2_RENDER] %s", msg)
-        return L2Report(available=False, error=msg)
+        with zipfile.ZipFile(document_path, "r") as zf:
+            names = zf.namelist()
 
-    logger.info(
-        "[QA][l2][BLOCK_L2_RENDER] Gotenberg available, but L2 render not yet implemented"
-    )
-    return L2Report(
-        available=True,
-        confidence=0.5,
-    )
-# END_BLOCK_L2_RENDER
+            has_styles = "word/styles.xml" in names
+            has_numbering = "word/numbering.xml" in names
+
+            has_headers_footers = any(
+                n.startswith("word/header") or n.startswith("word/footer")
+                for n in names
+            )
+
+            section_count = 0
+            if "word/document.xml" in names:
+                import xml.etree.ElementTree as ET
+
+                doc_xml = zf.read("word/document.xml")
+                root = ET.fromstring(doc_xml)
+                ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+                section_count = len(root.findall(".//w:sectPr", ns))
+
+            confidence = 0.5
+            if has_styles:
+                confidence += 0.15
+            if has_headers_footers:
+                confidence += 0.15
+            if has_numbering:
+                confidence += 0.1
+            if section_count > 0:
+                confidence += 0.1
+
+            report = L2Report(
+                available=True,
+                confidence=min(1.0, confidence),
+                has_styles=has_styles,
+                has_headers_footers=has_headers_footers,
+                has_numbering=has_numbering,
+                section_count=section_count,
+            )
+            logger.info(
+                "[QA][l2][BLOCK_L2_STRUCTURAL] L2 done: confidence=%.2f, "
+                "styles=%s, headers_footers=%s, numbering=%s, sections=%d, duration=%dms",
+                report.confidence,
+                report.has_styles,
+                report.has_headers_footers,
+                report.has_numbering,
+                report.section_count,
+                int((time.monotonic() - start) * 1000),
+            )
+            return report
+
+    except Exception as e:
+        msg = f"L2 structural analysis failed: {e}"
+        logger.warning("[QA][l2][BLOCK_L2_STRUCTURAL] %s", msg)
+        return L2Report(available=False, error=msg)
+# END_BLOCK_L2_STRUCTURAL
 
 
 def run_qa(
     document_path: Path,
     rules_dir: Path | None = None,
-    gotenberg_url: str = "http://localhost:3000",
 ) -> QAReport:
     l1 = run_l1(document_path, rules_dir=rules_dir)
-    l2 = run_l2(document_path, gotenberg_url=gotenberg_url)
+    l2 = run_l2(document_path)
 
-    l1_weight = 0.7
-    l2_weight = 0.3
+    l1_weight = 0.6
+    l2_weight = 0.4
     l1_score = 1.0 if l1.passed else max(0.0, 1.0 - l1.violations * 0.1)
-    l2_score = l2.confidence if l2.available else 0.5
+    l2_score = l2.confidence if l2.available else 0.0
 
     overall = l1_weight * l1_score + l2_weight * l2_score
     overall = min(1.0, max(0.0, overall))

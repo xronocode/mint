@@ -130,6 +130,59 @@
         <trace-sequence>BLOCK_INJECT_MANIFEST -> BLOCK_PRESERVE_EXISTING -> RETURNED</trace-sequence>
       </required-signals>
     </VF-006>
+
+    <VF-007 NAME="ModularGenerationPipeline" USE_CASES="UC-001,UC-002" DATA_FLOW="DF-006" PRIORITY="high">
+      <scenario>Complex user prompt → M-PLAN decomposes into sections → M-SECTION generates code per section → M-ASSEMBLE builds complete document</scenario>
+      <expected-outcome>DOCX with all planned sections, valid structure, passes L1 validation, no Word repair required</expected-outcome>
+      <invariants>
+        <inv-1>Plan has at least 1 section with valid type and description</inv-1>
+        <inv-2>Each section code has no import/require, no fs references, bracket balance OK</inv-2>
+        <inv-3>Assembly JS is valid and produces output file within 30s sandbox timeout</inv-3>
+        <inv-4>Output file is well-formed OOXML (ZIP + XML parse)</inv-4>
+        <inv-5>Failed sections retried up to max_retries before overall failure</inv-5>
+        <inv-6>Postprocessor applied: no empty comments.xml, tblLayout fixed, styles deduped</inv-6>
+      </invariants>
+      <required-signals>
+        <log-marker>[Plan][decompose][BLOCK_PLAN_DECOMPOSE]</log-marker>
+        <log-marker>[Plan][validate][BLOCK_PLAN_VALIDATE]</log-marker>
+        <log-marker>[Section][generate][BLOCK_SECTION_GENERATE]</log-marker>
+        <log-marker>[Assemble][template][BLOCK_ASSEMBLE_TEMPLATE]</log-marker>
+        <log-marker>[Assemble][execute][BLOCK_ASSEMBLE_EXECUTE]</log-marker>
+        <log-marker>[Create][orchestrate][BLOCK_ORCHESTRATE]</log-marker>
+        <trace-sequence>BLOCK_PLAN_DECOMPOSE -> BLOCK_PLAN_VALIDATE -> BLOCK_SECTION_GENERATE (per section) -> BLOCK_ASSEMBLE_TEMPLATE -> BLOCK_ASSEMBLE_EXECUTE -> BLOCK_RUN_CHECKS -> RETURNED</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>[Section] import or require in generated code</forbidden-1>
+        <forbidden-2>[Assemble] missing section in final document</forbidden-2>
+      </forbidden-signals>
+    </VF-007>
+
+    <VF-008 NAME="PlanValidation" PRIORITY="high">
+      <scenario>LLM produces plan JSON → M-PLAN validates structure → rejects invalid plans with actionable error</scenario>
+      <expected-outcome>Valid plans pass; invalid plans (empty sections, bad types, missing fields) rejected with clear error</expected-outcome>
+      <invariants>
+        <inv-1>Plan has format matching request (docx or pptx)</inv-1>
+        <inv-2>Each section has id, type (from enum), and description</inv-2>
+        <inv-3>Style IDs are standard (Heading1-6, ListParagraph, Hyperlink)</inv-3>
+        <inv-4>Page setup dimensions are valid DXA (width > 0, height > 0)</inv-4>
+      </invariants>
+      <required-signals>
+        <log-marker>[Plan][validate][BLOCK_PLAN_VALIDATE]</log-marker>
+      </required-signals>
+    </VF-008>
+
+    <VF-009 NAME="SectionRetryRecovery" PRIORITY="medium">
+      <scenario>Section generation fails (syntax error, truncation) → M-SECTION retries with refined prompt → succeeds on retry. If all retries exhausted → placeholder generated, assembly proceeds.</scenario>
+      <expected-outcome>Individual section failure produces placeholder (title + italic error message). Assembly includes placeholders. Overall result success=False but document still produced.</expected-outcome>
+      <invariants>
+        <inv-1>Max retries per section configurable (default 2)</inv-1>
+        <inv-2>Retry prompt includes: original section spec + previous error message + previous failed code as negative example</inv-2>
+        <inv-3>Global retry budget enforced: max_total_retries (default 20) across all sections</inv-3>
+        <inv-4>If all retries exhausted for a section, placeholder code generated (not empty, not skipped)</inv-4>
+        <inv-5>Assembly includes all sections — failed ones have placeholder children</inv-5>
+        <inv-6>CreateResult.success=False if any section used placeholder, sections_succeeded &lt; sections_total</inv-6>
+      </invariants>
+    </VF-009>
   </CriticalFlows>
 
   <ModuleVerification>
@@ -402,6 +455,86 @@
       </forbidden-behaviors>
       <autonomy-assessment>SAFE — deterministic XML manipulation</autonomy-assessment>
     </V-M-GRACE>
+
+    <!-- ===== PHASE 4: Modular Generation (G6) ===== -->
+
+    <V-M-PLAN MODULE="M-PLAN" PRIORITY="high">
+      <test-files><file>tests/unit/test_plan.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_plan.py -x</check-1>
+        <check-2>ruff check src/mint/plan.py</check-2>
+        <check-3>mypy src/mint/plan.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">validate_plan(plan with 3 sections, valid types, heading styles) → passes without errors</scenario-1>
+        <scenario-2 kind="failure" evidence="deterministic">validate_plan(plan with empty sections list) → raises PLAN_EMPTY</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">validate_plan(plan with section type="unknown") → raises PLAN_INVALID with "unknown type"</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">validate_plan(plan with standard page setup 12240x15840) → passes</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">validate_plan(plan with page width=0) → raises PLAN_INVALID</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic">render_plan_prompt(docx, design_tokens) → prompt containing "sections", "DXA", "Heading1"</scenario-6>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Plan][decompose][BLOCK_PLAN_DECOMPOSE]</marker-1>
+        <marker-2>[Plan][validate][BLOCK_PLAN_VALIDATE]</marker-2>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must never return a plan with duplicate section IDs</forbidden-1>
+        <forbidden-2>Must never accept non-standard style IDs (e.g. "MyHeading")</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>CAUTIOUS — depends on external LLM, but output is validated JSON</autonomy-assessment>
+    </V-M-PLAN>
+
+    <V-M-SECTION MODULE="M-SECTION" PRIORITY="high">
+      <test-files><file>tests/unit/test_section.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_section.py -x</check-1>
+        <check-2>ruff check src/mint/section.py</check-2>
+        <check-3>mypy src/mint/section.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">validate_section_code(code with valid Paragraph/TextRun patterns) → passes</scenario-1>
+        <scenario-2 kind="failure" evidence="deterministic">validate_section_code(code with import 'docx') → raises SECTION_CODE_INVALID</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">validate_section_code(code with unmatched brackets) → raises SECTION_CODE_INVALID with "bracket"</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">render_section_prompt(plan, section_id="s1") → prompt with section title, description, sibling context</scenario-4>
+        <scenario-5 kind="success" evidence="integration">generate_all with mock LLM returning valid code → all SectionCode(success=True)</scenario-5>
+        <scenario-6 kind="success" evidence="integration">generate_all with 1 section failing then succeeding on retry → final all success</scenario-6>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Section][generate][BLOCK_SECTION_GENERATE]</marker-1>
+        <marker-2>[Section][validate][BLOCK_SECTION_VALIDATE]</marker-2>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must never pass code with require() or import to assembler</forbidden-1>
+        <forbidden-2>Must never exceed max_retries per section</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>CAUTIOUS — depends on external LLM per section, retry logic provides resilience</autonomy-assessment>
+    </V-M-SECTION>
+
+    <V-M-ASSEMBLE MODULE="M-ASSEMBLE" PRIORITY="high">
+      <test-files><file>tests/unit/test_assemble.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_assemble.py -x</check-1>
+        <check-2>ruff check src/mint/assemble.py</check-2>
+        <check-3>mypy src/mint/assemble.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">build_styles_config(plan with Heading1/2/3) → JS string containing "Heading1", "Heading2", "Heading3" with correct sizes and colors</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">build_numbering_config(plan with bullets + decimal) → JS string with LevelFormat.BULLET and LevelFormat.DECIMAL</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">build_headers_footers(plan with header="Title", page_numbers=True) → JS string with PositionalTab and PageNumber.CURRENT</scenario-3>
+        <scenario-4 kind="success" evidence="integration">assemble(plan with 2 sections, mock code) → sandbox executes → valid DOCX file</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">assemble(plan, sections missing required section_id) → raises ASSEMBLY_MISSING_SECTIONS</scenario-5>
+        <scenario-6 kind="success" evidence="integration">Full assembly output → postprocessor fixes applied (no empty comments, tblLayout fixed)</scenario-6>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Assemble][template][BLOCK_ASSEMBLE_TEMPLATE]</marker-1>
+        <marker-2>[Assemble][execute][BLOCK_ASSEMBLE_EXECUTE]</marker-2>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must never call LLM — assembly is purely deterministic</forbidden-1>
+        <forbidden-2>Must not produce JS with syntax errors — template must be pre-validated</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SAFE — pure code generation + sandbox execution, fully deterministic given valid inputs</autonomy-assessment>
+    </V-M-ASSEMBLE>
   </ModuleVerification>
 
   <WaveChecks>
@@ -455,6 +588,61 @@
         <command-1>pytest tests/unit/test_extract.py tests/integration/test_create.py tests/integration/test_mcp_g2.py -x --timeout=60</command-1>
       </commands>
     </Wave-2-2>
+
+    <Wave-4-1 PHASE="Phase-4" SCOPE="M-PLAN" STATUS="pending">
+      <goal>Document planner: plan generation + plan validation</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_plan.py -x</command-1>
+        <command-2>ruff check src/mint/plan.py</command-2>
+        <command-3>mypy src/mint/plan.py</command-3>
+      </commands>
+      <required-evidence>
+        <evidence-1>Plan validation accepts valid plans and rejects invalid ones</evidence-1>
+        <evidence-2>Plan prompt includes format-specific constraints (DXA, style IDs)</evidence-2>
+        <evidence-3>Plan generation produces structured JSON with sections, styles, numbering</evidence-3>
+      </required-evidence>
+    </Wave-4-1>
+
+    <Wave-4-2 PHASE="Phase-4" SCOPE="M-SECTION" STATUS="pending">
+      <goal>Section generator: per-section code generation + validation + retry</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_section.py -x</command-1>
+        <command-2>ruff check src/mint/section.py</command-2>
+        <command-3>mypy src/mint/section.py</command-3>
+      </commands>
+      <required-evidence>
+        <evidence-1>Section code validation catches imports, bracket errors, missing patterns</evidence-1>
+        <evidence-2>Section prompt includes plan context + sibling summaries</evidence-2>
+        <evidence-3>Retry logic handles failures and succeeds on retry</evidence-3>
+      </required-evidence>
+    </Wave-4-2>
+
+    <Wave-4-3 PHASE="Phase-4" SCOPE="M-ASSEMBLE" STATUS="pending">
+      <goal>Document assembler: template rendering + sandbox execution</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_assemble.py -x</command-1>
+        <command-2>ruff check src/mint/assemble.py</command-2>
+        <command-3>mypy src/mint/assemble.py</command-3>
+      </commands>
+      <required-evidence>
+        <evidence-1>Styles config renders correct JS for Heading1-6 with colors/sizes</evidence-1>
+        <evidence-2>Numbering config renders bullet + decimal levels</evidence-2>
+        <evidence-3>Full assembly produces valid DOCX passing L1 validation</evidence-3>
+        <evidence-4>Postprocessor applied: no empty comments, tblLayout fixed</evidence-4>
+      </required-evidence>
+    </Wave-4-3>
+
+    <Wave-4-4 PHASE="Phase-4" SCOPE="M-CREATE, M-MCP-G2 (modular mode)" STATUS="pending">
+      <goal>Full modular pipeline integration: plan → sections → assemble → validate</goal>
+      <commands>
+        <command-1>pytest tests/integration/test_create.py tests/integration/test_mcp_g2.py -x --timeout=120</command-1>
+      </commands>
+      <required-evidence>
+        <evidence-1>Modular create produces multi-section document with >10 paragraphs</evidence-1>
+        <evidence-2>MCP tools mint_plan, mint_generate_section, mint_assemble work independently</evidence-2>
+        <evidence-3>All VF-007 trace markers logged in correct sequence</evidence-3>
+      </required-evidence>
+    </Wave-4-4>
   </WaveChecks>
 
   <PhaseGates>
@@ -504,6 +692,23 @@
         <evidence-4>All trace markers logged for VF-004, VF-005, VF-006</evidence-4>
       </required-evidence>
     </Gate-Phase-3>
+
+    <Gate-Phase-4 PHASE="Phase-4">
+      <goal>Modular generation achieves 90%+ success on 35B models for complex multi-section documents</goal>
+      <commands>
+        <command-1>pytest tests/ -x --timeout=120</command-1>
+        <command-2>ruff check src/mint/</command-2>
+        <command-3>mypy src/mint/</command-3>
+      </commands>
+      <required-evidence>
+        <evidence-1>Plan validation accepts valid plans, rejects invalid (all V-M-PLAN scenarios pass)</evidence-1>
+        <evidence-2>Section code generation produces valid JS per section (all V-M-SECTION scenarios pass)</evidence-2>
+        <evidence-3>Assembly produces valid DOCX passing L1 validation (all V-M-ASSEMBLE scenarios pass)</evidence-3>
+        <evidence-4>Showcase document generated via modular pipeline has >10 paragraphs, >1 table, headings, lists, callouts</evidence-4>
+        <evidence-5>Showcase document opens in Word without repair dialog</evidence-5>
+        <evidence-6>All trace markers logged for VF-007, VF-008, VF-009 critical flows</evidence-6>
+      </required-evidence>
+    </Gate-Phase-4>
   </PhaseGates>
 
   <FailurePackets>
@@ -518,4 +723,4 @@
       <next-action>Check iteration counting logic in M-FIX apply_fixes</next-action>
     </packet-example>
   </FailurePackets>
-</VerificationPlan
+</VerificationPlan>

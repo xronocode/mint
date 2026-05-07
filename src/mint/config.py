@@ -35,7 +35,7 @@ VALID_TIERS = ("small", "medium", "frontier")
 VALID_SEVERITY_MODES = ("audit", "lenient", "strict")
 DEFAULT_SEVERITY_MODE = "audit"
 DEFAULT_SANDBOX_TIMEOUT = 30
-DEFAULT_GOTENBERG_URL = "http://localhost:3000"
+
 
 
 class ConfigError(Exception):
@@ -75,7 +75,6 @@ class MintConfig:
     llm_model: str
     model_tier: Tier
     severity_mode: SeverityMode
-    gotenberg_url: str
     sandbox_timeout: int
     rules_dir: Path
     skills_dir: Path
@@ -149,7 +148,6 @@ def load_config(env_file: Path | None = None) -> MintConfig:
         llm_model=llm_model,
         model_tier=Tier(tier_str),
         severity_mode=SeverityMode(severity_str),
-        gotenberg_url=os.environ.get("GOTENBERG_URL", DEFAULT_GOTENBERG_URL).strip(),
         sandbox_timeout=int(
             os.environ.get("MINT_SANDBOX_TIMEOUT", str(DEFAULT_SANDBOX_TIMEOUT))
         ),

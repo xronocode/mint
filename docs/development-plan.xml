@@ -1,10 +1,13 @@
 <DevelopmentPlan VERSION="0.2.0">
   <ArchitectureNotes>
-    <objective>MINT replicates Claude's document generation pipeline as a standalone, model-agnostic toolkit. Plan optimizes for G0→G1→G2→G5 minimum viable launch path.</objective>
+    <objective>MINT replicates Claude's document generation pipeline as a standalone, model-agnostic toolkit. Plan optimizes for G0→G1→G2→G5→G6 minimum viable launch path. Phase 4 adds modular generation: decompose document into sections, generate each independently, assemble deterministically.</objective>
     <non-goal>No Claude API, no dvejsada dependency, no hosted SaaS, no macros/signatures/protection in v0.x.</non-goal>
-    <risk-1>Frontier models may fail to produce valid docx-js/pptxgenjs code — G0 kill criterion.</risk-1>
-    <risk-2>Code execution sandbox security — restricted environment with no fs/net/timeout.</risk-3>
+    <risk-1>Frontier models may fail to produce valid docx-js/pptxgenjs code — G0 kill criterion. Mitigated by modular generation (Phase 4): smaller scope per call = higher success rate.</risk-1>
+    <risk-2>Code execution sandbox security — restricted environment with no fs/net/timeout.</risk-2>
     <risk-3>Template engine must handle 7B model JSON reliably or G0 fails.</risk-3>
+    <risk-4>Plan quality depends on model's ability to decompose user prompt into structured sections. Mitigated by plan validation + retry with plan refinement prompt.</risk-4>
+    <architecture-pattern-1 name="Single-pass generation">M-CREATE → skill → model → sandbox → validate. Works for Claude-class models. 33% success on 35B.</architecture-pattern-1>
+    <architecture-pattern-2 name="Modular generation">M-PLAN → M-SECTION[] → M-ASSEMBLE → validate. Each section is small enough for 35B. Plan is cheap JSON. Assembly is deterministic. ~90% success rate expected.</architecture-pattern-2>
   </ArchitectureNotes>
 
   <Modules>
@@ -77,7 +80,7 @@
       <verification-ref>V-M-RULES</verification-ref>
     </M-RULES>
 
-    <M-VALIDATE NAME="Validation Engine" TYPE="CORE_LOGIC" LAYER="1" ORDER="1" STATUS="planned">
+    <M-VALIDATE NAME="Validation Engine" TYPE="CORE_LOGIC" LAYER="1" ORDER="1" STATUS="done">
       <contract>
         <purpose>Run all applicable rules against an OOXML document with severity mode enforcement (audit/lenient/strict)</purpose>
         <inputs>
@@ -110,7 +113,7 @@
       <verification-ref>V-M-VALIDATE</verification-ref>
     </M-VALIDATE>
 
-    <M-FIX NAME="Auto-Fix Engine" TYPE="CORE_LOGIC" LAYER="1" ORDER="2" STATUS="planned">
+    <M-FIX NAME="Auto-Fix Engine" TYPE="CORE_LOGIC" LAYER="1" ORDER="2" STATUS="done">
       <contract>
         <purpose>Apply safe and visual auto-fixes to OOXML document with backup; reject destructive; max 3 iterations; detect cascade</purpose>
         <inputs>
@@ -146,7 +149,7 @@
       <verification-ref>V-M-FIX</verification-ref>
     </M-FIX>
 
-    <M-FINGERPRINT NAME="StyleFingerprint" TYPE="UTILITY" LAYER="1" ORDER="3" STATUS="planned">
+    <M-FINGERPRINT NAME="StyleFingerprint" TYPE="UTILITY" LAYER="1" ORDER="3" STATUS="done">
       <contract>
         <purpose>Compute SHA256 hash of structural style XML for drift detection: styles.xml+numbering.xml (DOCX), theme1.xml (PPTX)</purpose>
         <inputs>
@@ -248,7 +251,7 @@
 
     <!-- PHASE 2 (G2): Generation Pipeline -->
 
-    <M-SKILLS NAME="Skill Prompts" TYPE="CORE_LOGIC" LAYER="0" ORDER="4" STATUS="planned">
+    <M-SKILLS NAME="Skill Prompts" TYPE="CORE_LOGIC" LAYER="0" ORDER="4" STATUS="done">
       <contract>
         <purpose>Skill prompt registry: select and render prompts by model tier (small/medium/frontier) and format (docx/pptx); inject design tokens</purpose>
         <inputs>
@@ -313,7 +316,7 @@
       <verification-ref>V-M-TEMPLATES</verification-ref>
     </M-TEMPLATES>
 
-    <M-EXTRACT NAME="Style Extraction" TYPE="CORE_LOGIC" LAYER="1" ORDER="5" STATUS="planned">
+    <M-EXTRACT NAME="Style Extraction" TYPE="CORE_LOGIC" LAYER="1" ORDER="5" STATUS="done">
       <contract>
         <purpose>Extract design-tokens.json from existing OOXML documents: Layer 1 (theme/styles.xml = 100% accurate), Layer 2 (statistical layout analysis = ~80%)</purpose>
         <inputs>
@@ -344,9 +347,9 @@
       <verification-ref>V-M-EXTRACT</verification-ref>
     </M-EXTRACT>
 
-    <M-CREATE NAME="Create Orchestrator" TYPE="CORE_LOGIC" LAYER="2" ORDER="2" STATUS="planned">
+    <M-CREATE NAME="Create Orchestrator" TYPE="CORE_LOGIC" LAYER="2" ORDER="2" STATUS="done">
       <contract>
-        <purpose>Orchestrate full document generation: select skill → send to model → execute code or fill template → validate → output</purpose>
+        <purpose>Orchestrate full document generation. Two modes: (1) single-pass: skill → model → execute/template → validate; (2) modular: plan → section[] → assemble → validate. Postprocessor applied after both paths.</purpose>
         <inputs>
           <param name="request" type="CreateRequest" />
         </inputs>
@@ -360,12 +363,14 @@
         </errors>
       </contract>
       <interface>
-        <fn-create PURPOSE="Main orchestration: (1) select skill by tier, (2) send prompt+tokens to model API, (3a) sandbox exec or (3b) template fill, (4) validate, (5) return CreateResult" />
+        <fn-create PURPOSE="Main entry: check request.modular → route to _create_code_mode or _create_modular_mode → postprocess → validate → return CreateResult" />
+        <fn-_create_modular_mode PURPOSE="Modular path: M-PLAN.plan() → M-SECTION.generate_all() → M-ASSEMBLE.assemble() → postprocess → validate" />
+        <fn-_postprocess_docx PURPOSE="Fix common docx-js/LLM issues: dedup styles, remove empty comments.xml, add tblLayout fixed + tblLook to all tables" />
         <export-create PURPOSE="Create orchestrator instance" />
-        <type-CreateRequest PURPOSE="dataclass: format, tier, prompt, design_tokens_path, template_name, model_response_override" />
-        <type-CreateResult PURPOSE="dataclass: output_path, validation_report, qa_report, execution_mode, duration_ms" />
+        <type-CreateRequest PURPOSE="dataclass: format, tier, prompt, design_tokens_path, template_name, model_response_override, modular (bool default False), llm_base_url, llm_api_key, llm_model, self_evaluate, max_refine_rounds" />
+        <type-CreateResult PURPOSE="dataclass: output_path (Optional[Path]), validation_report, qa_report, execution_mode (str), duration_ms, error, success, plan (Optional[DocumentPlan]), sections_total (int default 0), sections_succeeded (int default 0)" />
       </interface>
-      <depends>M-SKILLS, M-SANDBOX, M-TEMPLATES, M-VALIDATE, M-CONFIG</depends>
+      <depends>M-SKILLS, M-SANDBOX, M-TEMPLATES, M-VALIDATE, M-CONFIG, M-PLAN, M-SECTION, M-ASSEMBLE, M-LLM</depends>
       <target>
         <source>src/mint/create.py</source>
         <tests>tests/integration/test_create.py</tests>
@@ -377,13 +382,16 @@
       <verification-ref>V-M-CREATE</verification-ref>
     </M-CREATE>
 
-    <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" LAYER="3" ORDER="1" STATUS="planned">
+    <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" LAYER="3" ORDER="1" STATUS="done">
       <contract>
-        <purpose>FastMCP server extending G1 with generation tools: mint_create, mint_extract_style, mint_list_templates</purpose>
+        <purpose>FastMCP server exposing G1 + G2 tools: mint_create (with modular param), mint_extract_style, mint_list_templates, mint_plan, mint_generate_section, mint_assemble</purpose>
         <inputs>
           <param name="format" type="str" />
           <param name="prompt" type="str" />
           <param name="document_path" type="Optional[str]" />
+          <param name="modular" type="bool default False" />
+          <param name="plan_json" type="Optional[str]" />
+          <param name="section_ids" type="Optional[list[str]]" />
         </inputs>
         <outputs>
           <param name="MCPToolResponse" type="dict" />
@@ -394,12 +402,18 @@
         </errors>
       </contract>
       <interface>
-        <fn-mint_create PURPOSE="MCP tool: generate document → CreateResult as JSON" />
+        <fn-mint_create PURPOSE="MCP tool: generate document. If modular=True → plan→section→assemble path. Otherwise single-pass. Returns CreateResult JSON." />
+        <fn-mint_plan PURPOSE="MCP tool: generate DocumentPlan JSON from prompt. Stores plan server-side, returns plan summary. Use for step-by-step modular workflow." />
+        <fn-mint_generate_section PURPOSE="MCP tool: generate code for specified sections of a stored plan. Returns section_id + success status per section. Code stored server-side for assembly." />
+        <fn-mint_assemble PURPOSE="MCP tool: assemble stored plan + section code into final document. Returns output path + AssemblyResult." />
         <fn-mint_extract_style PURPOSE="MCP tool: extract design tokens → DesignTokens JSON" />
         <fn-mint_list_templates PURPOSE="MCP tool: list available templates → metadata list" />
         <export-server_g2 PURPOSE="FastMCP server with G1+G2 tools, mounts G1 server" />
       </interface>
-      <depends>M-CREATE, M-EXTRACT, M-TEMPLATES, M-MCP-G1</depends>
+      <mcp-state-management>
+        <mechanism>In-memory session store (dict[str, MCPGenerationSession]). Each mint_plan call creates a session with a session_id. Subsequent mint_generate_section and mint_assemble calls reference session_id. Session holds: DocumentPlan, dict[str, SectionCode], created_at. Sessions expire after 30 minutes of inactivity.</mechanism>
+      </mcp-state-management>
+      <depends>M-CREATE, M-EXTRACT, M-TEMPLATES, M-PLAN, M-SECTION, M-ASSEMBLE, M-MCP-G1</depends>
       <target>
         <source>src/mint/mcp_g2.py</source>
         <tests>tests/integration/test_mcp_g2.py</tests>
@@ -480,6 +494,162 @@
       </observability>
       <verification-ref>V-M-GRACE</verification-ref>
     </M-GRACE>
+
+    <!-- PHASE 4 (G6): Modular Generation -->
+
+    <M-PLAN NAME="Document Planner" TYPE="CORE_LOGIC" LAYER="1" ORDER="6" STATUS="done">
+      <contract>
+        <purpose>Decompose user prompt into a structured DocumentPlan (JSON): sections with types, content descriptions, style constraints, numbering config, header/footer spec. Uses LLM for decomposition but output is small JSON — high success rate on any model.</purpose>
+        <inputs>
+          <param name="prompt" type="str" />
+          <param name="format" type="Literal['docx','pptx']" />
+          <param name="design_tokens" type="Optional[dict]" />
+          <param name="llm_base_url" type="str" />
+          <param name="llm_api_key" type="str" />
+          <param name="llm_model" type="str" />
+          <param name="max_retries" type="int" default="2" />
+        </inputs>
+        <outputs>
+          <param name="DocumentPlan" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="PLAN_GENERATION_FAILED" />
+          <error code="PLAN_INVALID" />
+          <error code="PLAN_EMPTY" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-plan PURPOSE="Main entry: send decomposition prompt to model → parse JSON → validate → retry on failure → return DocumentPlan" />
+        <fn-retry_plan PURPOSE="Re-send prompt with previous error context (invalid JSON, validation errors) up to max_retries" />
+        <fn-validate_plan PURPOSE="Check plan: min 1 section, each has id+type+description, numbering refs valid, style IDs standard, page setup valid DXA" />
+        <fn-render_plan_prompt PURPOSE="Build system prompt for plan generation with format-specific constraints (DXA widths, standard style IDs, etc.)" />
+        <export-plan PURPOSE="Plan module entry point" />
+        <type-DocumentPlan PURPOSE="dataclass: format, sections (list[SectionSpec]), styles (StylesConfig), numbering (list[NumberingConfig]), header_footer (HeaderFooterSpec), page_setup (PageSetup), metadata (PlanMetadata)" />
+        <type-SectionSpec PURPOSE="dataclass: id (str), type (str — one of cover|toc|heading|content|table|list|callout|code|images|appendix), title (str), description (str), level (int 1-3), numbering_ref (Optional[str]), column_count (Optional[int] default None), page_break_before (bool default False), skip_header_footer (bool default False), order (int)" />
+        <type-StylesConfig PURPOSE="dataclass: colors (dict[str,str] — primary, accent, success, warning, error, text, muted, bg, surface), heading_sizes (dict[str,int] — h1=32, h2=28, h3=24), body_size (int default 22), code_font (str default 'Courier New')" />
+        <type-NumberingConfig PURPOSE="dataclass: reference (str), levels (list[NumberingLevel])" />
+        <type-NumberingLevel PURPOSE="dataclass: level (int), format (Literal[bullet|decimal|lower_letter|lower_roman]), text (str), indent_left (int), indent_hanging (int)" />
+        <type-HeaderFooterSpec PURPOSE="dataclass: header_left (str), header_right (Optional[str]), footer_left (str), page_numbers (bool)" />
+        <type-PageSetup PURPOSE="dataclass: width (int), height (int), orientation (Literal[portrait|landscape] default portrait), margins (dict[str,int] — top/right/bottom/left, all default 1440)" />
+        <type-PlanMetadata PURPOSE="dataclass: correlation_id (str), created_at (str), model (str), prompt_hash (str)" />
+      </interface>
+      <depends>M-LLM</depends>
+      <target>
+        <source>src/mint/plan.py</source>
+        <tests>tests/unit/test_plan.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Plan]</log-prefix>
+        <critical-block>BLOCK_PLAN_DECOMPOSE</critical-block>
+        <critical-block>BLOCK_PLAN_VALIDATE</critical-block>
+      </observability>
+      <verification-ref>V-M-PLAN</verification-ref>
+    </M-PLAN>
+
+    <M-SECTION NAME="Section Generator" TYPE="CORE_LOGIC" LAYER="1" ORDER="7" STATUS="done">
+      <purpose>Generate docx-js code for a single document section. Each call produces an array of docx-js component calls (Paragraph, Table, etc.) — small enough for 35B models. Section context includes plan structure + sibling titles for coherence.</purpose>
+      <inputs>
+        <param name="plan" type="DocumentPlan" />
+        <param name="section_id" type="str" />
+        <param name="sibling_context" type="Optional[list[SiblingRef]]" />
+        <param name="llm_base_url" type="str" />
+        <param name="llm_api_key" type="str" />
+        <param name="llm_model" type="str" />
+        <param name="max_retries" type="int" default="2" />
+      </inputs>
+      <outputs>
+        <param name="SectionCode" type="dataclass" />
+      </outputs>
+      <errors>
+        <error code="SECTION_GENERATION_FAILED" />
+        <error code="SECTION_CODE_INVALID" />
+        <error code="SECTION_NOT_FOUND" />
+      </errors>
+      <interface>
+        <fn-generate_section PURPOSE="Build section-specific prompt → send to model → extract JS code → validate → return SectionCode" />
+        <fn-render_section_prompt PURPOSE="Build prompt with: section spec from plan, sibling titles/types, shared styles/numbering from plan, sandbox globals, forbidden patterns" />
+        <fn-render_retry_prompt PURPOSE="Retry prompt with: original section spec + previous error + previous failed code as negative example" />
+        <fn-validate_section_code PURPOSE="Static check: no import/require, no fs, valid JS bracket balance, has expected component patterns" />
+        <fn-generate_all PURPOSE="Generate all sections sequentially with sibling context propagation, retry failed up to max_retries per section. Returns GenerateAllResult with success/failure counts." />
+        <export-section_generator PURPOSE="Section generator entry point" />
+        <type-SectionCode PURPOSE="dataclass: section_id (str), code (str), attempt (int), success (bool), error (Optional[str]), model (str), duration_ms (int)" />
+        <type-SiblingRef PURPOSE="dataclass: section_id (str), title (str), type (str) — lightweight reference to sibling section for context" />
+        <type-GenerateAllResult PURPOSE="dataclass: sections (dict[str,SectionCode]), total (int), succeeded (int), failed (int), total_retries (int), total_duration_ms (int)" />
+      </interface>
+      <depends>M-PLAN, M-LLM</depends>
+      <target>
+        <source>src/mint/section.py</source>
+        <tests>tests/unit/test_section.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Section]</log-prefix>
+        <critical-block>BLOCK_SECTION_GENERATE</critical-block>
+        <critical-block>BLOCK_SECTION_VALIDATE</critical-block>
+      </observability>
+      <verification-ref>V-M-SECTION</verification-ref>
+    </M-SECTION>
+
+    <M-ASSEMBLE NAME="Document Assembler" TYPE="CORE_LOGIC" LAYER="1" ORDER="8" STATUS="done">
+      <purpose>Assemble final document from DocumentPlan + section code outputs. Pure deterministic JS template — no LLM. Wraps section code into a complete Document constructor with shared styles, numbering config, headers/footers, page setup. Executes via M-SANDBOX.</purpose>
+      <inputs>
+        <param name="plan" type="DocumentPlan" />
+        <param name="sections" type="dict[str, SectionCode]" />
+      </inputs>
+      <outputs>
+        <param name="AssemblyResult" type="dataclass" />
+      </outputs>
+      <errors>
+        <error code="ASSEMBLY_TEMPLATE_ERROR" />
+        <error code="ASSEMBLY_EXECUTION_FAILED" />
+        <error code="ASSEMBLY_MISSING_SECTIONS" />
+      </errors>
+      <interface>
+        <fn-assemble PURPOSE="Build complete JS from template + plan config + section code → sandbox execute → postprocess → return AssemblyResult" />
+        <fn-render_assembly_template PURPOSE="Generate complete JS: Document({styles, numbering, sections: [Section({properties, children: [/* section code */]})]}) → Packer → writeFileSync" />
+        <fn-build_styles_config PURPOSE="Render JS styles config from plan.StylesConfig: docDefaults + paragraphStyles (Heading1-6 with colors/sizes, ListParagraph, Hyperlink) + characterStyles" />
+        <fn-build_numbering_config PURPOSE="Render JS numbering config from plan.numbering: each NumberingConfig → {reference, levels: [{format, text, alignment, style}]}" />
+        <fn-build_headers_footers PURPOSE="Render JS header/footer from plan.header_footer: Header with PositionalTab for two-column, Footer with PageNumber.CURRENT/TOTAL_PAGES" />
+        <fn-build_section_wrapper PURPOSE="Render per-section docx-js Section wrapper: cover=no header/footer, different margins; toc=TableOfContents, content=normal Section. Maps SectionSpec.type to docx-js section configuration." />
+        <fn-make_placeholder PURPOSE="Generate placeholder JS code for failed sections: Paragraph with title + italic error message" />
+        <export-assemble PURPOSE="Assembler entry point" />
+        <type-AssemblyResult PURPOSE="dataclass: output_path (Optional[Path]), success (bool), sections_included (int), sections_placeholder (int), duration_ms (int), error (Optional[str])" />
+      </interface>
+      <depends>M-PLAN, M-SANDBOX</depends>
+      <assembly-template-pattern>
+        <structure><![CDATA[
+const doc = new Document({
+  styles: { /* build_styles_config output */ },
+  numbering: { config: [ /* build_numbering_config output */ ] },
+  footnotes: { /* if plan has footnotes */ },
+  sections: plan.sections.map(sectionSpec => ({
+    properties: {
+      page: { /* plan.page_setup */ },
+      ...(sectionSpec.skip_header_footer ? {} : {
+        header: /* build_headers_footers header */,
+        footer: /* build_headers_footers footer */,
+      }),
+    },
+    children: [
+      /* section code from SectionCode.code — inserted as raw JS expressions */
+    ],
+  })),
+});
+const buffer = await Packer.toBuffer(doc);
+writeFileSync('output.docx', buffer);
+        ]]></structure>
+        <section-isolation>Each section's code is inserted as a spread array: ...[/* section code */]. If section code defines variables, they're scoped within the section's children array and don't leak to other sections.</section-isolation>
+      </assembly-template-pattern>
+      <target>
+        <source>src/mint/assemble.py</source>
+        <tests>tests/unit/test_assemble.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Assemble]</log-prefix>
+        <critical-block>BLOCK_ASSEMBLE_TEMPLATE</critical-block>
+        <critical-block>BLOCK_ASSEMBLE_EXECUTE</critical-block>
+      </observability>
+      <verification-ref>V-M-ASSEMBLE</verification-ref>
+    </M-ASSEMBLE>
   </Modules>
 
   <DataFlow>
@@ -525,6 +695,20 @@
       <step-4>Preserves existing Custom XML from other vendors</step-4>
       <evidence>[GRACE] manifest + instructions readable via OOXML parsers</evidence>
     </DF-005>
+
+    <DF-006 NAME="Modular Document Generation" TRIGGER="mint_create(modular=True) or mint_plan + mint_generate_section + mint_assemble">
+      <step-0>M-CREATE checks CreateRequest.modular flag. If True: enter modular path. If False: use existing single-pass path (DF-001).</step-0>
+      <step-1>M-PLAN receives user prompt → LLM generates DocumentPlan JSON. On invalid JSON or failed validation: retry up to max_retries with error context.</step-1>
+      <step-2>M-PLAN validates plan: min 1 section, valid types, standard style IDs, DXA widths, page setup dimensions > 0.</step-2>
+      <step-3>M-SECTION generates sections sequentially: each section receives SiblingRef[] (id+title+type) from already-generated sections. Failed sections retried up to max_retries with refined prompt (original spec + previous error + failed code). Global budget: max_total_retries (default 20).</step-3>
+      <step-4>M-SECTION validates each section code: no imports, no fs, bracket balance, expected component patterns.</step-4>
+      <step-5>Sections that fail all retries: M-SECTION produces placeholder code (title + italic error message). Assembly proceeds with placeholders.</step-5>
+      <step-6>M-ASSEMBLE builds complete JS from template: Document(styles, numbering) + sections mapped by type (cover→no header, toc→TableOfContents, content→normal Section). Section code injected as children array elements.</step-6>
+      <step-7>M-ASSEMBLE executes via M-SANDBOX → output file. Returns AssemblyResult with sections_included, sections_placeholder counts.</step-7>
+      <step-8>M-CREATE postprocesses output (dedup styles, remove empty comments, fix table layout). Postprocessor lives in M-CREATE and is called after both single-pass and modular paths.</step-8>
+      <step-9>M-VALIDATE runs rule checks on final file. CreateResult.execution_mode="modular".</step-9>
+      <evidence>[Plan][decompose][BLOCK_PLAN_DECOMPOSE], [Section][generate][BLOCK_SECTION_GENERATE] per section, [Assemble][execute][BLOCK_ASSEMBLE_EXECUTE], [Create][postprocess]</evidence>
+    </DF-006>
   </DataFlow>
 
   <ImplementationOrder>
@@ -553,6 +737,15 @@
       <step-1 module="M-QA" status="done" verification="V-M-QA">QA pipeline: L1 programmatic + L2 render-based via Gotenberg</step-1>
       <step-2 module="M-GRACE" status="done" verification="V-M-GRACE">GRACE injection: manifest + instructions as Custom XML Parts</step-2>
     </Phase-3>
+
+    <Phase-4 name="Modular Generation (G6)" status="planned">
+      <goal>Decompose complex documents into sections, generate each independently, assemble deterministically. Target: 90%+ success rate on 35B models for Claude-quality documents.</goal>
+      <step-1 module="M-PLAN" status="planned" verification="V-M-PLAN">Document planner: prompt → structured section plan JSON</step-1>
+      <step-2 module="M-SECTION" status="planned" verification="V-M-SECTION">Section generator: plan section → JS code per section</step-2>
+      <step-3 module="M-ASSEMBLE" status="planned" verification="V-M-ASSEMBLE">Document assembler: plan + sections → complete DOCX via sandbox</step-3>
+      <step-4 module="M-CREATE" status="planned" verification="V-M-CREATE">Update create orchestrator: add modular mode (plan→section[]→assemble)</step-4>
+      <step-5 module="M-MCP-G2" status="planned" verification="V-M-MCP-G2">Add MCP tools: mint_plan, mint_generate_section, mint_assemble</step-5>
+    </Phase-4>
   </ImplementationOrder>
 
   <ExecutionPolicy>

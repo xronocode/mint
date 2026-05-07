@@ -87,22 +87,42 @@ const context = {
   __dirname: undefined,
   __filename: undefined,
   __sandbox_fs__,
-  Document: docx.Document,
-  Packer: docx.Packer,
-  Paragraph: docx.Paragraph,
-  TextRun: docx.TextRun,
-  HeadingLevel: docx.HeadingLevel,
-  AlignmentType: docx.AlignmentType,
-  TableRow: docx.TableRow,
-  TableCell: docx.TableCell,
-  WidthType: docx.WidthType,
-  BorderStyle: docx.BorderStyle,
-  Table: docx.Table,
-  ImageRun: docx.ImageRun,
-  ExternalHyperlink: docx.ExternalHyperlink,
   pptxgen: pptxgen,
   docx: docx,
 };
+
+for (const [key, val] of Object.entries(docx)) {
+  if (/^[A-Z]/.test(key) || key === "Media") {
+    context[key] = val;
+  }
+}
+
+const HALLUCINATED_STUBS = [
+  "LineBreak",
+  "Break",
+  "PageNumberSeparator",
+  "HorizontalRule",
+  "HorizontalLine",
+  "ListParagraph",
+  "Hyperlink",
+  "Normal",
+  "Heading",
+  "Spacing",
+  "Indent",
+  "Bold",
+  "Italic",
+  "Underline",
+];
+for (const stub of HALLUCINATED_STUBS) {
+  if (!(stub in context)) {
+    context[stub] = class {
+      constructor(...args) {
+        return new docx.TextRun({ text: "" });
+      }
+    };
+  }
+}
+
 context.globalThis = context;
 
 runInNewContext(wrappedCode, context, {

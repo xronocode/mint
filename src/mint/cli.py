@@ -17,6 +17,10 @@
 #   cmd_extract - extract design tokens
 # END_MODULE_MAP
 
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
+
 from __future__ import annotations
 
 import argparse
@@ -121,10 +125,18 @@ def cmd_create(args: argparse.Namespace) -> None:
     if args.model_response_file:
         model_response = Path(args.model_response_file).read_text()
 
+    prompt_text = args.prompt
+    for var in args.var:
+        if "=" not in var:
+            print(f"Error: --var expects KEY=VALUE, got '{var}'", file=sys.stderr)
+            sys.exit(1)
+        key, value = var.split("=", 1)
+        prompt_text = prompt_text.replace(f"{{{{{key}}}}}", value)
+
     req = CreateRequest(
         format=args.format,
         tier=args.tier,
-        prompt=args.prompt,
+        prompt=prompt_text,
         design_tokens=design_tokens,
         template_name=args.template,
         model_response_override=model_response,
@@ -199,6 +211,8 @@ def build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--llm-base-url", default=None, help="LLM API base URL")
     cr.add_argument("--llm-api-key", default=None, help="LLM API key")
     cr.add_argument("--llm-model", default=None, help="LLM model name")
+    cr.add_argument("--var", action="append", default=[], metavar="KEY=VALUE",
+                     help="Template variable substitution (repeatable)")
 
     # extract
     ex = sub.add_parser("extract", help="Extract design tokens from document")

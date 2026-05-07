@@ -20,7 +20,6 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "LLM_MODEL",
         "MINT_MODEL_TIER",
         "MINT_SEVERITY_MODE",
-        "GOTENBERG_URL",
         "MINT_SANDBOX_TIMEOUT",
         "MINT_ROOT",
         "MINT_RULES_DIR",

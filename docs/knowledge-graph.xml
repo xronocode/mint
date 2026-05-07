@@ -11,7 +11,7 @@
       <depends>none</depends>
       <verification-ref>V-M-CONFIG</verification-ref>
       <annotations>
-        <fn-loadConfig PURPOSE="Load and validate config from env vars and .env file" />
+        <fn-load_config PURPOSE="Load and validate config from env vars and .env file" />
         <type-MintConfig PURPOSE="Typed config dataclass with all runtime settings" />
         <export-config PURPOSE="Singleton config instance" />
       </annotations>
@@ -54,15 +54,14 @@
       </annotations>
     </M-VALIDATE>
 
-    <M-FIX NAME="Auto-Fix Engine" TYPE="CORE_LOGIC" STATUS="planned">
-      <purpose>Apply safe/visual auto-fixes with backup; reject destructive; max 3 iterations</purpose>
+    <M-FIX NAME="Auto-Fix Engine" TYPE="CORE_LOGIC" STATUS="done">
+      <purpose>Apply safe/visual auto-fixes with backup; reject destructive; max 3 iterations; cascade detection inline in apply_fixes</purpose>
       <path>src/mint/fix.py</path>
-      <depends>M-VALIDATE, M-RULES</depends>
+      <depends>M-VALIDATE, M-RULES, M-CONFIG</depends>
       <verification-ref>V-M-FIX</verification-ref>
       <annotations>
-        <fn-apply_fixes PURPOSE="Apply classified fixes, return fixed file + diff report" />
+        <fn-apply_fixes PURPOSE="Apply classified fixes with cascade detection, return fixed file + diff report" />
         <fn-create_backup PURPOSE="Backup document before modification" />
-        <fn-detect_cascade PURPOSE="Detect fix cascade and abort after 3 iterations" />
         <export-fix PURPOSE="Main fix entry point" />
       </annotations>
     </M-FIX>
@@ -70,7 +69,7 @@
     <M-FINGERPRINT NAME="StyleFingerprint" TYPE="UTILITY" STATUS="done">
       <purpose>SHA256 hash of styles.xml+numbering.xml (DOCX) or theme1.xml (PPTX) for structural drift detection</purpose>
       <path>src/mint/fingerprint.py</path>
-      <depends>M-CONFIG</depends>
+      <depends>none</depends>
       <verification-ref>V-M-FINGERPRINT</verification-ref>
       <annotations>
         <fn-compute PURPOSE="Compute fingerprint hash for a document" />
@@ -79,10 +78,10 @@
       </annotations>
     </M-FINGERPRINT>
 
-    <M-MCP-G1 NAME="MCP Tools G1" TYPE="ENTRY_POINT" STATUS="planned">
+    <M-MCP-G1 NAME="MCP Tools G1" TYPE="ENTRY_POINT" STATUS="done">
       <purpose>FastMCP tool registration: mint_validate, mint_fix, mint_fingerprint</purpose>
       <path>src/mint/mcp_g1.py</path>
-      <depends>M-VALIDATE, M-FIX, M-FINGERPRINT</depends>
+      <depends>M-VALIDATE, M-FIX, M-FINGERPRINT, M-CONFIG</depends>
       <verification-ref>V-M-MCP-G1</verification-ref>
       <annotations>
         <fn-mint_validate PURPOSE="MCP tool: validate document against rules" />
@@ -93,6 +92,23 @@
     </M-MCP-G1>
 
     <!-- Phase 2: Generation Pipeline (G2) -->
+
+    <M-LLM NAME="LLM Client" TYPE="UTILITY" STATUS="done">
+      <purpose>OpenAI-compatible LLM client for document generation and plan decomposition</purpose>
+      <path>src/mint/llm.py</path>
+      <depends>none</depends>
+      <annotations>
+        <fn-call PURPOSE="Send prompt to model API and return response" />
+        <type-LLMResponse PURPOSE="dataclass: text, model, usage, duration_ms" />
+        <type-LLMCallError PURPOSE="Exception for LLM call failures" />
+      </annotations>
+    </M-LLM>
+
+    <M-CLI NAME="CLI Entry Point" TYPE="ENTRY_POINT" STATUS="done">
+      <purpose>CLI entry point with subcommands: serve, validate, fix, fingerprint, create, extract</purpose>
+      <path>src/mint/cli.py</path>
+      <depends>M-CONFIG, M-VALIDATE, M-FIX, M-FINGERPRINT, M-CREATE, M-EXTRACT</depends>
+    </M-CLI>
 
     <M-SKILLS NAME="Skill Prompts" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Skill prompt selection by model tier and document format; injects design tokens</purpose>
@@ -109,7 +125,7 @@
     <M-TEMPLATES NAME="Template Engine" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Fill master templates (.pptx/.docx) from model-provided JSON content; unpack → replace → repack</purpose>
       <path>src/mint/templates/</path>
-      <depends>M-CONFIG, M-VALIDATE</depends>
+      <depends>none</depends>
       <verification-ref>V-M-TEMPLATES</verification-ref>
       <annotations>
         <fn-fill PURPOSE="Fill template from JSON content structure" />
@@ -121,23 +137,25 @@
     <M-EXTRACT NAME="Style Extraction" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Extract design-tokens.json from existing documents: Layer 1 (theme/styles.xml) + Layer 2 (statistical)</purpose>
       <path>src/mint/extract.py</path>
-      <depends>M-CONFIG</depends>
+      <depends>none</depends>
       <verification-ref>V-M-EXTRACT</verification-ref>
       <annotations>
         <fn-extract_style PURPOSE="Full extraction pipeline → design-tokens.json" />
         <fn-parse_theme PURPOSE="Layer 1: parse theme/styles.xml for colors, fonts, dimensions" />
         <fn-analyze_layouts PURPOSE="Layer 2: statistical layout pattern detection" />
-        <export-extract PURPOSE="Style extraction entry point" />
+        <export-extract_style PURPOSE="Style extraction entry point function" />
       </annotations>
     </M-EXTRACT>
 
     <M-CREATE NAME="Create Orchestrator" TYPE="CORE_LOGIC" STATUS="done">
-      <purpose>Orchestrate: skill → model → execute/template → validate → output file</purpose>
+      <purpose>Orchestrate: single-pass (skill→model→execute→validate) or modular (plan→section[]→assemble→validate)</purpose>
       <path>src/mint/create.py</path>
-      <depends>M-SKILLS, M-SANDBOX, M-TEMPLATES, M-VALIDATE, M-CONFIG</depends>
+      <depends>M-SKILLS, M-SANDBOX, M-TEMPLATES, M-VALIDATE, M-CONFIG, M-PLAN, M-SECTION, M-ASSEMBLE, M-LLM</depends>
       <verification-ref>V-M-CREATE</verification-ref>
       <annotations>
-        <fn-create PURPOSE="Main orchestration: generate document from user request" />
+        <fn-create PURPOSE="Main orchestration: generate document from user request (single-pass or modular)" />
+        <fn-_create_modular_mode PURPOSE="Modular path: plan → sections → assemble → postprocess → validate" />
+        <fn-_postprocess_docx PURPOSE="Fix common docx-js issues: dedup styles, empty comments, table layout" />
         <export-create PURPOSE="Create orchestrator instance" />
       </annotations>
     </M-CREATE>
@@ -145,10 +163,10 @@
     <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" STATUS="done">
       <purpose>FastMCP tool registration: mint_create, mint_extract_style, mint_list_templates</purpose>
       <path>src/mint/mcp_g2.py</path>
-      <depends>M-CREATE, M-EXTRACT, M-TEMPLATES, M-MCP-G1</depends>
+      <depends>M-CREATE, M-EXTRACT, M-TEMPLATES</depends>
       <verification-ref>V-M-MCP-G2</verification-ref>
       <annotations>
-        <fn-mint_create PURPOSE="MCP tool: generate document (code or template mode)" />
+        <fn-mint_create PURPOSE="MCP tool: generate document (code, template, or modular mode)" />
         <fn-mint_extract_style PURPOSE="MCP tool: extract design tokens from document" />
         <fn-mint_list_templates PURPOSE="MCP tool: list available templates" />
         <export-server_g2 PURPOSE="FastMCP server instance for G2 tools" />
@@ -157,47 +175,110 @@
 
     <!-- Phase 3: QA + GRACE (G3+G4) -->
 
-    <M-QA NAME="QA Pipeline" TYPE="CORE_LOGIC" STATUS="planned">
-      <purpose>L1 programmatic check (instant) + L2 render-based via Gotenberg (async overlap/margin/font)</purpose>
+    <M-QA NAME="QA Pipeline" TYPE="CORE_LOGIC" STATUS="done">
+      <purpose>L1 programmatic check (instant) + L2 structural ZIP analysis (styles, headers, sections)</purpose>
       <path>src/mint/qa/</path>
-      <depends>M-VALIDATE, M-CONFIG</depends>
+      <depends>M-VALIDATE, M-FINGERPRINT</depends>
       <verification-ref>V-M-QA</verification-ref>
       <annotations>
         <fn-run_l1 PURPOSE="Programmatic check: all rules + XML + fingerprint" />
-        <fn-run_l2 PURPOSE="Render via Gotenberg → PDF → PNG → overlap/margin/font detection" />
-        <fn-run_qa PURPOSE="Full QA: L1 sync + L2 async → report with confidence scores" />
-        <export-qa PURPOSE="QA pipeline instance" />
+        <fn-run_l2 PURPOSE="Structural ZIP analysis: styles, numbering, headers/footers, section count" />
+        <fn-run_qa PURPOSE="Full QA: L1 sync + L2 sync → report with confidence scores" />
+        <export-run_qa PURPOSE="QA pipeline entry point function" />
       </annotations>
     </M-QA>
 
     <M-GRACE NAME="GRACE Injection" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Inject manifest + instructions as Custom XML Parts (urn:mint:grace:2026:manifest); preserve existing vendor XML</purpose>
       <path>src/mint/grace/</path>
-      <depends>M-CONFIG</depends>
+      <depends>none</depends>
       <verification-ref>V-M-GRACE</verification-ref>
       <annotations>
         <fn-bootstrap PURPOSE="Inject manifest (structure + fingerprint) and instructions (5-10 rules)" />
         <fn-describe PURPOSE="Read and summarize GRACE metadata from document" />
-        <fn-preserve_existing PURPOSE="Ensure non-GRACE Custom XML Parts survive injection" />
-        <export-grace PURPOSE="GRACE injection instance" />
+        <export-bootstrap PURPOSE="GRACE injection entry point function" />
       </annotations>
     </M-GRACE>
+
+    <!-- Phase 4: Modular Generation (G6) -->
+
+    <M-PLAN NAME="Document Planner" TYPE="CORE_LOGIC" STATUS="done">
+      <purpose>Decompose user prompt into DocumentPlan JSON: sections with types, styles, numbering, headers/footers. Small JSON output = high success rate on any model.</purpose>
+      <path>src/mint/plan.py</path>
+      <depends>M-LLM</depends>
+      <verification-ref>V-M-PLAN</verification-ref>
+      <annotations>
+        <fn-plan PURPOSE="Send decomposition prompt to model → parse JSON → validate → retry on failure → return DocumentPlan" />
+        <fn-validate_plan PURPOSE="Check plan: min 1 section, valid types, standard style IDs, valid DXA page setup" />
+        <fn-render_plan_prompt PURPOSE="Build system prompt with format constraints" />
+        <type-DocumentPlan PURPOSE="dataclass: format, sections, styles, numbering, header_footer, page_setup, metadata" />
+        <type-SectionSpec PURPOSE="dataclass: id, type, title, description, level, numbering_ref, column_count, page_break_before, skip_header_footer, order" />
+        <type-StylesConfig PURPOSE="dataclass: colors, heading_sizes, body_size, code_font" />
+        <type-NumberingConfig PURPOSE="dataclass: reference, levels" />
+        <type-HeaderFooterSpec PURPOSE="dataclass: header_left, header_right, footer_left, page_numbers" />
+        <type-PageSetup PURPOSE="dataclass: width, height, orientation, margins" />
+        <type-PlanMetadata PURPOSE="dataclass: correlation_id, created_at, model, prompt_hash" />
+      </annotations>
+    </M-PLAN>
+
+    <M-SECTION NAME="Section Generator" TYPE="CORE_LOGIC" STATUS="done">
+      <purpose>Generate docx-js code for a single document section. Sequential generation with sibling context. Retry on failure. Placeholder for exhausted retries.</purpose>
+      <path>src/mint/section.py</path>
+      <depends>M-PLAN, M-LLM</depends>
+      <verification-ref>V-M-SECTION</verification-ref>
+      <annotations>
+        <fn-generate_section PURPOSE="Build section-specific prompt → model → extract JS → validate → return SectionCode" />
+        <fn-render_section_prompt PURPOSE="Build prompt with section spec, sibling titles/types, shared config, sandbox globals" />
+        <fn-validate_section_code PURPOSE="Static check: no imports, bracket balance, expected patterns" />
+        <fn-generate_all PURPOSE="Sequential generation with sibling context, retry failed sections, produce placeholders for exhausted retries" />
+        <type-SectionCode PURPOSE="dataclass: section_id, code, attempt, success, error, model, duration_ms" />
+        <type-SiblingRef PURPOSE="dataclass: section_id, title, type" />
+        <type-GenerateAllResult PURPOSE="dataclass: sections, total, succeeded, failed, total_retries, total_duration_ms" />
+      </annotations>
+    </M-SECTION>
+
+    <M-ASSEMBLE NAME="Document Assembler" TYPE="CORE_LOGIC" STATUS="done">
+      <purpose>Assemble final document from plan + section code. Pure deterministic JS template — no LLM. Executes via M-SANDBOX.</purpose>
+      <path>src/mint/assemble.py</path>
+      <depends>M-PLAN, M-SANDBOX</depends>
+      <verification-ref>V-M-ASSEMBLE</verification-ref>
+      <annotations>
+        <fn-assemble PURPOSE="Build JS from template + plan + sections → sandbox execute → return AssemblyResult" />
+        <fn-render_assembly_template PURPOSE="Generate complete JS: Document({styles, numbering, sections}) with section code injected as children" />
+        <fn-build_styles_config PURPOSE="Render JS styles from StylesConfig: docDefaults + Heading1-6 + ListParagraph + Hyperlink" />
+        <fn-build_numbering_config PURPOSE="Render JS numbering from list[NumberingConfig]" />
+        <fn-build_headers_footers PURPOSE="Render JS header/footer with PositionalTab + PageNumber" />
+        <fn-build_section_wrapper PURPOSE="Map SectionSpec.type to docx-js Section config" />
+        <fn-make_placeholder PURPOSE="Generate placeholder JS for failed sections" />
+        <type-AssemblyResult PURPOSE="dataclass: output_path, success, sections_included, sections_placeholder, duration_ms, error" />
+      </annotations>
+    </M-ASSEMBLE>
 
     <!-- Cross-module dependencies -->
     <CrossLink from="M-VALIDATE" to="M-RULES" relation="loads rules for evaluation" />
     <CrossLink from="M-VALIDATE" to="M-CONFIG" relation="reads severity mode" />
     <CrossLink from="M-FIX" to="M-VALIDATE" relation="re-validates after each fix iteration" />
+    <CrossLink from="M-FIX" to="M-CONFIG" relation="reads severity mode" />
     <CrossLink from="M-MCP-G1" to="M-VALIDATE" relation="exposes validate via MCP" />
     <CrossLink from="M-MCP-G1" to="M-FIX" relation="exposes fix via MCP" />
     <CrossLink from="M-MCP-G1" to="M-FINGERPRINT" relation="exposes fingerprint via MCP" />
+    <CrossLink from="M-MCP-G1" to="M-CONFIG" relation="reads severity mode" />
     <CrossLink from="M-CREATE" to="M-SKILLS" relation="selects skill prompt by tier" />
     <CrossLink from="M-CREATE" to="M-SANDBOX" relation="executes model-generated code" />
     <CrossLink from="M-CREATE" to="M-TEMPLATES" relation="fills template for small models" />
     <CrossLink from="M-CREATE" to="M-VALIDATE" relation="validates produced file" />
+    <CrossLink from="M-CREATE" to="M-LLM" relation="calls model for code generation and evaluation" />
+    <CrossLink from="M-CREATE" to="M-PLAN" relation="calls plan() for modular generation mode" />
+    <CrossLink from="M-CREATE" to="M-SECTION" relation="calls generate_all() for modular generation mode" />
+    <CrossLink from="M-CREATE" to="M-ASSEMBLE" relation="calls assemble() for modular generation mode" />
     <CrossLink from="M-MCP-G2" to="M-CREATE" relation="exposes create via MCP" />
     <CrossLink from="M-MCP-G2" to="M-EXTRACT" relation="exposes extract_style via MCP" />
-    <CrossLink from="M-MCP-G2" to="M-MCP-G1" relation="inherits G1 tools" />
     <CrossLink from="M-QA" to="M-VALIDATE" relation="uses validation results for L1" />
-    <CrossLink from="M-QA" to="M-CONFIG" relation="reads Gotenberg endpoint" />
+    <CrossLink from="M-QA" to="M-FINGERPRINT" relation="uses fingerprint for structural check" />
+    <CrossLink from="M-PLAN" to="M-LLM" relation="calls model for plan decomposition" />
+    <CrossLink from="M-SECTION" to="M-PLAN" relation="reads DocumentPlan for section context" />
+    <CrossLink from="M-SECTION" to="M-LLM" relation="calls model for section code generation" />
+    <CrossLink from="M-ASSEMBLE" to="M-PLAN" relation="reads plan for styles/numbering/page setup" />
+    <CrossLink from="M-ASSEMBLE" to="M-SANDBOX" relation="executes assembled JS code" />
   </Project>
 </KnowledgeGraph>

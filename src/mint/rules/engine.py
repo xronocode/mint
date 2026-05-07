@@ -1,12 +1,26 @@
 # FILE: src/mint/rules/engine.py
 # VERSION: 0.1.0
-# START_CONTRACT: engine
-#   PURPOSE: Core rule evaluation engine
-#   INPUTS: { Rule, lxml tree }
-#   OUTPUTS: { Violation or None }
-#   SIDE_EFFECTS: none (read-only)
-#   LINKS: docs/verification-plan.xml#V-M-RULES
-# END_CONTRACT: engine
+# START_MODULE_CONTRACT
+#   PURPOSE: Core rule evaluation engine — load YAML rules and evaluate against OOXML documents
+#   SCOPE: Rule parsing, evaluation, severity classification, hint generation
+#   DEPENDS: none
+#   LINKS: docs/knowledge-graph.xml#M-RULES, docs/verification-plan.xml#V-M-RULES
+# END_MODULE_CONTRACT
+#
+# START_MODULE_MAP
+#   Rule - validation rule dataclass
+#   Violation - violation result dataclass
+#   Severity - hard/soft severity enum
+#   FixCategory - safe/visual/destructive enum
+#   evaluate - evaluate a single rule against document XML
+#   classify_severity - classify violation severity and fix category
+#   get_hint - return educational hint for a rule ID
+#   all_rules - load all rules from YAML directory
+# END_MODULE_MAP
+
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Updated module contract markup
+# END_CHANGE_SUMMARY
 
 from __future__ import annotations
 

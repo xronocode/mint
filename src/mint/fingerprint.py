@@ -3,9 +3,28 @@
 # START_MODULE_CONTRACT
 #   PURPOSE: Compute SHA256 hash of structural style XML for drift detection
 #   SCOPE: Extract style XML from ZIP, concatenate, hash, compare
-#   DEPENDS: M-CONFIG
+#   DEPENDS: none
 #   LINKS: docs/knowledge-graph.xml#M-FINGERPRINT, docs/verification-plan.xml#V-M-FINGERPRINT
 # END_MODULE_CONTRACT
+#
+# START_MODULE_MAP
+#   FingerprintResult - result dataclass with hash, document_path, format, xml_sources
+#   DriftStatus - enum: MATCH, DRIFT, BASELINE_MISSING
+#   FingerprintError - base fingerprint exception
+#   MissingStyleXmlError - raised when style XML not found in ZIP
+#   HashFailedError - raised when hash computation fails
+#   compute - compute SHA256 fingerprint for a document
+#   compare - compare two hashes, return DriftStatus
+#   fingerprint - module-level entry point
+#   DOCX_STYLE_FILES - tuple of DOCX style XML paths
+#   DOCX_FALLBACK_FILES - tuple of DOCX fallback XML paths
+#   PPTX_STYLE_FILES - tuple of PPTX style XML paths
+#   PPTX_FALLBACK_FILES - tuple of PPTX fallback XML paths
+# END_MODULE_MAP
+#
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
 
 from __future__ import annotations
 

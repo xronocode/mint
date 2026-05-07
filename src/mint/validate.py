@@ -15,6 +15,10 @@
 #   validate - main validation entry point
 # END_MODULE_MAP
 
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
+
 from __future__ import annotations
 
 import logging
@@ -114,7 +118,31 @@ def run_checks(
     # START_BLOCK_RUN_CHECKS
     doc_format = _detect_format(document_path)
     xml_path = _get_main_xml_path(doc_format)
-    tree = _open_document_xml(document_path, xml_path)
+
+    try:
+        tree = _open_document_xml(document_path, xml_path)
+    except InvalidDocumentError as exc:
+        logger.warning(
+            f"[{_LOG_PREFIX}][run_checks][BLOCK_RUN_CHECKS] "
+            f"Cannot parse document: {exc}"
+        )
+        return ValidationReport(
+            violations=[
+                Violation(
+                    rule_id="XML-001",
+                    severity=Severity.HARD,
+                    fix_category=FixCategory.DESTRUCTIVE,
+                    message=str(exc),
+                    hint="Document XML is malformed. LLM likely generated invalid OOXML structure.",
+                )
+            ],
+            total=1,
+            hard_count=1,
+            soft_count=0,
+            mode=severity_mode.value,
+            passed=False,
+        )
+
     rules = all_rules(rules_dir=rules_dir, doc_format=doc_format)
 
     violations: list[Violation] = []

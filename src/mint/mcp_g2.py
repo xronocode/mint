@@ -4,9 +4,20 @@
 #   PURPOSE: FastMCP server extending G1 with generation tools:
 #             mint_create, mint_extract_style, mint_list_templates
 #   SCOPE: MCP tool registration and dispatch for G2 generation pipeline
-#   DEPENDS: M-CREATE, M-EXTRACT, M-TEMPLATES, M-MCP-G1
+#   DEPENDS: M-CREATE, M-EXTRACT, M-TEMPLATES
 #   LINKS: docs/knowledge-graph.xml#M-MCP-G2, docs/verification-plan.xml#V-M-MCP-G2
 # END_MODULE_CONTRACT
+#
+# START_MODULE_MAP
+#   mint_create - MCP tool: generate document (code, template, or modular mode)
+#   mint_extract_style - MCP tool: extract design tokens from document
+#   mint_list_templates - MCP tool: list available templates
+#   server_g2 - FastMCP server instance for G2 tools
+# END_MODULE_MAP
+#
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
 
 from __future__ import annotations
 

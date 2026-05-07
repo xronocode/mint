@@ -3,9 +3,25 @@
 # START_MODULE_CONTRACT
 #   PURPOSE: Apply safe/visual auto-fixes to OOXML docs with backup; reject destructive
 #   SCOPE: Backup, iterate fixes, re-validate, detect cascade, produce diff report
-#   DEPENDS: M-VALIDATE, M-RULES
+#   DEPENDS: M-VALIDATE, M-RULES, M-CONFIG
 #   LINKS: docs/knowledge-graph.xml#M-FIX, docs/verification-plan.xml#V-M-FIX
 # END_MODULE_CONTRACT
+#
+# START_MODULE_MAP
+#   FixReport - result dataclass with applied fixes, backup path, iterations, diff
+#   FixError - base fix exception
+#   CascadeDetectedError - raised when fixes don't converge
+#   BackupFailedError - raised when backup creation fails
+#   DestructiveRejectedError - raised when destructive fix attempted
+#   DEFAULT_MAX_ITERATIONS - default max fix iterations (3)
+#   apply_fixes - iterate fixes with cascade detection
+#   create_backup - copy document before modification
+#   fix - main fix entry point
+# END_MODULE_MAP
+#
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
 
 from __future__ import annotations
 

@@ -3,9 +3,20 @@
 # START_MODULE_CONTRACT
 #   PURPOSE: FastMCP server exposing G1 tools: mint_validate, mint_fix, mint_fingerprint
 #   SCOPE: MCP tool registration and dispatch
-#   DEPENDS: M-VALIDATE, M-FIX, M-FINGERPRINT
+#   DEPENDS: M-VALIDATE, M-FIX, M-FINGERPRINT, M-CONFIG
 #   LINKS: docs/knowledge-graph.xml#M-MCP-G1, docs/verification-plan.xml#V-M-MCP-G1
 # END_MODULE_CONTRACT
+#
+# START_MODULE_MAP
+#   mint_validate - MCP tool: validate document against rules
+#   mint_fix - MCP tool: auto-fix + diff + backup
+#   mint_fingerprint - MCP tool: style drift check
+#   server_g1 - FastMCP server instance for G1 tools
+# END_MODULE_MAP
+#
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
 
 from __future__ import annotations
 

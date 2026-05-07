@@ -10,17 +10,48 @@ This is docx-js v9. The API uses:
 
 ## Available Globals (pre-loaded, NO import/require needed)
 Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType,
-Table, TableRow, TableCell, WidthType, BorderStyle, writeFileSync
+Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType,
+ImageRun, ExternalHyperlink, LevelFormat, PageBreak,
+Header, Footer, PageNumber,
+writeFileSync, docx
 
 ## Required Code Pattern
 ```javascript
 const doc = new Document({
+  styles: {
+    default: { document: { run: { font: "Arial", size: 22, color: "333333" } } },
+    paragraphStyles: [
+      { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
+        run: { font: "Arial", size: 32, bold: true, color: "1B3A5C" },
+        paragraph: { spacing: { before: 360, after: 240 } } },
+      { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true,
+        run: { font: "Arial", size: 28, bold: true, color: "1B3A5C" },
+        paragraph: { spacing: { before: 240, after: 180 } } },
+    ]
+  },
+  numbering: {
+    config: [
+      {
+        reference: "bullets",
+        levels: [
+          { level: 0, format: LevelFormat.BULLET, text: "\u2022",
+            alignment: AlignmentType.LEFT,
+            style: { paragraph: { indent: { left: 720, hanging: 360 } } } },
+        ]
+      }
+    ]
+  },
   sections: [{
+    properties: {
+      page: { margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 } }
+    },
     children: [
       new Paragraph({
-        children: [new TextRun({ text: "Heading", bold: true, size: 28 })]
+        style: HeadingLevel.HEADING_1,
+        children: [new TextRun({ text: "Heading" })]
       }),
       new Paragraph({
+        spacing: { after: 120 },
         children: [new TextRun({ text: "Body text." })]
       })
     ]
@@ -36,7 +67,8 @@ writeFileSync("output.docx", buffer);
 ## Constraints
 - Do NOT use import, require, or any Node.js built-in modules
 - Do NOT wrap in async IIFE (the runtime does this already)
-- Keep the document simple: headings, paragraphs, and basic tables only
-- Tables: use `new Table({ rows: [...] })` with `width: { size: N, type: WidthType.DXA }`
+- Use named styles via `style: HeadingLevel.HEADING_1` for headings
+- Define `numbering.config` for bullet lists (never use manual bullet chars)
+- Tables: use `ShadingType.CLEAR` for shading, `width: { size: N, type: WidthType.DXA }`
 - Save with: writeFileSync("output.docx", buffer)
 - Return ONLY raw JavaScript code, no markdown fences, no explanations

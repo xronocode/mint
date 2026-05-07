@@ -74,13 +74,15 @@ class TestRunChecksStrict:
 
 
 class TestRunChecksErrors:
-    def test_nonexistent_file_raises(self) -> None:
-        with pytest.raises(InvalidDocumentError):
-            run_checks(
-                FIXTURES / "nonexistent.docx",
-                SeverityMode.AUDIT,
-                rules_dir=RULES_DIR,
-            )
+    def test_nonexistent_file_returns_hard_violation(self) -> None:
+        report = run_checks(
+            FIXTURES / "nonexistent.docx",
+            SeverityMode.AUDIT,
+            rules_dir=RULES_DIR,
+        )
+        assert not report.passed
+        assert report.hard_count == 1
+        assert report.violations[0].rule_id == "XML-001"
 
 
 class TestClassifyViolations:

@@ -14,6 +14,10 @@
 #   skills - module-level registry instance
 # END_MODULE_MAP
 
+# START_CHANGE_SUMMARY
+#   LAST_CHANGE: v0.1.0 - Initial implementation
+# END_CHANGE_SUMMARY
+
 from __future__ import annotations
 
 import json
