@@ -528,15 +528,15 @@
   </DataFlow>
 
   <ImplementationOrder>
-    <Phase-1 name="Foundation + Validation (G0+G1)" status="pending">
+    <Phase-1 name="Foundation + Validation (G0+G1)" status="done">
       <goal>Prove hypothesis (G0) and build deterministic quality gate (G1)</goal>
       <step-1 module="M-CONFIG" status="done" verification="V-M-CONFIG">Configuration and environment management</step-1>
-      <step-2 module="M-SANDBOX" status="pending" verification="V-M-SANDBOX">Node.js execution sandbox with security constraints</step-2>
-      <step-3 module="M-RULES" status="pending" verification="V-M-RULES">Validation rule definitions (DOCX hard+soft, PPTX hard)</step-3>
-      <step-4 module="M-VALIDATE" status="pending" verification="V-M-VALIDATE">Validation engine with severity modes (audit/lenient/strict)</step-4>
-      <step-5 module="M-FIX" status="pending" verification="V-M-FIX">Auto-fix engine with safe/visual/destructive categories</step-5>
-      <step-6 module="M-FINGERPRINT" status="pending" verification="V-M-FINGERPRINT">StyleFingerprint hash for structural drift detection</step-6>
-      <step-7 module="M-MCP-G1" status="pending" verification="V-M-MCP-G1">MCP tools: mint_validate, mint_fix, mint_fingerprint</step-7>
+      <step-2 module="M-SANDBOX" status="done" verification="V-M-SANDBOX">Node.js execution sandbox with security constraints</step-2>
+      <step-3 module="M-RULES" status="done" verification="V-M-RULES">Validation rule definitions (DOCX hard+soft, PPTX hard)</step-3>
+      <step-4 module="M-VALIDATE" status="done" verification="V-M-VALIDATE">Validation engine with severity modes (audit/lenient/strict)</step-4>
+      <step-5 module="M-FIX" status="done" verification="V-M-FIX">Auto-fix engine with safe/visual/destructive categories</step-5>
+      <step-6 module="M-FINGERPRINT" status="done" verification="V-M-FINGERPRINT">StyleFingerprint hash for structural drift detection</step-6>
+      <step-7 module="M-MCP-G1" status="done" verification="V-M-MCP-G1">MCP tools: mint_validate, mint_fix, mint_fingerprint</step-7>
     </Phase-1>
 
     <Phase-2 name="Claude-Quality Generation (G2)" status="done">
@@ -545,10 +545,10 @@
       <step-2 module="M-TEMPLATES" status="done" verification="V-M-TEMPLATES">Template engine with master templates and JSON fill</step-2>
       <step-3 module="M-EXTRACT" status="done" verification="V-M-EXTRACT">Style extraction: design-tokens.json from existing documents</step-3>
       <step-4 module="M-CREATE" status="done" verification="V-M-CREATE">Create orchestrator: skill → model → execute → validate → output</step-4>
-      <step-5 module="M-MCP-G2" status="pending" verification="V-M-MCP-G2">MCP tools: mint_create, mint_extract_style, mint_list_templates</step-5>
+      <step-5 module="M-MCP-G2" status="done" verification="V-M-MCP-G2">MCP tools: mint_create, mint_extract_style, mint_list_templates</step-5>
     </Phase-2>
 
-    <Phase-3 name="QA + GRACE + Launch (G3+G4+G5)" status="pending">
+    <Phase-3 name="QA + GRACE + Launch (G3+G4+G5)" status="done">
       <goal>Visual QA, GRACE metadata, and public launch</goal>
       <step-1 module="M-QA" status="done" verification="V-M-QA">QA pipeline: L1 programmatic + L2 render-based via Gotenberg</step-1>
       <step-2 module="M-GRACE" status="done" verification="V-M-GRACE">GRACE injection: manifest + instructions as Custom XML Parts</step-2>
