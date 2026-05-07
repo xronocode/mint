@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -138,18 +139,42 @@ def _call_model(request: CreateRequest, skill: SkillRef) -> str:
         )
 
     registry = SkillRegistry(Path(__file__).parent.parent.parent / "skills")
-    prompt = registry.render_prompt(skill, request.design_tokens)
+    skill_prompt = registry.render_prompt(skill, request.design_tokens)
 
     code_or_json = (
         "JavaScript code using docx-js/pptxgenjs"
         if request.tier != "small"
         else "JSON content"
     )
+    if request.tier != "small":
+        sandbox_note = (
+            "CRITICAL RULES:\n"
+            "1. Do NOT use import/require. Pre-loaded globals: "
+            "Document, Packer, Paragraph, TextRun, HeadingLevel, "
+            "AlignmentType, Table, TableRow, TableCell, WidthType, "
+            "BorderStyle, ImageRun, ExternalHyperlink, pptxgen, "
+            "writeFileSync. Use them directly: new Document(), etc.\n"
+            "2. Tables MUST use new Table({ rows: [...] }). "
+            "NEVER put TableRow directly in sections.children.\n"
+            "3. TableCell width MUST be an object: "
+            "{ size: NUMBER, type: WidthType.DXA }. Never a bare number.\n"
+            "4. Do NOT wrap code in async IIFE (runtime does this).\n"
+            "5. Save with: writeFileSync('output.docx', buffer). "
+            "For PPTX: const pptx = new pptxgen(); "
+            "pptx.writeFile({fileName: 'output.pptx'}).\n"
+            "6. Return ONLY raw JavaScript code, no markdown fences."
+        )
+    else:
+        sandbox_note = (
+            "Return ONLY a JSON object matching the template placeholders. "
+            "No markdown fences, no explanations."
+        )
     system_prompt = (
         f"You are a document generation assistant. "
         f"Generate {code_or_json} "
         f"to create a {request.format.upper()} document. "
-        f"Return ONLY the code/JSON, no explanations."
+        f"{sandbox_note}\n\n"
+        f"{skill_prompt}"
     )
 
     client = LLMClient(
@@ -159,7 +184,7 @@ def _call_model(request: CreateRequest, skill: SkillRef) -> str:
     )
 
     try:
-        response = client.call(prompt, system=system_prompt)
+        response = client.call(request.prompt, system=system_prompt)
     except LLMCallError as e:
         raise ModelCallFailedError(str(e)) from e
 
@@ -169,7 +194,14 @@ def _call_model(request: CreateRequest, skill: SkillRef) -> str:
         response.usage,
         response.duration_ms,
     )
-    return response.text
+    return _strip_code_fences(response.text)
+
+
+def _strip_code_fences(text: str) -> str:
+    match = re.search(r"```(?:javascript|js|json)?\s*\n(.*?)```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
 
 
 def _create_code_mode(
@@ -187,6 +219,11 @@ def _create_code_mode(
                 execution_mode="code",
                 success=False,
             )
+
+    logger.info(
+        "[Create][execute] Generated code (%d chars)",
+        len(code),
+    )
 
     try:
         sandbox_result: SandboxResult = sandbox_execute(code)

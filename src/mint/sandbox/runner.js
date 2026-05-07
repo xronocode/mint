@@ -97,9 +97,11 @@ const context = {
   TableCell: docx.TableCell,
   WidthType: docx.WidthType,
   BorderStyle: docx.BorderStyle,
+  Table: docx.Table,
   ImageRun: docx.ImageRun,
   ExternalHyperlink: docx.ExternalHyperlink,
   pptxgen: pptxgen,
+  docx: docx,
 };
 context.globalThis = context;
 

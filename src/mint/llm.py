@@ -61,7 +61,7 @@ class LLMClient:
             "model": self._model,
             "messages": messages,
             "temperature": 0.3,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
         }
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self._api_key:
