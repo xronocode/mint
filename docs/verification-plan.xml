@@ -854,7 +854,7 @@
       </required-evidence>
     </Wave-4-4>
 
-    <Wave-5-1 PHASE="Phase-5" SCOPE="M-OOXML" STATUS="pending">
+    <Wave-5-1 PHASE="Phase-5" SCOPE="M-OOXML" STATUS="done">
       <goal>Pure-Python unpack/pack round-trip is tree-stable for XML parts and byte-stable for binary parts; auto-repair fires on the documented inputs.</goal>
       <commands>
         <command-1>pytest tests/unit/test_ooxml.py -x</command-1>

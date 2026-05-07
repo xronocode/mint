@@ -733,7 +733,7 @@ writeFileSync('output.docx', buffer);
 
     <!-- PHASE 5 (G7): Edit Pipeline -->
 
-    <M-OOXML NAME="OOXML Pack/Unpack" TYPE="UTILITY" LAYER="0" ORDER="5" STATUS="planned">
+    <M-OOXML NAME="OOXML Pack/Unpack" TYPE="UTILITY" LAYER="0" ORDER="5" STATUS="done">
       <contract>
         <purpose>Pure-Python pack/unpack of OOXML containers (DOCX/PPTX/XLSX) for the edit pipeline. Distills Anthropic-style preprocessing (pretty-print, run merge, smart-quote escaping) into deterministic, MIT-clean code with no LibreOffice or shell-out. Round-trip yields tree-equal XML for every part (same tag tree, same attributes) so diffs stay reviewable; binary parts and the [Content_Types].xml override order are preserved byte-for-byte.</purpose>
         <inputs>
@@ -975,7 +975,7 @@ writeFileSync('output.docx', buffer);
 
     <Phase-5 name="Edit Pipeline (G7)" status="planned">
       <goal>Edit existing DOCX/PPTX without regeneration. Model emits a typed JSON EditPlan; runtime applies it deterministically. Unlocks B2B use-cases where users want incremental changes to their own documents.</goal>
-      <step-1 module="M-OOXML" status="planned" verification="V-M-OOXML">Pure-Python pack/unpack utility with pretty-print, run merge, smart-quote escaping, auto-repair</step-1>
+      <step-1 module="M-OOXML" status="done" verification="V-M-OOXML">Pure-Python pack/unpack utility with pretty-print, run merge, smart-quote escaping, auto-repair</step-1>
       <step-2 module="M-EDIT" status="planned" verification="V-M-EDIT">Edit pipeline: declarative EditPlan → anchor resolve → typed op handlers → pack → validate</step-2>
       <step-3 module="M-MCP-G2" status="planned" verification="V-M-MCP-G2">Add MCP tool mint_edit (input document_path + EditPlan JSON, output EditResult); also extend src/mint/cli.py with a mint edit subcommand reading EditPlan from a JSON file</step-3>
     </Phase-5>

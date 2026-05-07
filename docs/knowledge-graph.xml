@@ -270,19 +270,20 @@
 
     <!-- Phase 5: Edit Pipeline (G7) -->
 
-    <M-OOXML NAME="OOXML Pack/Unpack" TYPE="UTILITY" STATUS="planned">
-      <purpose>Pure-Python pack/unpack of OOXML containers with pretty-print, run merge, smart-quote escaping, auto-repair of durableId and xml:space=preserve. No LibreOffice or shell-out. Round-trip stable for unmodified parts.</purpose>
+    <M-OOXML NAME="OOXML Pack/Unpack" TYPE="UTILITY" STATUS="done">
+      <purpose>Pure-Python pack/unpack of OOXML containers with pretty-print, run merge, smart-quote escaping, auto-repair of durableId and xml:space=preserve. No LibreOffice or shell-out. Round-trip tree-equal for XML parts and byte-equal for binary parts.</purpose>
       <path>src/mint/ooxml.py</path>
       <depends>M-CONFIG</depends>
       <verification-ref>V-M-OOXML</verification-ref>
       <annotations>
         <fn-unpack PURPOSE="Extract container into directory; pretty-print XML parts; merge adjacent equal-rPr runs; escape smart quotes; preserve binary parts byte-for-byte" />
-        <fn-pack PURPOSE="Re-zip directory with auto-repair (durableId regen, xml:space=preserve, rsid normalization); fail-fast on malformed XML or broken relationships" />
+        <fn-pack PURPOSE="Re-zip directory with auto-repair (durableId regen, xml:space=preserve); fail-fast on malformed XML or broken relationships" />
         <fn-merge_runs PURPOSE="Fold adjacent w:r with equal w:rPr inside w:p; never cross hyperlink, bookmark, comment-range, ins, del, fldChar, tab, br, sym boundaries" />
-        <fn-escape_smart_quotes PURPOSE="Per-paragraph alternation between opening and closing double quotes; ASCII apostrophe to right single quote; idempotent" />
-        <fn-validate_relationships PURPOSE="Cross-check every Target in *.rels resolves to a part inside the package" />
+        <fn-escape_smart_quotes PURPOSE="Per-paragraph alternation between opening and closing double quotes; ASCII apostrophe to right single quote; skip Code-styled runs; idempotent" />
+        <fn-validate_relationships PURPOSE="Cross-check every Target in word/_rels/*.rels and ppt/_rels/*.rels resolves to a part inside the package; lenient on TargetMode='External'" />
         <type-UnpackResult PURPOSE="dataclass: unpack_dir, parts, runs_merged, quotes_escaped, format, original_path" />
         <type-PackResult PURPOSE="dataclass: output_path, repaired_durable_ids, preserved_whitespace_runs, bytes_written" />
+        <class-OOXMLError PURPOSE="Exception with `code` attr; codes: OOXML_NOT_A_ZIP, OOXML_MISSING_CONTENT_TYPES, OOXML_XML_PARSE_ERROR, OOXML_RELATIONSHIP_BROKEN, OOXML_PACK_FAILED" />
       </annotations>
     </M-OOXML>
 
