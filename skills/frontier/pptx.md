@@ -27,6 +27,8 @@ writeFileSync("output.pptx", buffer);
 - Do NOT wrap in async IIFE (the runtime does this already)
 - Use `const buffer = await pptx.write({ outputType: "nodebuffer" }); writeFileSync("output.pptx", buffer);` to save
 - Do NOT use `pptx.writeFile()` — it uses async fs which the sandbox blocks
+- Do NOT use `slide.addBackground()` — it does not exist. Use `slide.background = { color: "FFFFFF" }` instead
+- Do NOT define helper objects or variables that are not needed — keep code simple
 - Return ONLY raw JavaScript code, no markdown fences, no explanations
 
 ## FORBIDDEN Patterns (will crash at runtime)
@@ -39,4 +41,17 @@ import pptxgen from "pptxgenjs";  // SyntaxError!
 
 // WRONG: require
 const pptxgen = require("pptxgenjs");  // Error!
+
+// WRONG: addBackground does not exist
+slide.addBackground("FFFFFF");  // TypeError!
+
+// CORRECT: use slide.background property
+slide.background = { color: "FFFFFF" };
+
+// WRONG: writeFile uses async fs (blocked in sandbox)
+pptx.writeFile({ fileName: "output.pptx" });  // No output!
+
+// CORRECT: use write + writeFileSync
+const buffer = await pptx.write({ outputType: "nodebuffer" });
+writeFileSync("output.pptx", buffer);
 ```

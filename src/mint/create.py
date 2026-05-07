@@ -171,10 +171,12 @@ def _call_model(request: CreateRequest, skill: SkillRef) -> str:
             "2. Do NOT use docx-js classes (Document, Paragraph, etc). "
             "Use ONLY pptxgenjs API.\n"
             "3. Do NOT wrap code in async IIFE (runtime does this).\n"
-            "4. Save: const buffer = await pptx.write({ outputType: "
+            "4. Background: use slide.background = { color: 'FFFFFF' }. "
+            "Do NOT use slide.addBackground().\n"
+            "5. Save: const buffer = await pptx.write({ outputType: "
             "'nodebuffer' }); writeFileSync('output.pptx', buffer).\n"
-            "5. Do NOT use pptx.writeFile() — it does not work in sandbox.\n"
-            "6. Return ONLY raw JavaScript code, no markdown fences."
+            "6. Do NOT use pptx.writeFile().\n"
+            "7. Return ONLY raw JavaScript code, no markdown fences."
         )
     else:
         sandbox_note = (
