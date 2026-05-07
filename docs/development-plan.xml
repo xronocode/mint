@@ -784,7 +784,7 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-M-OOXML</verification-ref>
     </M-OOXML>
 
-    <M-EDIT NAME="Document Edit Pipeline" TYPE="CORE_LOGIC" LAYER="2" ORDER="5" STATUS="planned">
+    <M-EDIT NAME="Document Edit Pipeline" TYPE="CORE_LOGIC" LAYER="2" ORDER="5" STATUS="done">
       <contract>
         <purpose>Edit existing DOCX/PPTX without regeneration. Accepts a declarative EditPlan (JSON list of typed operations) emitted by an LLM and applies it via deterministic XML transforms over an M-OOXML unpack tree. Decouples model output from raw XML — works on 7B-frontier because the model only emits a small typed JSON, never OOXML. Supports tracked changes and comments per ECMA-376.</purpose>
         <inputs>
@@ -976,7 +976,7 @@ writeFileSync('output.docx', buffer);
     <Phase-5 name="Edit Pipeline (G7)" status="planned">
       <goal>Edit existing DOCX/PPTX without regeneration. Model emits a typed JSON EditPlan; runtime applies it deterministically. Unlocks B2B use-cases where users want incremental changes to their own documents.</goal>
       <step-1 module="M-OOXML" status="done" verification="V-M-OOXML">Pure-Python pack/unpack utility with pretty-print, run merge, smart-quote escaping, auto-repair</step-1>
-      <step-2 module="M-EDIT" status="planned" verification="V-M-EDIT">Edit pipeline: declarative EditPlan → anchor resolve → typed op handlers → pack → validate</step-2>
+      <step-2 module="M-EDIT" status="done" verification="V-M-EDIT">Edit pipeline: declarative EditPlan → anchor resolve → typed op handlers → pack → validate</step-2>
       <step-3 module="M-MCP-G2" status="planned" verification="V-M-MCP-G2">Add MCP tool mint_edit (input document_path + EditPlan JSON, output EditResult); also extend src/mint/cli.py with a mint edit subcommand reading EditPlan from a JSON file</step-3>
     </Phase-5>
   </ImplementationOrder>

@@ -870,7 +870,7 @@
       </required-evidence>
     </Wave-5-1>
 
-    <Wave-5-2 PHASE="Phase-5" SCOPE="M-EDIT" STATUS="pending">
+    <Wave-5-2 PHASE="Phase-5" SCOPE="M-EDIT" STATUS="done">
       <goal>Typed EditPlans applied deterministically; LLM never sees OOXML; revisions and comments follow ECMA-376 with reply linkage in commentsExtended.xml.</goal>
       <commands>
         <command-1>pytest tests/unit/test_edit.py -x</command-1>

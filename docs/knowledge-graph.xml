@@ -287,7 +287,7 @@
       </annotations>
     </M-OOXML>
 
-    <M-EDIT NAME="Document Edit Pipeline" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-EDIT NAME="Document Edit Pipeline" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Edit existing DOCX/PPTX via a typed JSON EditPlan. Model emits ops, runtime applies them deterministically over an unpacked tree. Supports tracked changes and comments per ECMA-376; never feeds raw XML to the model.</purpose>
       <path>src/mint/edit.py</path>
       <depends>M-OOXML, M-CONFIG, M-VALIDATE, M-LLM</depends>
