@@ -888,7 +888,7 @@
       </required-evidence>
     </Wave-5-2>
 
-    <Wave-5-3 PHASE="Phase-5" SCOPE="M-MCP-G2 (mint_edit), CLI (mint edit)" STATUS="pending">
+    <Wave-5-3 PHASE="Phase-5" SCOPE="M-MCP-G2 (mint_edit), CLI (mint edit)" STATUS="done">
       <goal>End-to-end edit through the MCP tool and the CLI subcommand: EditPlan JSON in, EditResult JSON out, output document validated.</goal>
       <commands>
         <command-1>pytest tests/integration/test_mcp_g2.py -x -k edit</command-1>

@@ -174,15 +174,16 @@
       </annotations>
     </M-CREATE>
 
-    <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" STATUS="done">
+    <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" STATUS="done" VERSION="0.2.0">
       <purpose>FastMCP tool registration: mint_create, mint_extract_style, mint_list_templates</purpose>
       <path>src/mint/mcp_g2.py</path>
-      <depends>M-CREATE, M-EXTRACT, M-TEMPLATES</depends>
+      <depends>M-CREATE, M-EXTRACT, M-TEMPLATES, M-EDIT</depends>
       <verification-ref>V-M-MCP-G2</verification-ref>
       <annotations>
         <fn-mint_create PURPOSE="MCP tool: generate document (code, template, or modular mode)" />
         <fn-mint_extract_style PURPOSE="MCP tool: extract design tokens from document" />
         <fn-mint_list_templates PURPOSE="MCP tool: list available templates" />
+        <fn-mint_edit PURPOSE="MCP tool: apply EditPlan JSON to existing DOCX via M-EDIT.edit; returns EditResult JSON; LLM never sees raw OOXML" />
         <export-server_g2 PURPOSE="FastMCP server instance for G2 tools" />
       </annotations>
     </M-MCP-G2>
@@ -339,5 +340,7 @@
     <CrossLink from="M-EDIT" to="M-VALIDATE" relation="re-validates the edited document before returning" />
     <CrossLink from="M-EDIT" to="M-LLM" relation="calls model to produce typed EditPlan from a user instruction" />
     <CrossLink from="M-EDIT" to="M-CONFIG" relation="reads severity mode and redaction policy" />
+    <CrossLink from="M-MCP-G2" to="M-EDIT" relation="exposes mint_edit MCP tool over M-EDIT.edit" />
+    <CrossLink from="M-CLI" to="M-EDIT" relation="exposes mint edit subcommand over M-EDIT.edit" />
   </Project>
 </KnowledgeGraph>
