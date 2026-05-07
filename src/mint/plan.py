@@ -231,8 +231,16 @@ def validate_plan(plan: DocumentPlan) -> None:
         )
 
     for nc in plan.numbering:
-        if not nc.reference.strip():
-            raise PlanInvalidError("NumberingConfig reference must be non-empty")
+        if nc.reference.strip() == "" and nc.levels:
+            logger.warning(
+                f"[{_LOG_PREFIX}][validate] "
+                "NumberingConfig with empty reference and %d levels, skipping",
+                len(nc.levels),
+            )
+        elif not nc.reference.strip() and not nc.levels:
+            raise PlanInvalidError(
+                "NumberingConfig must have non-empty reference or levels"
+            )
 
     logger.info(
         f"[{_LOG_PREFIX}][validate][BLOCK_PLAN_VALIDATE] "

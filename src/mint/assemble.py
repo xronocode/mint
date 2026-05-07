@@ -322,7 +322,8 @@ def render_assembly_template(
         sections_placeholder = set()
 
     styles_js = build_styles_config(plan_data.styles)
-    numbering_js = build_numbering_config(plan_data.numbering)
+    valid_numbering = [nc for nc in plan_data.numbering if nc.reference.strip()]
+    numbering_js = build_numbering_config(valid_numbering)
     header_js, footer_js = build_headers_footers(plan_data.header_footer)
 
     sections_js_parts: list[str] = []

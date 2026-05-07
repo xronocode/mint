@@ -17,3 +17,15 @@ dist/
 output.docx
 output.pptx
 output.xlsx
+
+# OS / IDE / editor noise
+.DS_Store
+**/.DS_Store
+
+# Tool telemetry
+.vision-sidecar-telemetry/
+
+# E2e generated outputs (the inputs/scripts are tracked, the outputs are not)
+e2e_results/
+/showcase_*.docx
+/showcase_*.pptx

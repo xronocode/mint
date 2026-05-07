@@ -31,6 +31,28 @@ code = code.replace(
   ""
 );
 
+const COLOR_TOKENS = {
+  PRIMARY: "1B3A5C",
+  ACCENT: "2E75B6",
+  SUCCESS: "2E8B57",
+  WARNING: "E8A838",
+  ERROR: "C0392B",
+  TEXT: "333333",
+  MUTED: "666666",
+  SURFACE: "F0F0F0",
+  LIGHT_BLUE: "D5E8F0",
+  WHITE: "FFFFFF",
+  ALT_ROW: "F0F0F0",
+};
+for (const [token, hex] of Object.entries(COLOR_TOKENS)) {
+  const re = new RegExp(`(['"\`])${token}\\1`, "g");
+  code = code.replace(re, `'${hex}'`);
+  const reFill = new RegExp(`fill:\\s*['"\`]${token}['"\`]`, "g");
+  code = code.replace(reFill, `fill: '${hex}'`);
+  const reColor = new RegExp(`color:\\s*['"\`]${token}['"\`]`, "g");
+  code = code.replace(reColor, `color: '${hex}'`);
+}
+
 const __sandbox_fs__ = {
   writeFileSync: (name, data) => {
     const safeName = String(name).replace(/[^a-zA-Z0-9._-]/g, "_");
