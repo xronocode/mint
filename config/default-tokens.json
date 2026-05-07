@@ -1,0 +1,43 @@
+{
+  "typography": {
+    "heading_font": "Calibri",
+    "body_font": "Calibri",
+    "heading_color": "1B2A4A",
+    "body_color": "374151",
+    "heading_sizes": [40, 32, 26, 22, 20],
+    "body_size": 22,
+    "line_spacing": 276
+  },
+  "colors": {
+    "primary": "2563EB",
+    "primary_dark": "1E40AF",
+    "surface": "F8FAFC",
+    "background": "FFFFFF",
+    "text_primary": "1E293B",
+    "text_secondary": "64748B",
+    "border": "CBD5E1",
+    "accent": "3B82F6"
+  },
+  "table": {
+    "header_bg": "1E40AF",
+    "header_text": "FFFFFF",
+    "header_font_size": 20,
+    "body_bg": "FFFFFF",
+    "alt_row_bg": "F1F5F9",
+    "border_color": "CBD5E1",
+    "cell_padding": 80,
+    "cell_font_size": 20
+  },
+  "spacing": {
+    "after_heading": 200,
+    "after_paragraph": 160,
+    "after_table": 240,
+    "section_break": 480
+  },
+  "page": {
+    "margin_top": 1440,
+    "margin_bottom": 1440,
+    "margin_left": 1440,
+    "margin_right": 1440
+  }
+}

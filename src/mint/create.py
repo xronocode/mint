@@ -56,6 +56,8 @@ class CreateRequest:
     llm_base_url: str | None = None
     llm_api_key: str | None = None
     llm_model: str | None = None
+    self_evaluate: bool = False
+    max_refine_rounds: int = 1
 
 
 @dataclass
@@ -218,6 +220,71 @@ def _strip_code_fences(text: str) -> str:
     return text.strip()
 
 
+def _evaluate_and_refine(
+    request: CreateRequest,
+    code: str,
+    skill: SkillRef,
+) -> str | None:
+    from mint.llm import LLMCallError, LLMClient
+
+    base_url = request.llm_base_url
+    if not base_url:
+        return None
+
+    evaluate_prompt = (
+        "You are a senior document design reviewer. Examine the JavaScript code below "
+        "that generates a document using docx-js/pptxgenjs.\n\n"
+        "Evaluate on these criteria (score 1-10 each):\n"
+        "1. TYPOGRAPHY: Are heading and body fonts consistent? Proper sizes? Good hierarchy?\n"
+        "2. COLOR SCHEME: Is there a cohesive color palette? Are headers colored? Tables styled?\n"
+        "3. SPACING: Proper margins, paragraph spacing, section breaks?\n"
+        "4. TABLE DESIGN: Header rows with background color? Alternating row colors? Borders?\n"
+        "5. VISUAL HIERARCHY: Clear distinction between heading levels? Professional layout?\n"
+        "6. COMPLETENESS: Does the code fully address the user's request?\n\n"
+        f"USER REQUEST: {request.prompt}\n\n"
+        f"GENERATED CODE:\n```javascript\n{code}\n```\n\n"
+        "If ALL scores are 7 or above, respond with exactly: APPROVED\n"
+        "If any score is below 7, respond with improved JavaScript code that fixes the issues. "
+        "Focus on:\n"
+        "- Adding named styles with colors and proper fonts\n"
+        "- Table header rows with colored backgrounds (shading: {fill: '1E40AF'})\n"
+        "- Alternating row backgrounds\n"
+        "- Proper page margins and paragraph spacing\n"
+        "- Visual hierarchy with consistent heading sizes\n\n"
+        "Return ONLY raw JavaScript code (if improving) or APPROVED (if satisfied). "
+        "No markdown fences, no explanations."
+    )
+
+    client = LLMClient(
+        base_url=base_url,
+        api_key=request.llm_api_key or "",
+        model=request.llm_model or "glm-5",
+    )
+
+    try:
+        response = client.call(evaluate_prompt)
+    except LLMCallError as e:
+        logger.warning("[Create][evaluate] Evaluation failed: %s", e)
+        return None
+
+    text = response.text.strip()
+    if "APPROVED" in text.upper()[:50]:
+        logger.info("[Create][evaluate] Code approved by self-evaluation")
+        return None
+
+    refined = _strip_code_fences(text)
+    if len(refined) < 50 or "APPROVED" in refined.upper()[:50]:
+        logger.info("[Create][evaluate] No actionable refinement provided")
+        return None
+
+    logger.info(
+        "[Create][evaluate] Refined code received (%d chars → %d chars)",
+        len(code),
+        len(refined),
+    )
+    return refined
+
+
 def _create_code_mode(
     request: CreateRequest,
     skill: SkillRef,
@@ -238,6 +305,18 @@ def _create_code_mode(
         "[Create][execute] Generated code (%d chars)",
         len(code),
     )
+
+    if request.self_evaluate and request.model_response_override is None:
+        for round_num in range(request.max_refine_rounds):
+            logger.info("[Create][evaluate] Self-evaluation round %d", round_num + 1)
+            refined = _evaluate_and_refine(request, code, skill)
+            if refined is None:
+                break
+            code = refined
+            logger.info(
+                "[Create][evaluate] Using refined code (%d chars)",
+                len(code),
+            )
 
     try:
         sandbox_result: SandboxResult = sandbox_execute(code)

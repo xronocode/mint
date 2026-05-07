@@ -48,6 +48,10 @@ class SkillRef:
 
 
 class SkillRegistry:
+    _DEFAULT_TOKENS_PATH = (
+        Path(__file__).parent.parent.parent.parent / "config" / "default-tokens.json"
+    )
+
     def __init__(self, skills_dir: Path) -> None:
         self._skills_dir = skills_dir
 
@@ -97,17 +101,25 @@ class SkillRegistry:
         self, skill: SkillRef, design_tokens: dict[str, Any] | None = None
     ) -> str:
         prompt_text = skill.path.read_text(encoding="utf-8")
-        if design_tokens is not None:
-            tokens_json = json.dumps(design_tokens, indent=2)
-            prompt_text = prompt_text.replace(TOKENS_PLACEHOLDER, tokens_json)
-        else:
-            prompt_text = prompt_text.replace(TOKENS_PLACEHOLDER, "{}")
+        tokens = design_tokens
+        if tokens is None:
+            default_path = self._DEFAULT_TOKENS_PATH
+            if default_path.is_file():
+                tokens = json.loads(default_path.read_text(encoding="utf-8"))
+                logger.info(
+                    "[Skills][render_prompt] Loaded default tokens from %s",
+                    default_path,
+                )
+            else:
+                tokens = {}
+        tokens_json = json.dumps(tokens, indent=2)
+        prompt_text = prompt_text.replace(TOKENS_PLACEHOLDER, tokens_json)
         logger.info(
             "[Skills][render_prompt][BLOCK_RENDER_PROMPT] "
-            "Rendered skill: %s/%s, tokens_injected=%s",
+            "Rendered skill: %s/%s, tokens_keys=%s",
             skill.tier,
             skill.format,
-            design_tokens is not None,
+            list(tokens.keys()) if tokens else [],
         )
         return prompt_text
     # END_BLOCK_RENDER_PROMPT
