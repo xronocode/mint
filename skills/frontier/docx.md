@@ -267,6 +267,13 @@ Apply design tokens for ALL styling decisions:
 - Tables: header row with colored background via `ShadingType.CLEAR`, alternating row colors
 - Table cells: `width: { size: NUMBER, type: WidthType.DXA }` — always an object
 - Table cells: always include `borders` and `margins` for readability
+- Cell `margins` are INTERNAL padding — they reduce the content area, they do NOT add to the cell `width`. Cell `width` must equal the matching entry in the table's `columnWidths`, regardless of margins.
+- Page size: docx-js defaults to A4. For US documents pass `size: { width: 12240, height: 15840 }` (US Letter, DXA). For A4 pass `size: { width: 11906, height: 16838 }`. Always set `size` explicitly so output is consistent across renderers.
+- Landscape orientation: docx-js swaps width/height internally. Pass the SHORT edge as `width` and the LONG edge as `height`, then set `orientation: PageOrientation.LANDSCAPE`. Content width then derives from the long edge minus left + right margins.
+- Use only `WidthType.DXA` for tables and cells. `WidthType.PERCENTAGE` is incompatible with Google Docs and breaks layout there.
+- TableOfContents requires headings styled by `HeadingLevel.HEADING_1..3` only. Do NOT also attach a custom style id, custom run formatting, or numbering to a heading paragraph that participates in the TOC — Word may then drop the heading from the generated TOC.
+- Never insert a table for the sole purpose of drawing a horizontal rule (cells have a minimum height and render as empty boxes, especially in headers and footers). Use a `Paragraph` with `border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "...", space: 1 } }` instead. For a two-side header or footer, use tab stops (see header/footer template above), not a table.
+- Prefer Unicode smart quotes in body text: `’` for apostrophes, `“` and `”` for double quotes. ASCII `'` and `"` are kept as-is inside code fragments.
 - Save with: writeFileSync("output.docx", buffer)
 - Return ONLY raw JavaScript code, no markdown fences, no explanations
 
@@ -301,4 +308,57 @@ shading: { fill: "EBF5FB", type: "solid" }
 
 // CORRECT: always use ShadingType.CLEAR
 shading: { fill: "EBF5FB", type: ShadingType.CLEAR }
+
+// WRONG: a single-row table used as a horizontal rule
+new Table({ rows: [new TableRow({ children: [new TableCell({ children: [] })] })] })
+
+// CORRECT: use a Paragraph with a bottom border
+new Paragraph({
+  border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "2E75B6", space: 1 } },
+  children: [],
+})
+
+// WRONG: \n inside a TextRun
+new TextRun({ text: "Line one\nLine two" })
+
+// CORRECT: separate Paragraphs
+new Paragraph({ children: [new TextRun({ text: "Line one" })] }),
+new Paragraph({ children: [new TextRun({ text: "Line two" })] })
+
+// WRONG: landscape with the long edge passed as width
+sections: [{ properties: { page: { size: { width: 15840, height: 12240, orientation: PageOrientation.LANDSCAPE } } } }]
+
+// CORRECT: pass the portrait dimensions and let docx-js swap them
+sections: [{ properties: { page: { size: { width: 12240, height: 15840, orientation: PageOrientation.LANDSCAPE } } } }]
+
+// WRONG: a custom style id on a heading that should appear in the TOC
+new Paragraph({ heading: HeadingLevel.HEADING_1, style: "MyHeadingStyle", children: [new TextRun("Title")] })
+
+// CORRECT: rely on HeadingLevel only for TOC participation
+new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun("Title")] })
+
+// WRONG: cell margins added to the declared cell width
+new TableCell({ width: { size: 4680, type: WidthType.DXA }, margins: { left: 240, right: 240 }, /* now overflows columnWidths sum */ })
+
+// CORRECT: keep cell width equal to the matching columnWidths entry; margins live inside it
+new TableCell({ width: { size: 4680, type: WidthType.DXA }, margins: { top: 80, bottom: 80, left: 120, right: 120 }, children: [...] })
 ```
+
+## 6. Critical Rules — Final Checklist
+
+Run this list against the code you produced before returning it. Each item is a hard rule.
+
+1. `Document` constructor includes `styles.paragraphStyles` for Heading1, Heading2, Heading3 with `outlineLevel: 0/1/2`.
+2. `Document` constructor includes `numbering.config` with at least the `bullets` and `numbers` references; lists never use unicode bullet characters in `TextRun` text.
+3. Default section has `properties.page.size` set explicitly (US Letter `12240 x 15840` or A4 `11906 x 16838`).
+4. Landscape sections pass the short edge as `width` and the long edge as `height` together with `orientation: PageOrientation.LANDSCAPE`.
+5. Every `Table` declares `width: { size, type: WidthType.DXA }` and `columnWidths` whose entries sum exactly to that `size`.
+6. Every `TableCell` declares `width: { size, type: WidthType.DXA }` matching its `columnWidths` entry, plus `borders` and `margins`. Cell `margins` are not added to cell `width`.
+7. Table shading uses `ShadingType.CLEAR`, never `"solid"` and never `ShadingType.SOLID`.
+8. No table is used purely to draw a horizontal line. Horizontal rules use a `Paragraph` with a bottom `border`.
+9. No `TextRun.text` contains `\n`. Line breaks become separate `Paragraph` instances.
+10. `PageBreak` is always wrapped in a `Paragraph`.
+11. Every `ImageRun` declares `type` and an `altText` object with `title`, `description`, `name`.
+12. Headings that participate in `TableOfContents` use only `HeadingLevel.HEADING_1..3`; no extra `style` id and no `numbering` reference is attached to them.
+13. Prefer Unicode smart quotes in body text (`’ “ ”`); ASCII straight quotes are acceptable inside code-style runs.
+14. The final line writes the buffer with `writeFileSync("output.docx", buffer)`. The output is raw JavaScript, with no `import`, no `require`, no markdown fences, no commentary.

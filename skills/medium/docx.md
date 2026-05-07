@@ -69,6 +69,13 @@ writeFileSync("output.docx", buffer);
 - Do NOT wrap in async IIFE (the runtime does this already)
 - Use named styles via `style: HeadingLevel.HEADING_1` for headings
 - Define `numbering.config` for bullet lists (never use manual bullet chars)
-- Tables: use `ShadingType.CLEAR` for shading, `width: { size: N, type: WidthType.DXA }`
+- Set page size explicitly: US Letter `width: 12240, height: 15840` (DXA), or A4 `11906 x 16838`. docx-js defaults to A4 otherwise.
+- Tables: use `ShadingType.CLEAR` for shading, `width: { size: N, type: WidthType.DXA }`. Always declare `columnWidths` whose entries sum exactly to the table `size`. Cell `width` must match its `columnWidths` entry; `margins` are internal padding and are NOT added to the cell `width`.
+- Never use `WidthType.PERCENTAGE` (breaks in Google Docs).
+- Never use a table to draw a horizontal rule. For a rule use a `Paragraph` with `border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "...", space: 1 } }`.
+- Never put `\n` inside `TextRun.text`. Line breaks become separate `Paragraph` instances.
+- `PageBreak` must always be wrapped in a `Paragraph`.
+- For headings that participate in a TableOfContents use only `HeadingLevel.HEADING_1..3`; do not also attach a custom style id or `numbering` reference to those paragraphs.
+- Prefer Unicode smart quotes in body text (`’ “ ”`); ASCII quotes are fine inside code-style runs.
 - Save with: writeFileSync("output.docx", buffer)
 - Return ONLY raw JavaScript code, no markdown fences, no explanations

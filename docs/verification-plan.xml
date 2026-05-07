@@ -5,7 +5,7 @@
     <module-level-focus>Fast deterministic checks per module with trace assertions</module-level-focus>
     <wave-level-focus>Integration checks for merged surfaces touched by current wave only</wave-level-focus>
     <phase-level-focus>Full regression + traceability + fixture corpus validation</phase-level-focus>
-    <redaction>Never log model API keys, user document content, or raw OOXML payloads exceeding 10KB.</redaction>
+    <redaction>Never log model API keys, user document content, or raw OOXML payloads exceeding 10KB. Edit-pipeline diff snippets (M-EDIT.render_diff: before_snippet, after_snippet, anchor.value) and extracted text fed to the LLM (M-EDIT.extract_text_with_anchors output) carry user content and are restricted to DEBUG log level only; INFO and above must reference them by op_id and length, never by literal text. Backup file paths may be logged at INFO; original document paths beyond the project workspace must be logged as basename only.</redaction>
     <evidence-types>
       <type-1 name="deterministic">Exact assert on return value, state, or file content hash</type-1>
       <type-2 name="trace">Required log markers appeared in correct order; forbidden markers absent</type-2>
@@ -27,6 +27,15 @@
     <fixture-10 name="malicious_net_js" path="tests/fixtures/malicious_net.js">Code with require('net') for sandbox violation test</fixture-10>
     <fixture-13 name="docx_with_grace" path="tests/fixtures/with_grace.docx">DOCX with GRACE Custom XML Parts already injected</fixture-13>
     <fixture-14 name="docx_with_vendor_xml" path="tests/fixtures/with_vendor_xml.docx">DOCX with non-GRACE Custom XML Parts for preservation test</fixture-14>
+    <fixture-15 name="docx_with_revisions" path="tests/fixtures/with_revisions.docx">DOCX containing existing w:ins and w:del entries for accept_change / reject_change tests</fixture-15>
+    <fixture-16 name="docx_with_comments" path="tests/fixtures/with_comments.docx">DOCX containing top-level comments in word/comments.xml plus matching commentRange markers in document.xml</fixture-16>
+    <fixture-17 name="docx_with_comment_replies" path="tests/fixtures/with_comment_replies.docx">DOCX containing parent comment plus reply linked through word/commentsExtended.xml (w15:commentEx paraIdParent)</fixture-17>
+    <fixture-18 name="docx_with_quote_chars" path="tests/fixtures/with_quote_chars.docx">DOCX containing ASCII straight quotes inside w:t for escape_smart_quotes round-trip tests</fixture-18>
+    <fixture-19 name="docx_with_durable_id_overflow" path="tests/fixtures/with_durable_id_overflow.docx">DOCX containing w:durableId &gt;= 0x7FFFFFFF for pack auto-repair test</fixture-19>
+    <fixture-20 name="docx_with_dangling_rel" path="tests/fixtures/with_dangling_rel.docx">DOCX whose word/_rels/document.xml.rels references a missing Target for OOXML_RELATIONSHIP_BROKEN test</fixture-20>
+    <fixture-21 name="docx_large_5mb" path="tests/fixtures/large_5mb.docx">~5MB DOCX, ~100 paragraphs distributed across ~100 pages, used for the M-EDIT non-functional latency budget (Wave-5-2 evidence-7). Generated procedurally by tests/fixtures/generate_large.py rather than checked in if &gt; LFS threshold; see fixture-generation note below.</fixture-21>
+    <fixture-note-1>fixture for V-M-EDIT scenario-24 (hash collision) is NOT pre-built on disk: the test stubs mint.edit._paragraph_hash via monkeypatch on a freshly-built two-paragraph fixture, so brute-forcing a real 8-hex SHA1 collision is unnecessary.</fixture-note-1>
+    <fixture-note-2>fixture-21 (large_5mb) MAY be regenerated locally by the test runner (deterministic seed) to keep the repository under git-LFS thresholds; the generator script is the source of truth and is itself version-controlled.</fixture-note-2>
   </TestFixtures>
 
   <CriticalFlows>
@@ -183,6 +192,43 @@
         <inv-6>CreateResult.success=False if any section used placeholder, sections_succeeded &lt; sections_total</inv-6>
       </invariants>
     </VF-009>
+
+    <VF-010 NAME="DocumentEditPipeline" USE_CASES="UC-008" DATA_FLOW="DF-007" PRIORITY="high">
+      <scenario>EditPlan JSON (typed ops) → M-EDIT validates plan → M-OOXML unpacks → M-EDIT resolves anchors against original tree → applies typed handlers in order → M-OOXML packs → M-VALIDATE checks output</scenario>
+      <expected-outcome>Output passes M-VALIDATE in the configured severity mode; backup of the original is preserved on disk; per-op diff is returned with before/after snippets; non-edited binary parts and unrelated XML parts round-trip unchanged; the LLM (when used to produce the plan) never sees raw OOXML XML</expected-outcome>
+      <invariants>
+        <inv-1>Every op_id in the plan is unique</inv-1>
+        <inv-2>Every anchor.value is non-empty, length ≤ 512, no ASCII control characters</inv-2>
+        <inv-3>Backup file is created before any tree mutation</inv-3>
+        <inv-4>Anchors of every type (paragraph_index, hash, text) resolve against the ORIGINAL tree captured at unpack; no re-indexing across ops</inv-4>
+        <inv-5>Tracked-change ops emit ECMA-376 w:ins/w:del with author and date; w:rPr is preserved on both branches</inv-5>
+        <inv-6>Comment replies are linked through word/commentsExtended.xml (w15:commentEx paraIdParent), never by nesting commentRange in document.xml</inv-6>
+        <inv-7>commentRangeStart/End markers are siblings of w:r, never nested inside w:r</inv-7>
+        <inv-8>build_edit_prompt does not include any raw OOXML XML in the LLM-facing prompt</inv-8>
+        <inv-9>Output zip preserves [Content_Types].xml override entry order and binary parts byte-for-byte for unmodified content</inv-9>
+        <inv-10>EditMetadata.source_prompt_hash is computed by M-EDIT, never trusted from the model output</inv-10>
+      </invariants>
+      <required-signals>
+        <log-marker>[Edit][validate_plan][BLOCK_EDIT_PLAN_VALIDATE]</log-marker>
+        <log-marker>[Edit][backup][BLOCK_EDIT_BACKUP]</log-marker>
+        <log-marker>[OOXML][unpack][BLOCK_OOXML_UNPACK]</log-marker>
+        <log-marker>[Edit][extract_text][BLOCK_EDIT_EXTRACT_TEXT]</log-marker>
+        <log-marker>[Edit][resolve_anchor][BLOCK_EDIT_RESOLVE_ANCHOR]</log-marker>
+        <log-marker>[Edit][apply_op][BLOCK_EDIT_APPLY_OP]</log-marker>
+        <log-marker>[Edit][tracked_change][BLOCK_EDIT_TRACKED_CHANGE]</log-marker>
+        <log-marker>[OOXML][pack][BLOCK_OOXML_PACK]</log-marker>
+        <log-marker>[Validate][run_checks][BLOCK_RUN_CHECKS]</log-marker>
+        <conditional-marker>[OOXML][autorepair][BLOCK_OOXML_AUTOREPAIR] — fires inside BLOCK_OOXML_PACK only when the input requires repair (durableId overflow, missing xml:space=preserve, malformed rsid). Optional in trace.</conditional-marker>
+        <conditional-marker>[Edit][tracked_change][BLOCK_EDIT_TRACKED_CHANGE] — fires inside BLOCK_EDIT_APPLY_OP only for ops with type in {tracked_replace, tracked_delete, accept_change, reject_change}. Optional in trace; required when at least one such op is in the plan.</conditional-marker>
+        <trace-sequence>BLOCK_EDIT_PLAN_VALIDATE -&gt; BLOCK_EDIT_BACKUP -&gt; BLOCK_OOXML_UNPACK -&gt; BLOCK_EDIT_EXTRACT_TEXT -&gt; BLOCK_EDIT_RESOLVE_ANCHOR(per op) -&gt; BLOCK_EDIT_APPLY_OP(per op, may emit BLOCK_EDIT_TRACKED_CHANGE) -&gt; BLOCK_OOXML_PACK(may emit BLOCK_OOXML_AUTOREPAIR) -&gt; BLOCK_RUN_CHECKS -&gt; RETURNED</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>Any opening OOXML element tag (regex /&lt;[a-z][a-z0-9]*:[A-Za-z][A-Za-z0-9]*(\s|&gt;|\/)/ matching any of the OOXML namespaces w:, w14:, w15:, w16:, wp:, wps:, a:, m:, mc:, r:, pic:) inside the LLM prompt produced by build_edit_prompt — checked by unit test on rendered prompt string</forbidden-1>
+        <forbidden-2>BLOCK_EDIT_APPLY_OP fires before BLOCK_EDIT_PLAN_VALIDATE has emitted a success record</forbidden-2>
+        <forbidden-3>BLOCK_OOXML_UNPACK fires before BLOCK_EDIT_BACKUP has emitted a success record</forbidden-3>
+        <forbidden-4>Output written without a preceding BLOCK_RUN_CHECKS</forbidden-4>
+      </forbidden-signals>
+    </VF-010>
   </CriticalFlows>
 
   <ModuleVerification>
@@ -339,9 +385,9 @@
     <!-- ===== PHASE 2: Generation Pipeline (G2) ===== -->
 
     <V-M-SKILLS MODULE="M-SKILLS" PRIORITY="medium">
-      <test-files><file>tests/unit/test_skills.py</file></test-files>
+      <test-files><file>tests/unit/test_skills/</file></test-files>
       <module-checks>
-        <check-1>pytest tests/unit/test_skills.py -x</check-1>
+        <check-1>pytest tests/unit/test_skills/ -x</check-1>
       </module-checks>
       <scenarios>
         <scenario-1 kind="success" evidence="deterministic">select_skill(frontier, docx) → file path matching "*frontier*docx*"</scenario-1>
@@ -353,9 +399,9 @@
     </V-M-SKILLS>
 
     <V-M-TEMPLATES MODULE="M-TEMPLATES" PRIORITY="medium">
-      <test-files><file>tests/unit/test_templates.py</file></test-files>
+      <test-files><file>tests/unit/test_templates/</file></test-files>
       <module-checks>
-        <check-1>pytest tests/unit/test_templates.py -x</check-1>
+        <check-1>pytest tests/unit/test_templates/ -x</check-1>
       </module-checks>
       <scenarios>
         <scenario-1 kind="success" evidence="deterministic">fill(board_deck.pptx, template_content.json) → output.pptx that is valid ZIP with replaced content</scenario-1>
@@ -410,8 +456,13 @@
         <scenario-1 kind="success" evidence="integration">mint_create with code mode → file + validation report</scenario-1>
         <scenario-2 kind="success" evidence="integration">mint_extract_style(docx_fixture) → JSON with colors.typography.layout keys</scenario-2>
         <scenario-3 kind="success" evidence="integration">mint_list_templates() → non-empty list with name + format fields</scenario-3>
+        <scenario-4 kind="success" evidence="integration">mint_edit(document_path=fixture, edit_plan_json=valid plan with 1 replace_text op, author='Tester') → EditResult JSON with success=True, ops_total=1, ops_succeeded=1, output_path set, backup_path set; output validates clean</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">mint_edit(edit_plan_json=malformed JSON) returns MCP_TOOL_ERROR with parse error message; no file mutation</scenario-5>
+        <scenario-6 kind="failure" evidence="integration">mint_edit(edit_plan_json with format='pptx') returns EditResult with success=False, error='EDIT_OP_UNSUPPORTED'; backup still created? No — Phase-5 oos-2 contract: PPTX rejected before backup</scenario-6>
+        <scenario-7 kind="success" evidence="trace">mint_edit invocation emits the full VF-010 trace-sequence (BLOCK_EDIT_PLAN_VALIDATE → BLOCK_EDIT_BACKUP → BLOCK_OOXML_UNPACK → BLOCK_EDIT_EXTRACT_TEXT → BLOCK_EDIT_RESOLVE_ANCHOR → BLOCK_EDIT_APPLY_OP → BLOCK_OOXML_PACK → BLOCK_RUN_CHECKS) — markers captured by the integration test harness</scenario-7>
+        <scenario-8 kind="success" evidence="deterministic">mint_edit returned EditResult JSON is byte-identical to direct M-EDIT.edit(...) → asdict(result) for the same inputs (same document, same plan, same author) — guards against MCP-layer drift</scenario-8>
       </scenarios>
-      <wave-follow-up>Full pipeline test: extract_style → create with tokens → validate → QA</wave-follow-up>
+      <wave-follow-up>Full pipeline test: extract_style → create with tokens → validate → QA. Phase-5 follow-up: mint_edit happy path on each fixture from 15-20.</wave-follow-up>
       <autonomy-assessment>SAFE — thin adapter over tested modules</autonomy-assessment>
     </V-M-MCP-G2>
 
@@ -420,7 +471,7 @@
     <V-M-QA MODULE="M-QA" PRIORITY="medium">
       <test-files><file>tests/unit/test_qa/test_pipeline.py</file></test-files>
       <module-checks>
-        <check-1>pytest tests/unit/test_qa.py -x</check-1>
+        <check-1>pytest tests/unit/test_qa/ -x</check-1>
       </module-checks>
       <scenarios>
         <scenario-1 kind="success" evidence="deterministic">run_l1(minimal_valid.docx) → L1Report with passed=True, duration_ms &lt; 1000</scenario-1>
@@ -436,9 +487,9 @@
     </V-M-QA>
 
     <V-M-GRACE MODULE="M-GRACE" PRIORITY="medium">
-      <test-files><file>tests/unit/test_grace.py</file></test-files>
+      <test-files><file>tests/unit/test_grace/</file></test-files>
       <module-checks>
-        <check-1>pytest tests/unit/test_grace.py -x</check-1>
+        <check-1>pytest tests/unit/test_grace/ -x</check-1>
       </module-checks>
       <scenarios>
         <scenario-1 kind="success" evidence="deterministic">bootstrap(minimal_valid.docx) → output.docx with urn:mint:grace:2026:manifest in Custom XML Parts</scenario-1>
@@ -535,10 +586,153 @@
       </forbidden-behaviors>
       <autonomy-assessment>SAFE — pure code generation + sandbox execution, fully deterministic given valid inputs</autonomy-assessment>
     </V-M-ASSEMBLE>
+
+    <V-M-LLM MODULE="M-LLM" PRIORITY="medium">
+      <test-files><file>tests/unit/test_llm.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_llm.py -x</check-1>
+        <check-2>ruff check src/mint/llm.py</check-2>
+        <check-3>mypy src/mint/llm.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">LLMClient.call(prompt="hello") with a stubbed httpx transport returning {choices:[{message:{content:"world"}}]} produces LLMResponse(text="world", model=..., usage=..., duration_ms&gt;=0)</scenario-1>
+        <scenario-2 kind="failure" evidence="deterministic">httpx transport returning HTTP 500 raises LLMCallError with status_code=500 and the error body in the message</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">httpx transport raising httpx.TimeoutException raises LLM_TIMEOUT (or LLMCallError carrying timeout context)</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">LLMClient never logs api_key or full prompt at INFO; redaction policy applies (api_key never logged at any level; prompt and response text only at DEBUG)</scenario-4>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[LLM][call][BLOCK_LLM_CALL]</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must never log api_key, full prompt, or full response at INFO or above</forbidden-1>
+        <forbidden-2>Must never silently swallow non-2xx responses</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SAFE — thin httpx wrapper with deterministic stub coverage</autonomy-assessment>
+    </V-M-LLM>
+
+    <V-M-CLI MODULE="M-CLI" PRIORITY="medium">
+      <test-files><file>tests/integration/test_cli.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_cli.py -x</check-1>
+        <check-2>ruff check src/mint/cli.py</check-2>
+        <check-3>mypy src/mint/cli.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="integration">mint validate fixture.docx --severity=lenient prints ValidationReport JSON to stdout, exit 0 on pass / non-zero on fail</scenario-1>
+        <scenario-2 kind="success" evidence="integration">mint fingerprint fixture.docx prints FingerprintResult JSON, exit 0</scenario-2>
+        <scenario-3 kind="success" evidence="integration">mint create docx "prompt" --tier=frontier --model-response-file fixture.js prints CreateResult JSON; output file exists at the path inside the JSON</scenario-3>
+        <scenario-4 kind="success" evidence="integration">mint extract fixture.docx prints DesignTokens JSON</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">mint create with unknown subcommand or missing required arg exits CLI_USAGE_ERROR (non-zero) and prints argparse-style usage to stderr</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">mint validate /nonexistent/path.docx exits CLI_FILE_NOT_FOUND (non-zero) with a clear error line on stderr</scenario-6>
+        <scenario-7 kind="success" evidence="integration">(Phase-5) mint edit fixture.docx --plan plan.json prints EditResult JSON; output_path inside the JSON points to an existing file</scenario-7>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[CLI][cmd_*] entry log per dispatched subcommand</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must never crash with an unhandled exception leaking traceback to stdout (stderr is acceptable for genuine bugs)</forbidden-1>
+        <forbidden-2>Must never print non-JSON content to stdout for the JSON-emitting subcommands</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SAFE — thin dispatcher; integration tests cover end-to-end behavior</autonomy-assessment>
+    </V-M-CLI>
+
+    <!-- ===== PHASE 5: Edit Pipeline (G7) ===== -->
+
+    <V-M-OOXML MODULE="M-OOXML" PRIORITY="high">
+      <test-files><file>tests/unit/test_ooxml.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_ooxml.py -x</check-1>
+        <check-2>ruff check src/mint/ooxml.py</check-2>
+        <check-3>mypy src/mint/ooxml.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">unpack(minimal_valid_docx) → returns parts list including [Content_Types].xml, word/document.xml, word/styles.xml; all XML files parse without errors</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">unpack → pack → unpack round-trip on minimal_valid_docx: part listing identical, every XML part tree-equal, every binary part byte-equal</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">merge_runs collapses two adjacent w:r with identical w:rPr into one; never merges across w:hyperlink, w:bookmarkStart, w:bookmarkEnd, w:commentRangeStart, w:commentRangeEnd, w:commentReference, w:ins, w:del, w:fldChar, w:tab, w:br, w:sym, or any element introducing a non-text child between the runs</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">escape_smart_quotes converts ASCII apostrophes to &#x2019; in body text but skips runs with rStyle ending in 'Code'; idempotent on already-escaped input</scenario-4>
+        <scenario-4b kind="success" evidence="deterministic">escape_smart_quotes alternates double quotes per paragraph: first ASCII '&quot;' → &#x201C;, second → &#x201D;, third → &#x201C;, etc. Unpaired (odd) double quote in a paragraph is left as ASCII '&quot;'. Reset across paragraphs. Mixed apostrophes and double quotes counted independently.</scenario-4b>
+        <scenario-5 kind="success" evidence="deterministic">pack auto-repair: input with w:durableId=0xFFFFFFFE produces output with regenerated valid id; preserved_whitespace_runs increments for each w:t with leading/trailing whitespace lacking xml:space=preserve</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">unpack(non-zip file) raises OOXML_NOT_A_ZIP</scenario-6>
+        <scenario-7 kind="failure" evidence="deterministic">unpack(zip without [Content_Types].xml) raises OOXML_MISSING_CONTENT_TYPES</scenario-7>
+        <scenario-8 kind="failure" evidence="deterministic">validate_relationships on unpack tree with dangling Target raises OOXML_RELATIONSHIP_BROKEN naming the missing target</scenario-8>
+        <scenario-9 kind="success" evidence="deterministic">[Content_Types].xml Override entry order in pack output equals input order exactly</scenario-9>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[OOXML][unpack][BLOCK_OOXML_UNPACK]</marker-1>
+        <marker-2>[OOXML][pack][BLOCK_OOXML_PACK]</marker-2>
+        <marker-3>[OOXML][autorepair][BLOCK_OOXML_AUTOREPAIR]</marker-3>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must never invoke LibreOffice, soffice, or any external converter</forbidden-1>
+        <forbidden-2>Must never silently drop or rename a part during round-trip</forbidden-2>
+        <forbidden-3>Must never double-escape an existing XML entity</forbidden-3>
+      </forbidden-behaviors>
+      <autonomy-assessment>SAFE — pure stdlib zipfile + lxml manipulation, deterministic, no LLM</autonomy-assessment>
+    </V-M-OOXML>
+
+    <V-M-EDIT MODULE="M-EDIT" PRIORITY="high">
+      <test-files><file>tests/unit/test_edit.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_edit.py -x</check-1>
+        <check-2>ruff check src/mint/edit.py</check-2>
+        <check-3>mypy src/mint/edit.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">validate_plan(EditPlan with 1 replace_text op + valid anchor) passes</scenario-1>
+        <scenario-2 kind="failure" evidence="deterministic">validate_plan(EditPlan with empty ops) raises EDIT_PLAN_INVALID</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">validate_plan(op with anchor.value containing ASCII control characters or exceeding 512 chars) raises EDIT_PLAN_INVALID</scenario-3>
+        <scenario-4 kind="success" evidence="integration">edit(minimal_valid_docx, replace_text "Hello" → "Hi") produces output passing M-VALIDATE; before_snippet/after_snippet captured in diff</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">resolve_anchor on text appearing twice without context_before/after raises EDIT_ANCHOR_AMBIGUOUS</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">resolve_anchor on text not present raises EDIT_ANCHOR_NOT_FOUND</scenario-6>
+        <scenario-7 kind="success" evidence="integration">edit with insert_paragraph(style="Heading2") after first paragraph: output has new w:p with w:pStyle w:val="Heading2", validates clean</scenario-7>
+        <scenario-8 kind="success" evidence="integration">tracked_replace op produces sibling w:del + w:ins with author/date attributes; w:rPr preserved on both branches</scenario-8>
+        <scenario-9 kind="success" evidence="integration">tracked_delete on full paragraph also marks paragraph mark via w:pPr/w:rPr/w:del</scenario-9>
+        <scenario-10 kind="success" evidence="integration">add_comment with parent_id=0 creates a top-level commentRangeStart/End pair around the target plus a sibling commentRangeStart/End pair for the reply; the reply linkage lives in word/commentsExtended.xml as w15:commentEx with paraIdParent matching the parent paraId; comments.xml carries both top-level and reply text; content types registered</scenario-10>
+        <scenario-11 kind="success" evidence="integration">add_comment respects "commentRangeStart/End are siblings of w:r, never inside w:r" invariant — schema check on document.xml confirms</scenario-11>
+        <scenario-12 kind="success" evidence="integration">accept_change on an insertion by id removes the w:ins wrapper and keeps inserted text; accept_change on a deletion by id removes the w:del subtree (deleted text is gone); reject_change on an insertion drops the w:ins subtree (inserted text gone); reject_change on a deletion removes the w:del wrapper and restores w:t from w:delText</scenario-12>
+        <scenario-13 kind="success" evidence="deterministic">build_edit_prompt does not include any raw OOXML XML in the LLM-facing prompt — only extracted text + stable anchors + op schema</scenario-13>
+        <scenario-14 kind="failure" evidence="deterministic">execute_op on an op carrying an unsupported type (for example type="rotate_image" in v0) raises EDIT_OP_UNSUPPORTED before any tree mutation</scenario-14>
+        <scenario-15 kind="success" evidence="integration">edit run end-to-end: backup created, M-VALIDATE invoked on output, EditResult.success=True, diff.length == ops_total</scenario-15>
+        <scenario-16 kind="success" evidence="integration">set_paragraph_style with style_id="Heading2" on body paragraph: output paragraph has w:pStyle w:val="Heading2", original w:rPr preserved on existing runs, M-VALIDATE clean</scenario-16>
+        <scenario-17 kind="failure" evidence="deterministic">set_paragraph_style with style_id missing from styles.xml raises EDIT_OP_UNSUPPORTED before mutation</scenario-17>
+        <scenario-18 kind="success" evidence="integration">delete_paragraph on anchored paragraph removes the w:p subtree; relationships referenced only from that paragraph are removed from document.xml.rels; M-VALIDATE clean</scenario-18>
+        <scenario-19 kind="success" evidence="deterministic">paragraph_index anchors resolve against the original tree even after earlier ops in the same plan inserted or deleted paragraphs (no re-indexing)</scenario-19>
+        <scenario-20 kind="success" evidence="deterministic">EditMetadata.source_prompt_hash is computed by M-EDIT (not read from model output) and is stable for identical inputs</scenario-20>
+        <scenario-21 kind="failure" evidence="integration">EditPlan with op-1 delete_paragraph(anchor=A) followed by op-2 anchored at A by paragraph_index/hash/text: op-2 raises EDIT_ANCHOR_NOT_FOUND because the original-tree anchor for A no longer resolves after op-1 mutated the tree, surfacing the documented "no re-indexing across ops" semantics</scenario-21>
+        <scenario-22 kind="success" evidence="integration">edit(severity_mode="strict") on a fixture that produces a soft violation in the output triggers EDIT_VALIDATION_FAILED and refuses to write output_path; backup remains intact</scenario-22>
+        <scenario-23 kind="success" evidence="deterministic">EditPlan JSON uses 'type' as the discriminator field on both EditOp and Anchor (not 'op_type' and not 'kind') — schema test asserts no other discriminator name appears in the schema</scenario-23>
+        <scenario-24 kind="failure" evidence="deterministic">resolve_anchor with type='hash' on a tree where two different paragraphs share the same 8-hex SHA1 prefix raises EDIT_ANCHOR_AMBIGUOUS; the runtime never silently picks the first match. Test mechanics: a real 8-hex SHA1 collision is impractical to brute-force, so the test monkeypatches mint.edit._paragraph_hash (or equivalent helper) to return a fixed value 'deadbeef' for two distinct paragraphs in a fresh fixture; the assertion is that resolve_anchor raises EDIT_ANCHOR_AMBIGUOUS with both paragraph_index values listed in the error message.</scenario-24>
+        <scenario-25 kind="failure" evidence="integration">edit when the backup destination is unwritable (read-only directory or permission denied) raises BACKUP_FAILED before any unpack or tree mutation; the original document is unchanged on disk</scenario-25>
+        <scenario-26 kind="success" evidence="deterministic">edit with output_path omitted writes to '&lt;input-stem&gt;.edited&lt;ext&gt;' next to the input; backup is at '&lt;input&gt;.bak'; output_path != backup_path</scenario-26>
+        <scenario-27 kind="failure" evidence="deterministic">edit on an EditPlan with format='pptx' raises EDIT_OP_UNSUPPORTED before any tree mutation (PPTX edits are deferred to v0.5)</scenario-27>
+        <scenario-28 kind="success" evidence="trace">successful edit emits BLOCK_EDIT_BACKUP exactly once and strictly before BLOCK_OOXML_UNPACK; the backup file exists on disk with identical bytes to the original input</scenario-28>
+        <scenario-29 kind="success" evidence="trace">successful edit emits BLOCK_EDIT_EXTRACT_TEXT exactly once and strictly before the first BLOCK_EDIT_RESOLVE_ANCHOR; the rendered prompt for an LLM-driven plan is stable for identical input + anchor list</scenario-29>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Edit][validate_plan][BLOCK_EDIT_PLAN_VALIDATE]</marker-1>
+        <marker-2>[Edit][backup][BLOCK_EDIT_BACKUP]</marker-2>
+        <marker-3>[OOXML][unpack][BLOCK_OOXML_UNPACK]</marker-3>
+        <marker-4>[Edit][extract_text][BLOCK_EDIT_EXTRACT_TEXT]</marker-4>
+        <marker-5>[Edit][resolve_anchor][BLOCK_EDIT_RESOLVE_ANCHOR]</marker-5>
+        <marker-6>[Edit][apply_op][BLOCK_EDIT_APPLY_OP]</marker-6>
+        <marker-7>[Edit][tracked_change][BLOCK_EDIT_TRACKED_CHANGE] (conditional — only when at least one op type is in {tracked_replace, tracked_delete, accept_change, reject_change})</marker-7>
+        <marker-8>[OOXML][pack][BLOCK_OOXML_PACK]</marker-8>
+        <marker-9>[Validate][run_checks][BLOCK_RUN_CHECKS]</marker-9>
+        <trace-sequence>BLOCK_EDIT_PLAN_VALIDATE -&gt; BLOCK_EDIT_BACKUP -&gt; BLOCK_OOXML_UNPACK -&gt; BLOCK_EDIT_EXTRACT_TEXT -&gt; BLOCK_EDIT_RESOLVE_ANCHOR(per op) -&gt; BLOCK_EDIT_APPLY_OP(per op, may emit BLOCK_EDIT_TRACKED_CHANGE) -&gt; BLOCK_OOXML_PACK -&gt; BLOCK_RUN_CHECKS -&gt; RETURNED</trace-sequence>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Must never expose raw OOXML XML to the LLM in build_edit_prompt</forbidden-1>
+        <forbidden-2>Must never apply operations if validate_plan failed</forbidden-2>
+        <forbidden-3>Must never write output if M-VALIDATE on the result fails in strict mode without surfacing EDIT_VALIDATION_FAILED</forbidden-3>
+        <forbidden-4>Must never modify tracked-change entries authored by other users beyond the documented per-id accept_change/reject_change ops</forbidden-4>
+        <forbidden-5>Must never proceed when anchor resolution is ambiguous; must raise EDIT_ANCHOR_AMBIGUOUS</forbidden-5>
+      </forbidden-behaviors>
+      <autonomy-assessment>CAUTIOUS — depends on external LLM for plan generation, but plan is typed JSON and every op is validated and bounded; backup is mandatory before any tree mutation</autonomy-assessment>
+    </V-M-EDIT>
   </ModuleVerification>
 
   <WaveChecks>
-    <Wave-1-1 PHASE="Phase-1" SCOPE="M-CONFIG, M-SANDBOX" STATUS="pending">
+    <Wave-1-1 PHASE="Phase-1" SCOPE="M-CONFIG, M-SANDBOX" STATUS="done">
       <goal>Foundation modules: config loads, sandbox executes valid code and blocks invalid</goal>
       <commands>
         <command-1>pytest tests/unit/test_config.py tests/unit/test_sandbox.py -x</command-1>
@@ -550,7 +744,7 @@
       </required-evidence>
     </Wave-1-1>
 
-    <Wave-1-2 PHASE="Phase-1" SCOPE="M-RULES, M-VALIDATE, M-FIX, M-FINGERPRINT" STATUS="pending">
+    <Wave-1-2 PHASE="Phase-1" SCOPE="M-RULES, M-VALIDATE, M-FIX, M-FINGERPRINT" STATUS="done">
       <goal>Full validation pipeline: rules → validate → fix → fingerprint</goal>
       <commands>
         <command-1>pytest tests/unit/test_rules/ tests/unit/test_validate.py tests/unit/test_fix.py tests/unit/test_fingerprint.py -x</command-1>
@@ -575,21 +769,37 @@
       </required-evidence>
     </Wave-1-3>
 
-    <Wave-2-1 PHASE="Phase-2" SCOPE="M-SKILLS, M-TEMPLATES" STATUS="pending">
+    <Wave-2-1 PHASE="Phase-2" SCOPE="M-SKILLS, M-TEMPLATES" STATUS="done">
       <goal>Skill prompt selection + template engine basic fill</goal>
       <commands>
-        <command-1>pytest tests/unit/test_skills.py tests/unit/test_templates.py -x</command-1>
+        <command-1>pytest tests/unit/test_skills/ tests/unit/test_templates/ -x</command-1>
       </commands>
     </Wave-2-1>
 
-    <Wave-2-2 PHASE="Phase-2" SCOPE="M-EXTRACT, M-CREATE, M-MCP-G2" STATUS="pending">
+    <Wave-2-2 PHASE="Phase-2" SCOPE="M-EXTRACT, M-CREATE, M-MCP-G2" STATUS="done">
       <goal>Full generation pipeline: extract → create → validate → MCP tools</goal>
       <commands>
         <command-1>pytest tests/unit/test_extract.py tests/integration/test_create.py tests/integration/test_mcp_g2.py -x --timeout=60</command-1>
       </commands>
     </Wave-2-2>
 
-    <Wave-4-1 PHASE="Phase-4" SCOPE="M-PLAN" STATUS="pending">
+    <Wave-3-1 PHASE="Phase-3" SCOPE="M-QA, M-GRACE" STATUS="done">
+      <goal>QA pipeline (L1 programmatic + L2 render via Gotenberg) and GRACE manifest injection ship together; existing Custom XML Parts from other vendors are preserved.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_qa/ tests/unit/test_grace/ -x</command-1>
+        <command-2>ruff check src/mint/qa/ src/mint/grace/</command-2>
+        <command-3>mypy src/mint/qa/ src/mint/grace/</command-3>
+      </commands>
+      <required-evidence>
+        <evidence-1>L1 programmatic check on minimal_valid_docx and minimal_valid_pptx returns confidence ≥ 0.95 within 1s; trace contains [QA][l1_check][BLOCK_L1_CHECK]</evidence-1>
+        <evidence-2>L2 render path on minimal_valid_docx invokes Gotenberg, writes a PNG snapshot, runs overlap/margin checks; trace contains [QA][l2_render][BLOCK_L2_RENDER]; if Gotenberg is unreachable the test marks itself xfail rather than failing the wave</evidence-2>
+        <evidence-3>GRACE bootstrap on docx_with_vendor_xml fixture preserves the non-GRACE Custom XML Parts byte-for-byte; trace contains [GRACE][inject][BLOCK_INJECT_MANIFEST] and [GRACE][preserve][BLOCK_PRESERVE_EXISTING]</evidence-3>
+        <evidence-4>GRACE manifest namespace urn:mint:grace:2026:manifest is present in the output and readable by a fresh OOXML parser</evidence-4>
+      </required-evidence>
+      <regression-confirmed>Empirically validated during the Phase-5 plan-audit run: full pytest suite (191 tests) passes, ruff clean, mypy clean. Commands and evidence-blocks reflect actual test behavior on the merged tree.</regression-confirmed>
+    </Wave-3-1>
+
+    <Wave-4-1 PHASE="Phase-4" SCOPE="M-PLAN" STATUS="done">
       <goal>Document planner: plan generation + plan validation</goal>
       <commands>
         <command-1>pytest tests/unit/test_plan.py -x</command-1>
@@ -603,7 +813,7 @@
       </required-evidence>
     </Wave-4-1>
 
-    <Wave-4-2 PHASE="Phase-4" SCOPE="M-SECTION" STATUS="pending">
+    <Wave-4-2 PHASE="Phase-4" SCOPE="M-SECTION" STATUS="done">
       <goal>Section generator: per-section code generation + validation + retry</goal>
       <commands>
         <command-1>pytest tests/unit/test_section.py -x</command-1>
@@ -617,7 +827,7 @@
       </required-evidence>
     </Wave-4-2>
 
-    <Wave-4-3 PHASE="Phase-4" SCOPE="M-ASSEMBLE" STATUS="pending">
+    <Wave-4-3 PHASE="Phase-4" SCOPE="M-ASSEMBLE" STATUS="done">
       <goal>Document assembler: template rendering + sandbox execution</goal>
       <commands>
         <command-1>pytest tests/unit/test_assemble.py -x</command-1>
@@ -632,7 +842,7 @@
       </required-evidence>
     </Wave-4-3>
 
-    <Wave-4-4 PHASE="Phase-4" SCOPE="M-CREATE, M-MCP-G2 (modular mode)" STATUS="pending">
+    <Wave-4-4 PHASE="Phase-4" SCOPE="M-CREATE, M-MCP-G2 (modular mode)" STATUS="done">
       <goal>Full modular pipeline integration: plan → sections → assemble → validate</goal>
       <commands>
         <command-1>pytest tests/integration/test_create.py tests/integration/test_mcp_g2.py -x --timeout=120</command-1>
@@ -643,6 +853,53 @@
         <evidence-3>All VF-007 trace markers logged in correct sequence</evidence-3>
       </required-evidence>
     </Wave-4-4>
+
+    <Wave-5-1 PHASE="Phase-5" SCOPE="M-OOXML" STATUS="pending">
+      <goal>Pure-Python unpack/pack round-trip is tree-stable for XML parts and byte-stable for binary parts; auto-repair fires on the documented inputs.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_ooxml.py -x</command-1>
+        <command-2>ruff check src/mint/ooxml.py</command-2>
+        <command-3>mypy src/mint/ooxml.py</command-3>
+      </commands>
+      <required-evidence>
+        <evidence-1>unpack → pack → unpack round-trip on minimal_valid_docx, docx_with_grace, docx_with_vendor_xml: every XML part tree-equal, every binary part byte-equal, [Content_Types].xml override order preserved</evidence-1>
+        <evidence-2>Auto-repair on docx_with_durable_id_overflow regenerates the durableId; repaired_durable_ids ≥ 1 in PackResult</evidence-2>
+        <evidence-3>validate_relationships on docx_with_dangling_rel raises OOXML_RELATIONSHIP_BROKEN with the missing target named in the message</evidence-3>
+        <evidence-4>escape_smart_quotes on docx_with_quote_chars is idempotent: applying twice produces the same tree as applying once</evidence-4>
+        <evidence-5>No call site invokes LibreOffice / soffice / pandoc / any external binary. Static check: src/mint/ooxml.py imports only from {zipfile, lxml.etree, hashlib, pathlib, dataclasses, typing, logging, re, unicodedata}; the regex test asserts no occurrence of subprocess, os.system, os.popen, os.execv, os.execvp, pty.spawn, sh., or any 'shell=True' string literal. Positive framing: the only allowed external interaction is stdlib zipfile + lxml.</evidence-5>
+      </required-evidence>
+    </Wave-5-1>
+
+    <Wave-5-2 PHASE="Phase-5" SCOPE="M-EDIT" STATUS="pending">
+      <goal>Typed EditPlans applied deterministically; LLM never sees OOXML; revisions and comments follow ECMA-376 with reply linkage in commentsExtended.xml.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_edit.py -x</command-1>
+        <command-2>ruff check src/mint/edit.py</command-2>
+        <command-3>mypy src/mint/edit.py</command-3>
+      </commands>
+      <required-evidence>
+        <evidence-1>build_edit_prompt output contains no raw OOXML XML — assertion against the rendered prompt string using regex /&lt;[a-z][a-z0-9]*:[A-Za-z][A-Za-z0-9]*(\s|&gt;|\/)/ which catches any opening tag with an XML namespace prefix (w:, w14:, w15:, w16:, wp:, wps:, a:, m:, mc:, r:, pic: and any future OOXML namespace). The same regex is the executable form of VF-010.forbidden-1.</evidence-1>
+        <evidence-2>tracked_replace + tracked_delete produce ECMA-376 w:ins / w:del with author and date; w:rPr preserved on both branches; full-paragraph delete also marks w:pPr/w:rPr/w:del</evidence-2>
+        <evidence-3>add_comment with parent_id=0 produces both top-level and reply entries in word/comments.xml plus a w15:commentEx paraIdParent record in word/commentsExtended.xml; commentRange markers are siblings of w:r</evidence-3>
+        <evidence-4>accept_change and reject_change behave per matrix in V-M-EDIT scenario-12 (insertion vs deletion)</evidence-4>
+        <evidence-5>Anchor resolution against ORIGINAL tree confirmed by VF-010.inv-4 + V-M-EDIT scenario-19 + scenario-21</evidence-5>
+        <evidence-6>EditPlan JSON uses 'type' as the discriminator on both EditOp and Anchor (V-M-EDIT scenario-23)</evidence-6>
+        <evidence-7 kind="non-functional">M-EDIT.edit on fixture-21 (docx_large_5mb, ~5MB, ~100 pages, ~100 paragraphs) with a 3-op EditPlan completes within p99 ≤ 5s wall-clock on the reference machine (CI runner spec, single-process, warm filesystem). Implementation note for the worker: M-OOXML.unpack/pack must avoid full reparse-on-every-part churn; M-EDIT must avoid O(n²) anchor scans. Latency budget is per-call, excluding LLM round-trip. Track regressions via pytest --benchmark or equivalent.</evidence-7>
+      </required-evidence>
+    </Wave-5-2>
+
+    <Wave-5-3 PHASE="Phase-5" SCOPE="M-MCP-G2 (mint_edit), CLI (mint edit)" STATUS="pending">
+      <goal>End-to-end edit through the MCP tool and the CLI subcommand: EditPlan JSON in, EditResult JSON out, output document validated.</goal>
+      <commands>
+        <command-1>pytest tests/integration/test_mcp_g2.py -x -k edit</command-1>
+        <command-2>pytest tests/integration/test_cli.py -x -k edit</command-2>
+      </commands>
+      <required-evidence>
+        <evidence-1>mint_edit MCP tool accepts edit_plan_json + author and returns EditResult JSON identical to direct M-EDIT.edit invocation</evidence-1>
+        <evidence-2>mint edit CLI subcommand reads EditPlan from a JSON file path and exits non-zero when EditResult.success is false</evidence-2>
+        <evidence-3>VF-010 trace-sequence emitted in correct order on a successful edit through the MCP path</evidence-3>
+      </required-evidence>
+    </Wave-5-3>
   </WaveChecks>
 
   <PhaseGates>

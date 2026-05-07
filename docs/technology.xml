@@ -43,7 +43,7 @@
       <focus>End-to-end flows: skill → model → execute → validate → output</focus>
     </wave-level>
     <phase-level>
-      <command>pytest tests/ -x && vitest run</command>
+      <command>pytest tests/ -x &amp;&amp; vitest run</command>
       <focus>Full regression across Python validation + Node.js execution</focus>
     </phase-level>
     <mocking-policy>Prefer fakes for model responses and file fixtures over mocking internal APIs.</mocking-policy>

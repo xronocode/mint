@@ -97,17 +97,31 @@
       <purpose>OpenAI-compatible LLM client for document generation and plan decomposition</purpose>
       <path>src/mint/llm.py</path>
       <depends>none</depends>
+      <verification-ref>V-M-LLM</verification-ref>
       <annotations>
         <fn-call PURPOSE="Send prompt to model API and return response" />
+        <export-LLMClient PURPOSE="httpx-based OpenAI-compatible client class" />
         <type-LLMResponse PURPOSE="dataclass: text, model, usage, duration_ms" />
         <type-LLMCallError PURPOSE="Exception for LLM call failures" />
       </annotations>
     </M-LLM>
 
     <M-CLI NAME="CLI Entry Point" TYPE="ENTRY_POINT" STATUS="done">
-      <purpose>CLI entry point with subcommands: serve, validate, fix, fingerprint, create, extract</purpose>
+      <purpose>argparse-based CLI surface: serve (MCP), validate, fix, fingerprint, create, extract, and Phase-5 edit. Each subcommand is a thin shim over the corresponding module entry point.</purpose>
       <path>src/mint/cli.py</path>
-      <depends>M-CONFIG, M-VALIDATE, M-FIX, M-FINGERPRINT, M-CREATE, M-EXTRACT</depends>
+      <depends>M-CONFIG, M-VALIDATE, M-FIX, M-FINGERPRINT, M-CREATE, M-EXTRACT, M-MCP-G1, M-MCP-G2</depends>
+      <verification-ref>V-M-CLI</verification-ref>
+      <annotations>
+        <fn-main PURPOSE="parse argv, dispatch to cmd_* handler, return exit code" />
+        <fn-build_parser PURPOSE="construct argparse.ArgumentParser with all subcommands" />
+        <fn-cmd_serve PURPOSE="start the merged FastMCP G1+G2 server on stdio or sse" />
+        <fn-cmd_validate PURPOSE="run M-VALIDATE and emit ValidationReport JSON" />
+        <fn-cmd_fix PURPOSE="run M-FIX and emit FixReport JSON" />
+        <fn-cmd_fingerprint PURPOSE="run M-FINGERPRINT and emit FingerprintResult JSON" />
+        <fn-cmd_create PURPOSE="run M-CREATE and emit CreateResult JSON" />
+        <fn-cmd_extract PURPOSE="run M-EXTRACT and emit DesignTokens JSON" />
+        <fn-cmd_edit PURPOSE="(Phase-5) load EditPlan from --plan JSON file, run M-EDIT, emit EditResult JSON" />
+      </annotations>
     </M-CLI>
 
     <M-SKILLS NAME="Skill Prompts" TYPE="CORE_LOGIC" STATUS="done">
@@ -254,6 +268,46 @@
       </annotations>
     </M-ASSEMBLE>
 
+    <!-- Phase 5: Edit Pipeline (G7) -->
+
+    <M-OOXML NAME="OOXML Pack/Unpack" TYPE="UTILITY" STATUS="planned">
+      <purpose>Pure-Python pack/unpack of OOXML containers with pretty-print, run merge, smart-quote escaping, auto-repair of durableId and xml:space=preserve. No LibreOffice or shell-out. Round-trip stable for unmodified parts.</purpose>
+      <path>src/mint/ooxml.py</path>
+      <depends>M-CONFIG</depends>
+      <verification-ref>V-M-OOXML</verification-ref>
+      <annotations>
+        <fn-unpack PURPOSE="Extract container into directory; pretty-print XML parts; merge adjacent equal-rPr runs; escape smart quotes; preserve binary parts byte-for-byte" />
+        <fn-pack PURPOSE="Re-zip directory with auto-repair (durableId regen, xml:space=preserve, rsid normalization); fail-fast on malformed XML or broken relationships" />
+        <fn-merge_runs PURPOSE="Fold adjacent w:r with equal w:rPr inside w:p; never cross hyperlink, bookmark, comment-range, ins, del, fldChar, tab, br, sym boundaries" />
+        <fn-escape_smart_quotes PURPOSE="Per-paragraph alternation between opening and closing double quotes; ASCII apostrophe to right single quote; idempotent" />
+        <fn-validate_relationships PURPOSE="Cross-check every Target in *.rels resolves to a part inside the package" />
+        <type-UnpackResult PURPOSE="dataclass: unpack_dir, parts, runs_merged, quotes_escaped, format, original_path" />
+        <type-PackResult PURPOSE="dataclass: output_path, repaired_durable_ids, preserved_whitespace_runs, bytes_written" />
+      </annotations>
+    </M-OOXML>
+
+    <M-EDIT NAME="Document Edit Pipeline" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Edit existing DOCX/PPTX via a typed JSON EditPlan. Model emits ops, runtime applies them deterministically over an unpacked tree. Supports tracked changes and comments per ECMA-376; never feeds raw XML to the model.</purpose>
+      <path>src/mint/edit.py</path>
+      <depends>M-OOXML, M-CONFIG, M-VALIDATE, M-LLM</depends>
+      <verification-ref>V-M-EDIT</verification-ref>
+      <annotations>
+        <fn-edit PURPOSE="Validate plan, unpack via M-OOXML, execute ops in order, pack, run M-VALIDATE, return EditResult with diff" />
+        <fn-validate_plan PURPOSE="Check at least one op, supported types, unique op_id, anchor.value bounds, revision ops carry author/date" />
+        <fn-build_edit_prompt PURPOSE="Build prompt: extracted text + stable anchors + op schema. Never includes raw OOXML XML." />
+        <fn-execute_op PURPOSE="Dispatch one op to its handler; mutate lxml tree in place; return OpOutcome" />
+        <fn-resolve_anchor PURPOSE="Resolve text/paragraph_index/hash anchors against ORIGINAL tree; raise EDIT_ANCHOR_AMBIGUOUS or EDIT_ANCHOR_NOT_FOUND" />
+        <fn-apply_tracked_change PURPOSE="Wrap effects in ECMA-376 w:ins/w:del with author/date; preserve w:rPr; mark paragraph mark on full-paragraph deletes" />
+        <fn-add_comment PURPOSE="Allocate comment id; add range markers as siblings of w:r; record reply linkage in commentsExtended.xml; update content types and rels" />
+        <fn-render_diff PURPOSE="Produce per-op before/after snippets, redacted via M-CONFIG policy" />
+        <type-EditPlan PURPOSE="dataclass: format, ops, metadata" />
+        <type-EditOp PURPOSE="tagged union: ReplaceText | InsertParagraph | DeleteParagraph | SetParagraphStyle | TrackedReplace | TrackedDelete | AddComment | AcceptChange | RejectChange" />
+        <type-Anchor PURPOSE="dataclass: kind, value, context_before, context_after, part. paragraph_index resolves over the original tree only." />
+        <type-OpOutcome PURPOSE="dataclass: op_id, success, error_code, affected_part, before_snippet, after_snippet" />
+        <type-EditResult PURPOSE="dataclass: output_path, backup_path, success, ops_total, ops_succeeded, ops_failed, validation_report, diff, duration_ms, error" />
+      </annotations>
+    </M-EDIT>
+
     <!-- Cross-module dependencies -->
     <CrossLink from="M-VALIDATE" to="M-RULES" relation="loads rules for evaluation" />
     <CrossLink from="M-VALIDATE" to="M-CONFIG" relation="reads severity mode" />
@@ -280,5 +334,9 @@
     <CrossLink from="M-SECTION" to="M-LLM" relation="calls model for section code generation" />
     <CrossLink from="M-ASSEMBLE" to="M-PLAN" relation="reads plan for styles/numbering/page setup" />
     <CrossLink from="M-ASSEMBLE" to="M-SANDBOX" relation="executes assembled JS code" />
+    <CrossLink from="M-EDIT" to="M-OOXML" relation="unpacks input and packs output via the OOXML utility" />
+    <CrossLink from="M-EDIT" to="M-VALIDATE" relation="re-validates the edited document before returning" />
+    <CrossLink from="M-EDIT" to="M-LLM" relation="calls model to produce typed EditPlan from a user instruction" />
+    <CrossLink from="M-EDIT" to="M-CONFIG" relation="reads severity mode and redaction policy" />
   </Project>
 </KnowledgeGraph>

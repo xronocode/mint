@@ -8,6 +8,8 @@
     <risk-4>Plan quality depends on model's ability to decompose user prompt into structured sections. Mitigated by plan validation + retry with plan refinement prompt.</risk-4>
     <architecture-pattern-1 name="Single-pass generation">M-CREATE → skill → model → sandbox → validate. Works for Claude-class models. 33% success on 35B.</architecture-pattern-1>
     <architecture-pattern-2 name="Modular generation">M-PLAN → M-SECTION[] → M-ASSEMBLE → validate. Each section is small enough for 35B. Plan is cheap JSON. Assembly is deterministic. ~90% success rate expected.</architecture-pattern-2>
+    <architecture-pattern-3 name="Edit pipeline">M-EDIT receives a typed JSON EditPlan, not raw OOXML. M-OOXML unpacks/repacks the container; M-EDIT applies typed operations over the lxml tree. Tracked changes and comments follow ECMA-376; reply linkage lives in word/commentsExtended.xml.</architecture-pattern-3>
+    <followup-1 name="M-GRACE on M-OOXML">M-GRACE currently maintains its own zip + Custom XML Parts logic. Once M-OOXML lands, M-GRACE should be refactored to use M-OOXML.unpack/pack so the round-trip and auto-repair invariants apply uniformly. Tracked as a Phase-5+ follow-up wave; not blocking for the Edit pipeline.</followup-1>
   </ArchitectureNotes>
 
   <Modules>
@@ -249,6 +251,81 @@
       <verification-ref>V-M-MCP-G1</verification-ref>
     </M-MCP-G1>
 
+    <M-LLM NAME="LLM Client" TYPE="UTILITY" LAYER="0" ORDER="6" STATUS="done">
+      <contract>
+        <purpose>OpenAI-compatible LLM client used by code/plan/section generators and the edit pipeline. Thin httpx wrapper; no streaming, no retries beyond the per-call budget owned by the caller.</purpose>
+        <inputs>
+          <param name="prompt" type="str" />
+          <param name="system" type="Optional[str]" />
+          <param name="base_url" type="str" />
+          <param name="api_key" type="str" />
+          <param name="model" type="str" />
+          <param name="max_tokens" type="Optional[int]" />
+        </inputs>
+        <outputs>
+          <param name="LLMResponse" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="LLM_CALL_FAILED" />
+          <error code="LLM_TIMEOUT" />
+          <error code="LLM_HTTP_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-call PURPOSE="POST to /chat/completions, return LLMResponse with text + usage + duration_ms; raise LLMCallError on transport / non-2xx" />
+        <export-LLMClient PURPOSE="httpx-based OpenAI-compatible client class" />
+        <type-LLMResponse PURPOSE="dataclass: text, model, usage (dict), duration_ms" />
+        <type-LLMCallError PURPOSE="Exception base for transport and HTTP errors" />
+      </interface>
+      <depends>none</depends>
+      <target>
+        <source>src/mint/llm.py</source>
+        <tests>tests/unit/test_llm.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[LLM]</log-prefix>
+        <critical-block>BLOCK_LLM_CALL</critical-block>
+      </observability>
+      <verification-ref>V-M-LLM</verification-ref>
+    </M-LLM>
+
+    <M-CLI NAME="CLI Entry Point" TYPE="ENTRY_POINT" LAYER="3" ORDER="2" STATUS="done">
+      <contract>
+        <purpose>argparse-based CLI surface for MINT runtime. Subcommands: serve (MCP server), validate, fix, fingerprint, create, extract, and (Phase-5) edit. Each subcommand is a thin shim over the corresponding module entry point and prints JSON to stdout; non-zero exit on logical failure.</purpose>
+        <inputs>
+          <param name="argv" type="list[str]" />
+        </inputs>
+        <outputs>
+          <param name="stdout_json" type="str" />
+          <param name="exit_code" type="int" />
+        </outputs>
+        <errors>
+          <error code="CLI_USAGE_ERROR" />
+          <error code="CLI_FILE_NOT_FOUND" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-main PURPOSE="parse argv, dispatch to cmd_* handler, return exit code" />
+        <fn-build_parser PURPOSE="construct argparse.ArgumentParser with all subcommands" />
+        <fn-cmd_serve PURPOSE="start the merged FastMCP G1+G2 server on stdio or sse" />
+        <fn-cmd_validate PURPOSE="run M-VALIDATE and emit ValidationReport JSON" />
+        <fn-cmd_fix PURPOSE="run M-FIX and emit FixReport JSON" />
+        <fn-cmd_fingerprint PURPOSE="run M-FINGERPRINT and emit FingerprintResult JSON" />
+        <fn-cmd_create PURPOSE="run M-CREATE and emit CreateResult JSON" />
+        <fn-cmd_extract PURPOSE="run M-EXTRACT and emit DesignTokens JSON" />
+        <fn-cmd_edit PURPOSE="(Phase-5) load EditPlan from --plan JSON file, run M-EDIT, emit EditResult JSON" />
+      </interface>
+      <depends>M-CONFIG, M-VALIDATE, M-FIX, M-FINGERPRINT, M-CREATE, M-EXTRACT, M-MCP-G1, M-MCP-G2</depends>
+      <target>
+        <source>src/mint/cli.py</source>
+        <tests>tests/integration/test_cli.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[CLI]</log-prefix>
+      </observability>
+      <verification-ref>V-M-CLI</verification-ref>
+    </M-CLI>
+
     <!-- PHASE 2 (G2): Generation Pipeline -->
 
     <M-SKILLS NAME="Skill Prompts" TYPE="CORE_LOGIC" LAYER="0" ORDER="4" STATUS="done">
@@ -384,7 +461,7 @@
 
     <M-MCP-G2 NAME="MCP Tools G2" TYPE="ENTRY_POINT" LAYER="3" ORDER="1" STATUS="done">
       <contract>
-        <purpose>FastMCP server exposing G1 + G2 tools: mint_create (with modular param), mint_extract_style, mint_list_templates, mint_plan, mint_generate_section, mint_assemble</purpose>
+        <purpose>FastMCP server exposing G1 + G2 tools: mint_create (with modular param), mint_extract_style, mint_list_templates, mint_plan, mint_generate_section, mint_assemble, and (Phase-5) mint_edit for applying typed EditPlans to existing documents.</purpose>
         <inputs>
           <param name="format" type="str" />
           <param name="prompt" type="str" />
@@ -392,6 +469,8 @@
           <param name="modular" type="bool default False" />
           <param name="plan_json" type="Optional[str]" />
           <param name="section_ids" type="Optional[list[str]]" />
+          <param name="edit_plan_json" type="Optional[str]" />
+          <param name="author" type="Optional[str] default 'MINT'" />
         </inputs>
         <outputs>
           <param name="MCPToolResponse" type="dict" />
@@ -408,6 +487,7 @@
         <fn-mint_assemble PURPOSE="MCP tool: assemble stored plan + section code into final document. Returns output path + AssemblyResult." />
         <fn-mint_extract_style PURPOSE="MCP tool: extract design tokens → DesignTokens JSON" />
         <fn-mint_list_templates PURPOSE="MCP tool: list available templates → metadata list" />
+        <fn-mint_edit PURPOSE="MCP tool (Phase-5): apply an EditPlan JSON to an existing DOCX/PPTX. Inputs: document_path, edit_plan_json, author. Output: EditResult JSON with diff, validation report, output_path. Delegates to M-EDIT.edit; never exposes raw OOXML XML to the model." />
         <export-server_g2 PURPOSE="FastMCP server with G1+G2 tools, mounts G1 server" />
       </interface>
       <mcp-state-management>
@@ -650,6 +730,139 @@ writeFileSync('output.docx', buffer);
       </observability>
       <verification-ref>V-M-ASSEMBLE</verification-ref>
     </M-ASSEMBLE>
+
+    <!-- PHASE 5 (G7): Edit Pipeline -->
+
+    <M-OOXML NAME="OOXML Pack/Unpack" TYPE="UTILITY" LAYER="0" ORDER="5" STATUS="planned">
+      <contract>
+        <purpose>Pure-Python pack/unpack of OOXML containers (DOCX/PPTX/XLSX) for the edit pipeline. Distills Anthropic-style preprocessing (pretty-print, run merge, smart-quote escaping) into deterministic, MIT-clean code with no LibreOffice or shell-out. Round-trip yields tree-equal XML for every part (same tag tree, same attributes) so diffs stay reviewable; binary parts and the [Content_Types].xml override order are preserved byte-for-byte.</purpose>
+        <inputs>
+          <param name="document_path" type="Path" />
+          <param name="unpack_dir" type="Path" />
+          <param name="merge_runs" type="bool default True" />
+          <param name="pretty_print" type="bool default True" />
+          <param name="output_path" type="Path" />
+        </inputs>
+        <outputs>
+          <param name="UnpackResult" type="dataclass" />
+          <param name="PackResult" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="OOXML_NOT_A_ZIP" />
+          <error code="OOXML_MISSING_CONTENT_TYPES" />
+          <error code="OOXML_XML_PARSE_ERROR" />
+          <error code="OOXML_RELATIONSHIP_BROKEN" />
+          <error code="OOXML_PACK_FAILED" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-unpack PURPOSE="Extract DOCX/PPTX ZIP into unpack_dir; pretty-print every w:document, w:styles, w:numbering, ppt/slides/*.xml; merge adjacent w:r runs sharing identical w:rPr; escape ASCII single/double quotes inside w:t to smart-quote XML entities; preserve binary parts (media, fontTable.bin, oleObject*.bin) byte-for-byte; return UnpackResult." />
+        <fn-pack PURPOSE="Re-zip unpack_dir into output_path; condense whitespace inserted by unpack while preserving xml:space=preserve runs; auto-repair (regenerate w:durableId &gt;= 0x7FFFFFFF, add xml:space=preserve to w:t with leading/trailing whitespace, normalize 8-hex w:rsid* values); fail-fast on malformed XML, missing relationships, or unknown content types." />
+        <fn-merge_runs PURPOSE="Walk w:p children, fold adjacent w:r with structurally equal w:rPr into one; never merge across w:hyperlink, w:bookmarkStart, w:bookmarkEnd, w:commentRangeStart, w:commentRangeEnd, w:commentReference, w:ins, w:del, w:fldChar, w:tab, w:br, w:sym, or any element introducing a non-text child between the runs." />
+        <fn-escape_smart_quotes PURPOSE="Inside w:t and w:delText only, replace ASCII straight quotes with smart-quote XML entities. Algorithm: per paragraph, alternate opening (&#x201C;) and closing (&#x201D;) double quotes starting from opening; replace every ASCII apostrophe with &#x2019;. Leave unpaired (odd) double quotes as ASCII. Skip runs whose ancestor pPr/rPr declares a code style or rStyle ending in 'Code'. Idempotent: pre-existing entities are not re-encoded." />
+        <fn-validate_relationships PURPOSE="Cross-check every Target referenced from word/_rels/*.rels and ppt/_rels/*.rels exists in the package; raise OOXML_RELATIONSHIP_BROKEN with a list of dangling targets." />
+        <export-ooxml PURPOSE="Pack/unpack utility instance with default policy from MintConfig" />
+        <type-UnpackResult PURPOSE="dataclass: unpack_dir (Path), parts (list[str]), runs_merged (int), quotes_escaped (int), format (Literal['docx','pptx','xlsx']), original_path (Path)" />
+        <type-PackResult PURPOSE="dataclass: output_path (Path), repaired_durable_ids (int), preserved_whitespace_runs (int), bytes_written (int)" />
+      </interface>
+      <depends>M-CONFIG</depends>
+      <target>
+        <source>src/mint/ooxml.py</source>
+        <tests>tests/unit/test_ooxml.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[OOXML]</log-prefix>
+        <critical-block>BLOCK_OOXML_UNPACK</critical-block>
+        <critical-block>BLOCK_OOXML_PACK</critical-block>
+        <critical-block>BLOCK_OOXML_AUTOREPAIR</critical-block>
+      </observability>
+      <round-trip-invariants>
+        <inv-1>unpack(d) → pack(u) → unpack(p) yields identical part listing and identical XML tree per part (modulo intentional pretty-print + run merge + smart-quote normalization).</inv-1>
+        <inv-2>Binary parts under word/media/, ppt/media/, xl/media/, plus fontTable*.bin and oleObject*.bin, are byte-equal between input and output when not edited.</inv-2>
+        <inv-3>Pack never reorders Override entries inside [Content_Types].xml relative to input.</inv-3>
+      </round-trip-invariants>
+      <verification-ref>V-M-OOXML</verification-ref>
+    </M-OOXML>
+
+    <M-EDIT NAME="Document Edit Pipeline" TYPE="CORE_LOGIC" LAYER="2" ORDER="5" STATUS="planned">
+      <contract>
+        <purpose>Edit existing DOCX/PPTX without regeneration. Accepts a declarative EditPlan (JSON list of typed operations) emitted by an LLM and applies it via deterministic XML transforms over an M-OOXML unpack tree. Decouples model output from raw XML — works on 7B-frontier because the model only emits a small typed JSON, never OOXML. Supports tracked changes and comments per ECMA-376.</purpose>
+        <inputs>
+          <param name="document_path" type="Path" />
+          <param name="edit_plan" type="EditPlan" />
+          <param name="author" type="str default 'MINT'" />
+          <param name="output_path" type="Optional[Path]" />
+          <param name="severity_mode" type="Optional[Literal['audit','lenient','strict']] — defaults to MintConfig.severity_mode when omitted; explicit value overrides config for this call only" />
+        </inputs>
+        <outputs>
+          <param name="EditResult" type="dataclass" />
+        </outputs>
+        <errors>
+          <error code="EDIT_PLAN_INVALID" />
+          <error code="EDIT_ANCHOR_NOT_FOUND" />
+          <error code="EDIT_ANCHOR_AMBIGUOUS" />
+          <error code="EDIT_OP_UNSUPPORTED" />
+          <error code="EDIT_TRACKED_CHANGE_INVALID" />
+          <error code="EDIT_VALIDATION_FAILED" />
+          <error code="BACKUP_FAILED" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-edit PURPOSE="Main entry: validate plan → unpack via M-OOXML → execute operations in order against in-memory lxml tree → pack → run M-VALIDATE → return EditResult with diff and per-op outcomes" />
+        <fn-validate_plan PURPOSE="Static check: at least one op, every op.type is one of the supported literals, every op_id is unique within the plan, every anchor.type is supported, every anchor.value is non-empty with length &lt;= 512 and contains no ASCII control characters, every revision op carries author and date" />
+        <fn-extract_text_with_anchors PURPOSE="Walk the unpacked tree and emit a list of TextAnchor records: paragraph_index (int, original-tree order), hash (8-hex SHA1 prefix of NFKC-normalized whitespace-collapsed paragraph text), text (the visible plain-text content), part (document/header/footer/footnote/endnote). Used by build_edit_prompt to feed the model and by resolve_anchor at apply time. Never emits OOXML XML — only plain text plus typed anchor metadata." />
+        <fn-build_edit_prompt PURPOSE="Build LLM prompt from user instruction + the TextAnchor list emitted by extract_text_with_anchors + the ECMA-derived op-type schema. Anchors are rendered in a fixed serialization (one TextAnchor per line, prefixed with #&lt;paragraph_index&gt;:&lt;hash&gt;) so the model emits anchor.value matching that exact format. Does NOT show raw XML to the model." />
+        <fn-execute_op PURPOSE="Dispatch one EditOp to its handler: replace_text, insert_paragraph, delete_paragraph, set_paragraph_style, tracked_replace, tracked_delete, add_comment, accept_change, reject_change. Each handler updates the lxml tree in place and returns OpOutcome." />
+        <fn-resolve_anchor PURPOSE="Find unique target run/paragraph/element by Anchor: paragraph_index, text_substring (with optional context_before/after), or stable hash. Resolution semantics: each Anchor maps deterministically to an element-identity captured at unpack time (paragraph_index → original-position, hash → original-paragraph with that hash, text → original substring location). At apply time, M-EDIT looks up that identity in the LIVE tree. If the element is still attached → resolved successfully. If it has been detached or removed by an earlier op in the same plan → EDIT_ANCHOR_NOT_FOUND. Multiple matches surviving without disambiguation → EDIT_ANCHOR_AMBIGUOUS (this includes the case where two different paragraphs share the same 8-hex hash prefix — ambiguity is treated as a hard error, never silently picked)." />
+        <fn-apply_tracked_change PURPOSE="Wrap an op's effect into ECMA-376 w:ins/w:del semantics: insertion → wrap new w:r in w:ins(id, author, date); deletion → preserve original w:r inside w:del with w:t→w:delText; full-paragraph delete → also mark paragraph mark via w:pPr/w:rPr/w:del." />
+        <fn-add_comment PURPOSE="Allocate next comment id; append to word/comments.xml; insert w:commentRangeStart/End around target as siblings of w:r (never inside); add w:commentReference run; create comments.xml + comments.xml.rels entries on first use; record reply links in word/commentsExtended.xml via w15:commentEx paraId/paraIdParent (NOT by nesting ranges in document.xml); update word/commentsIds.xml and word/commentsExtensible.xml when present." />
+        <fn-render_diff PURPOSE="Produce a unified human-readable diff: list of (part, op_id, before_snippet, after_snippet) for the EditResult. Truncate snippets to 240 chars and redact via M-CONFIG redaction policy." />
+        <export-edit PURPOSE="Edit pipeline entry point" />
+        <type-EditPlan PURPOSE="dataclass: format (Literal['docx','pptx']), ops (list[EditOp]), metadata (EditMetadata)" />
+        <type-EditOp PURPOSE="tagged union discriminated by type (Literal['replace_text','insert_paragraph','delete_paragraph','set_paragraph_style','tracked_replace','tracked_delete','add_comment','accept_change','reject_change']) → variant: ReplaceText | InsertParagraph | DeleteParagraph | SetParagraphStyle | TrackedReplace | TrackedDelete | AddComment | AcceptChange | RejectChange. Every variant carries op_id (str, unique within plan), anchor (Anchor), and a variant-specific payload (e.g. new_text, style_id, author, parent_id, change_id). The discriminator field name 'type' matches Anchor.type so EditPlan JSON has one consistent convention." />
+        <type-Anchor PURPOSE="dataclass: type (Literal['paragraph_index','text','hash']) — discriminator field, value (str|int), context_before (Optional[str]), context_after (Optional[str]), part (Literal['document','header','footer','endnote','footnote'] default 'document'). All three anchor types resolve against the ORIGINAL unpacked tree captured at unpack time; subsequent ops in the same plan do NOT see indices, hashes, or text reshifted by earlier insertions or deletions. type='paragraph_index' carries an int. type='hash' carries an 8-hex-digit SHA1 prefix of the target paragraph's normalized text (whitespace-collapsed, NFKC-normalized) emitted by extract_text_with_anchors so plans stay valid across whitespace-only re-saves. type='text' carries a verbatim substring of the original visible text and may use context_before/context_after for disambiguation. Multi-pass edits that depend on content created by earlier ops are NOT supported in v0 — produce them as a second EditPlan after the first edit has packed and unpacked again." />
+        <type-OpOutcome PURPOSE="dataclass: op_id (str), success (bool), error_code (Optional[str]), affected_part (str), before_snippet (str), after_snippet (str)" />
+        <type-EditMetadata PURPOSE="dataclass: correlation_id (str — generated by M-EDIT before the LLM call), source_prompt_hash (str — SHA256 hex of the user instruction text + serialized anchor digest, computed by M-EDIT, NOT supplied by the model), model (str), created_at (str ISO-8601)" />
+        <type-TextAnchor PURPOSE="dataclass: paragraph_index (int), hash (str — 8-hex SHA1 prefix of normalized text), text (str), part (Literal['document','header','footer','footnote','endnote'])" />
+        <type-EditResult PURPOSE="dataclass: output_path (Optional[Path]), backup_path (Path), success (bool), ops_total (int), ops_succeeded (int), ops_failed (int), validation_report (ValidationReport), diff (list[dict]), duration_ms (int), error (Optional[str])" />
+      </interface>
+      <depends>M-OOXML, M-CONFIG, M-VALIDATE, M-LLM</depends>
+      <supported-ops>
+        <op-1 name="replace_text">In-place text replacement preserving the host w:r's w:rPr; never crosses paragraph boundaries.</op-1>
+        <op-2 name="insert_paragraph">Insert new w:p after anchor with given style id (must exist in styles.xml or come from a standard set: Heading1..6, Normal, ListParagraph).</op-2>
+        <op-3 name="delete_paragraph">Remove anchored w:p; relationships referenced only from this paragraph are cleaned up.</op-3>
+        <op-4 name="set_paragraph_style">Change w:pStyle of the anchored paragraph; verify style exists.</op-4>
+        <op-5 name="tracked_replace">Replace anchored text wrapped in w:del + w:ins siblings, preserving w:rPr on both sides.</op-5>
+        <op-6 name="tracked_delete">Wrap anchored content in w:del; for full-paragraph deletes also marks the paragraph mark via w:pPr/w:rPr/w:del.</op-6>
+        <op-7 name="add_comment">Insert comment with optional parent_id; updates comments.xml plus relationships and content types; records reply linkage in commentsExtended.xml (w15:commentEx paraIdParent), never by nesting commentRange in document.xml.</op-7>
+        <op-8 name="accept_change">Accept a specific revision by id. For an insertion: remove the w:ins wrapper and keep the inserted runs. For a deletion: drop the w:del subtree (the deleted text is gone). For a paragraph-mark deletion: collapse the paragraph mark.</op-8>
+        <op-9 name="reject_change">Reject a specific revision by id. For an insertion: drop the w:ins subtree (the inserted text is gone). For a deletion: remove the w:del wrapper, restore w:t from w:delText, and keep the runs in place.</op-9>
+      </supported-ops>
+      <out-of-scope-v0>
+        <oos-1>Image insertion/replacement (deferred to v0.4 — needs media + relationship + content-type orchestration).</oos-1>
+        <oos-2>PPTX edit support overall in v0 — the contract is written in DOCX terms (w:p, w:r, w:ins, w:del, comments.xml). PPTX edits, including shape-level edits, are deferred to v0.5 alongside layout-aware anchor resolution. M-EDIT.edit raises EDIT_OP_UNSUPPORTED on any plan with format='pptx' until then.</oos-2>
+        <oos-3>Bulk accept_all / reject_all of foreign-author revisions via LibreOffice; v0 supports per-id accept_change/reject_change only.</oos-3>
+      </out-of-scope-v0>
+      <output-policy>
+        <pol-1>output_path default: when omitted, M-EDIT writes to the input path with an inserted '.edited' suffix before the extension (foo.docx → foo.edited.docx). An '--in-place' caller flag can request overwriting the original AFTER the backup is on disk.</pol-1>
+        <pol-2>backup_path is mandatory and unconditional: M-EDIT copies the original to a sibling path with '.bak' appended BEFORE any tree mutation. If the backup write fails (permissions, disk full), edit aborts with BACKUP_FAILED before unpack.</pol-2>
+        <pol-3>output_path and backup_path are always different files. M-EDIT never writes the edited content over the backup.</pol-3>
+      </output-policy>
+      <target>
+        <source>src/mint/edit.py</source>
+        <tests>tests/unit/test_edit.py</tests>
+      </target>
+      <observability>
+        <log-prefix>[Edit]</log-prefix>
+        <critical-block>BLOCK_EDIT_PLAN_VALIDATE</critical-block>
+        <critical-block>BLOCK_EDIT_BACKUP</critical-block>
+        <critical-block>BLOCK_EDIT_EXTRACT_TEXT</critical-block>
+        <critical-block>BLOCK_EDIT_RESOLVE_ANCHOR</critical-block>
+        <critical-block>BLOCK_EDIT_APPLY_OP</critical-block>
+        <critical-block>BLOCK_EDIT_TRACKED_CHANGE</critical-block>
+      </observability>
+      <verification-ref>V-M-EDIT</verification-ref>
+    </M-EDIT>
   </Modules>
 
   <DataFlow>
@@ -709,6 +922,19 @@ writeFileSync('output.docx', buffer);
       <step-9>M-VALIDATE runs rule checks on final file. CreateResult.execution_mode="modular".</step-9>
       <evidence>[Plan][decompose][BLOCK_PLAN_DECOMPOSE], [Section][generate][BLOCK_SECTION_GENERATE] per section, [Assemble][execute][BLOCK_ASSEMBLE_EXECUTE], [Create][postprocess]</evidence>
     </DF-006>
+
+    <DF-007 NAME="Document Edit Pipeline" TRIGGER="mint_edit MCP call or mint edit CLI subcommand">
+      <step-0>M-EDIT receives document_path + EditPlan JSON (already validated as well-formed by the MCP/CLI shim).</step-0>
+      <step-1>M-EDIT.validate_plan: at least one op, every op_type supported, op_id unique within the plan, anchor.value bounded (≤512 chars, no ASCII control characters), revision ops carry author and date.</step-1>
+      <step-2>M-OOXML.unpack on document_path → unpack_dir; pretty-print, run merge, smart-quote escape, preserve binaries byte-for-byte.</step-2>
+      <step-3>M-EDIT.extract_text_with_anchors over the unpack tree → list[TextAnchor]. (For LLM-driven plans this step also produced the anchors fed to the model in build_edit_prompt; for direct API/CLI plans it is used only by resolve_anchor.)</step-3>
+      <step-4>For each EditOp in plan.ops in order: resolve_anchor against the ORIGINAL tree (raise EDIT_ANCHOR_AMBIGUOUS or EDIT_ANCHOR_NOT_FOUND on mismatch) → execute_op handler mutates the lxml tree in place → record OpOutcome with before/after snippets. Failures stop the pipeline unless an op was marked tolerant (out of scope for v0).</step-4>
+      <step-5>Tracked-change ops route through apply_tracked_change to emit ECMA-376 w:ins/w:del; comment ops update word/comments.xml plus word/commentsExtended.xml (reply linkage via w15:commentEx paraIdParent) plus relationships and content types.</step-5>
+      <step-6>M-OOXML.pack(unpack_dir) → output_path with auto-repair (durableId regeneration, xml:space=preserve insertion, rsid normalization).</step-6>
+      <step-7>M-VALIDATE.run_checks on the packed output (severity from MintConfig). EDIT_VALIDATION_FAILED is surfaced if strict mode and the output regresses.</step-7>
+      <step-8>M-EDIT.render_diff produces the per-op diff list; backup_path is the pre-edit copy. Return EditResult with success flag, ops_total/succeeded/failed, validation_report, diff, duration_ms.</step-8>
+      <evidence>[Edit][validate_plan][BLOCK_EDIT_PLAN_VALIDATE], [Edit][backup][BLOCK_EDIT_BACKUP], [OOXML][unpack][BLOCK_OOXML_UNPACK], [Edit][extract_text][BLOCK_EDIT_EXTRACT_TEXT], [Edit][resolve_anchor][BLOCK_EDIT_RESOLVE_ANCHOR] per op, [Edit][apply_op][BLOCK_EDIT_APPLY_OP] per op (may emit [Edit][tracked_change][BLOCK_EDIT_TRACKED_CHANGE]), [OOXML][pack][BLOCK_OOXML_PACK] (may emit [OOXML][autorepair][BLOCK_OOXML_AUTOREPAIR]), [Validate][run_checks][BLOCK_RUN_CHECKS]</evidence>
+    </DF-007>
   </DataFlow>
 
   <ImplementationOrder>
@@ -738,14 +964,21 @@ writeFileSync('output.docx', buffer);
       <step-2 module="M-GRACE" status="done" verification="V-M-GRACE">GRACE injection: manifest + instructions as Custom XML Parts</step-2>
     </Phase-3>
 
-    <Phase-4 name="Modular Generation (G6)" status="planned">
+    <Phase-4 name="Modular Generation (G6)" status="done">
       <goal>Decompose complex documents into sections, generate each independently, assemble deterministically. Target: 90%+ success rate on 35B models for Claude-quality documents.</goal>
-      <step-1 module="M-PLAN" status="planned" verification="V-M-PLAN">Document planner: prompt → structured section plan JSON</step-1>
-      <step-2 module="M-SECTION" status="planned" verification="V-M-SECTION">Section generator: plan section → JS code per section</step-2>
-      <step-3 module="M-ASSEMBLE" status="planned" verification="V-M-ASSEMBLE">Document assembler: plan + sections → complete DOCX via sandbox</step-3>
-      <step-4 module="M-CREATE" status="planned" verification="V-M-CREATE">Update create orchestrator: add modular mode (plan→section[]→assemble)</step-4>
-      <step-5 module="M-MCP-G2" status="planned" verification="V-M-MCP-G2">Add MCP tools: mint_plan, mint_generate_section, mint_assemble</step-5>
+      <step-1 module="M-PLAN" status="done" verification="V-M-PLAN">Document planner: prompt → structured section plan JSON</step-1>
+      <step-2 module="M-SECTION" status="done" verification="V-M-SECTION">Section generator: plan section → JS code per section</step-2>
+      <step-3 module="M-ASSEMBLE" status="done" verification="V-M-ASSEMBLE">Document assembler: plan + sections → complete DOCX via sandbox</step-3>
+      <step-4 module="M-CREATE" status="done" verification="V-M-CREATE">Update create orchestrator: add modular mode (plan→section[]→assemble)</step-4>
+      <step-5 module="M-MCP-G2" status="done" verification="V-M-MCP-G2">Add MCP tools: mint_plan, mint_generate_section, mint_assemble</step-5>
     </Phase-4>
+
+    <Phase-5 name="Edit Pipeline (G7)" status="planned">
+      <goal>Edit existing DOCX/PPTX without regeneration. Model emits a typed JSON EditPlan; runtime applies it deterministically. Unlocks B2B use-cases where users want incremental changes to their own documents.</goal>
+      <step-1 module="M-OOXML" status="planned" verification="V-M-OOXML">Pure-Python pack/unpack utility with pretty-print, run merge, smart-quote escaping, auto-repair</step-1>
+      <step-2 module="M-EDIT" status="planned" verification="V-M-EDIT">Edit pipeline: declarative EditPlan → anchor resolve → typed op handlers → pack → validate</step-2>
+      <step-3 module="M-MCP-G2" status="planned" verification="V-M-MCP-G2">Add MCP tool mint_edit (input document_path + EditPlan JSON, output EditResult); also extend src/mint/cli.py with a mint edit subcommand reading EditPlan from a JSON file</step-3>
+    </Phase-5>
   </ImplementationOrder>
 
   <ExecutionPolicy>
