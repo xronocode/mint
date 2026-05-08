@@ -191,8 +191,13 @@ result = CreateRequest(
     prompt=PROMPT,
     modular=True,
     llm_base_url="http://10.128.26.10:11434/v1",
-    llm_model="qwen3.6:35b",
-    llm_fallback_model="glm-4.7-flash:latest",
+    # qwen3.6:35b and glm-4.7-flash both emit reasoning into a separate
+    # `reasoning` field and leave `content` empty until reasoning finishes;
+    # for big prompts they hit max_tokens still inside reasoning → empty
+    # output. gpt-oss and gemma4:31b finish reasoning fast and populate
+    # content reliably.
+    llm_model="gpt-oss:latest",
+    llm_fallback_model="gemma4:31b",
 )
 
 output = create(result, rules_dir=Path("rules"))
