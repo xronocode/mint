@@ -30,7 +30,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mint"]
+packages = ["src/mint", "src/mint_python"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

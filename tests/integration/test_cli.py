@@ -16,7 +16,7 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 def _run(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "mint.cli", *args],
+        [sys.executable, "-m", "mint.cli", "--engine", "js", *args],
         capture_output=True,
         text=True,
         cwd=str(cwd) if cwd else None,
