@@ -97,12 +97,27 @@ class TestBuildHeadersFooters:
 
 
 class TestMakePlaceholder:
-    def test_contains_title(self):
-        spec = SectionSpec(id="s1", type="content", title="My Section", description="d", level=1, order=0)
+    def test_contains_title_using_heading_style(self):
+        # Placeholder must use a Heading style so the rendered heading
+        # matches the rest of the document, AND must NOT leak any
+        # "Section generation failed" chrome into the user-visible doc.
+        spec = SectionSpec(id="s1", type="content", title="My Section",
+                           description="Some real description.", level=1,
+                           order=0)
         js = make_placeholder(spec)
         assert "My Section" in js
-        assert "Section generation failed" in js
+        assert "Some real description" in js
+        assert "style: 'Heading1'" in js
+        assert "Section generation failed" not in js
         assert "Paragraph" in js
+
+    def test_uses_description_as_body(self):
+        spec = SectionSpec(id="s2", type="content", title="X",
+                           description="Body content here.", level=2,
+                           order=0)
+        js = make_placeholder(spec)
+        assert "Body content here." in js
+        assert "style: 'Heading2'" in js
 
 
 class TestBuildSectionWrapper:
@@ -156,4 +171,8 @@ class TestRenderAssemblyTemplate:
             styles=StylesConfig(),
         )
         js = render_assembly_template(plan, {}, sections_placeholder={"s1"})
-        assert "Section generation failed" in js
+        # Placeholder must use the heading style and the section's
+        # description as body — and must NOT leak failure chrome.
+        assert "Test" in js
+        assert "Heading1" in js
+        assert "Section generation failed" not in js

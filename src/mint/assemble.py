@@ -318,25 +318,55 @@ def build_section_wrapper(
 
 
 def make_placeholder(spec: SectionSpec) -> str:
+    """Emit a section that looks like part of the document even when the
+    LLM failed to produce code for it.
+
+    Uses pStyle: 'HeadingN' so the placeholder heading inherits the same
+    theme styling as the rest of the document (size, color, font) — no
+    more 12pt gray-on-white anomaly. Body comes from spec.description,
+    which M-PLAN populates with substantive text. No "generation failed"
+    chrome leaks into the user-visible doc.
+    """
+    heading_level = max(1, min(6, spec.level))
+    style_id = f"Heading{heading_level}"
+    desc = (spec.description or "").strip()
+    if not desc:
+        desc = (
+            f"Detail for {spec.title} will be added in a subsequent "
+            "revision."
+        )
+    # Split overly-long descriptions across paragraphs at sentence
+    # boundaries so the placeholder body looks like real prose rather
+    # than a single wall of text.
+    sentences = re.split(r"(?<=[.!?])\s+", desc)
+    paragraphs: list[list[str]] = [[]]
+    for s in sentences:
+        if sum(len(t) for t in paragraphs[-1]) > 280:
+            paragraphs.append([])
+        paragraphs[-1].append(s)
+    body_js_parts: list[str] = []
+    for chunk in paragraphs:
+        text = " ".join(chunk).strip()
+        if not text:
+            continue
+        body_js_parts.append(
+            "new Paragraph({\n"
+            "  children: [\n"
+            f"    new TextRun({{ text: {json.dumps(text)} }}),\n"
+            "  ],\n"
+            "})"
+        )
+    body_js = ",\n".join(body_js_parts) if body_js_parts else (
+        "new Paragraph({ children: [] })"
+    )
     return (
-        f"new Paragraph({{\n"
-        f"  children: [\n"
-        f"    new TextRun({{\n"
-        f"      text: {json.dumps(spec.title)},\n"
-        f"      bold: true,\n"
-        f"      size: {spec.level * 4 + 20},\n"
-        f"    }}),\n"
-        f"  ],\n"
-        f"}}),\n"
-        f"new Paragraph({{\n"
-        f"  children: [\n"
-        f"    new TextRun({{\n"
-        f"      text: 'Section generation failed',\n"
-        f"      italics: true,\n"
-        f"      color: '999999',\n"
-        f"    }}),\n"
-        f"  ],\n"
-        f"}})"
+        "new Paragraph({\n"
+        f"  style: '{style_id}',\n"
+        "  children: [\n"
+        f"    new TextRun({{ text: {json.dumps(spec.title)} }}),\n"
+        "  ],\n"
+        "}),\n"
+        f"{body_js}"
     )
 
 
@@ -512,13 +542,15 @@ def render_assembly_template(
             f"          margin: {{ top: 1440, right: 1440, bottom: 1440, left: 1440 }},\n"
             f"        }},\n"
             f"      }},\n"
+            # Runtime fallback: if the section's JS throws at execution
+            # time, emit a heading using the document's Heading style and
+            # NO failure chrome. The error is logged via stderr by the
+            # sandbox; the rendered doc stays presentable.
             f"      children: [\n"
-            f"        new Paragraph({{ children: [new TextRun({{ "
-            f"text: '{spec.title}', "
-            f"bold: true, size: {theme.typography.style('heading2').size} }})] }}),\n"
-            f"        new Paragraph({{ children: [new TextRun({{ "
-            f"text: 'Section failed: ' + __e_{safe_id}.message, "
-            f"italics: true, color: '{theme.palette.muted}' }})] }}),\n"
+            f"        new Paragraph({{ "
+            f"style: 'Heading{max(1, min(6, spec.level))}', "
+            f"children: [new TextRun({{ "
+            f"text: {json.dumps(spec.title)} }})] }}),\n"
             f"      ],\n"
             f"    }};\n"
             f"  }}\n"

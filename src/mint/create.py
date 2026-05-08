@@ -918,6 +918,53 @@ def _postprocess_docx(
                 keepnext_added,
             )
 
+    # Wave J: strip paragraph shading that doesn't belong to the active
+    # theme. The model often emits hardcoded hex fills (e.g. EBF5FB from
+    # showcase note-callout, D5E8F0, F0F8FF, etc) that don't match the
+    # current theme — under claret_serif a stray light-blue background on
+    # bullet lists looks broken. Allowed fills are: theme palette colors,
+    # alt-row, callout fills, and structural ones (auto/FFFFFF).
+    allowed_fills = {
+        "AUTO", "FFFFFF",
+        theme.palette.primary,
+        theme.palette.body,
+        theme.palette.alt_row,
+        theme.tables.alt_row_fill,
+        theme.tables.header.fill or "",
+    }
+    for cp in theme.palette.callouts.values():
+        allowed_fills.add(cp.fill)
+        allowed_fills.add(cp.border)
+    allowed_fills.discard("")
+    allowed_fills_norm = {a.upper() for a in allowed_fills}
+
+    doc_root = _parse_xml(doc_path)
+    if doc_root is not None:
+        stripped = 0
+        for p in doc_root.iter(f"{{{w_ns}}}p"):
+            strip_ppr = p.find(f"{{{w_ns}}}pPr")
+            if strip_ppr is None:
+                continue
+            strip_shd = strip_ppr.find(f"{{{w_ns}}}shd")
+            if strip_shd is None:
+                continue
+            fill = (strip_shd.get(f"{{{w_ns}}}fill", "") or "").upper()
+            if not fill or fill in allowed_fills_norm:
+                continue
+            # Foreign fill: strip it. If postprocess Wave C decides this
+            # paragraph is a callout (Note:/Warning:/...), it will set the
+            # right theme fill back later in this same pass.
+            strip_ppr.remove(strip_shd)
+            stripped += 1
+        if stripped:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += stripped
+            logger.info(
+                "[Create][postprocess] Wave J: stripped %d foreign "
+                "paragraph fills (not in theme palette)",
+                stripped,
+            )
+
     # Fix 7b (Wave C): convert "Warning:", "Note:", "Tip:", "Caution:"
     # prefixed paragraphs into distinct-coloured callout blocks. Gives the
     # doc varied semantic emphasis (info / warning / tip) without requiring

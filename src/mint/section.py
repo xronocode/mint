@@ -763,5 +763,17 @@ def generate_all(
         result.total_retries,
         result.total_duration_ms,
     )
+    # Loud-fail: if any section couldn't be generated, surface the IDs
+    # explicitly so a placeholder slipping into the doc is visible in
+    # logs, not silently swept under the rug.
+    if result.failed:
+        failed_ids = [
+            sid for sid, sc in results.items() if not sc.success
+        ]
+        logger.warning(
+            f"[{_LOG_PREFIX}][generate_all] FAILED SECTIONS will render "
+            "as placeholders: %s",
+            ", ".join(failed_ids),
+        )
     return result
 # END_BLOCK_GENERATE_ALL
