@@ -114,6 +114,7 @@
     <constraint-5>GRACE namespace: urn:mint:grace:2026:manifest — must not collide with existing namespaces.</constraint-5>
     <constraint-6>RAM budget: ~4GB without local model; ~8GB with 7B; ~48GB with 70B quantized.</constraint-6>
     <constraint-7>Pure Python execution is the strategic default for the runtime from v0.3 onward (`MINT_ENGINE=python`, default). The Node.js sandbox + docx-js/pptxgenjs path is preserved as an optional fallback (`MINT_ENGINE=js`) for legacy code paths and existing fixtures, but is no longer the recommended target for new code. Phase-6 of the development plan ships scaffolding only; Phases 1-5 of the pure-python rollout (handover §6) populate the implementation.</constraint-7>
+    <constraint-8>Python-first policy for `src/mint_python/`: any code under this tree MUST be pure Python — no `subprocess` calls into Node.js, no JS shims, no `import vm2` / `import isolated-vm`, no Node IPC bridges, no calls into `src/mint/sandbox/`. Allowed external processes from MP-* code: rendering services exposed over HTTP (e.g. Gotenberg in Phase-5) AND the eventual RestrictedPython sandbox (Phase-4 of pure-python rollout). MP-* code may import `lxml`, `python-docx`, `pillow`, `matplotlib`, `RestrictedPython`, and stdlib only; importing from `src/mint/*` legacy modules is forbidden by V-MP-PKG forbidden-2 (already enforced) — this constraint extends the rule to runtime: no transitive Node invocation through any layer.</constraint-8>
   </Constraints>
 
   <Risks>

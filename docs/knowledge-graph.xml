@@ -2,6 +2,12 @@
   <Project NAME="MINT Runtime" VERSION="0.2.0">
     <keywords>docx, pptx, xlsx, OOXML, docx-js, pptxgenjs, exceljs, validation, auto-fix, QA, GRACE, MCP, template-engine, style-extraction, design-tokens, model-agnostic, local-first</keywords>
     <annotation>Model-Independent Normalization Toolkit — Claude-quality document generation for any LLM. Self-contained runtime with skill prompts, execution engine, validation, QA, and GRACE metadata injection. From v0.3 / Phase-6 onward: dual-runtime model — Pure Python (MINT_ENGINE=python, default; populates `src/mint_python/`) is the strategic execution path; the Node.js sandbox (MINT_ENGINE=js) is retained as opt-in legacy fallback. Living spec for the migration: `docs/pure-python/` (handover-v1, structure, feature-flag, acceptance-criteria) and `docs/mint-pure-python-handover-v1.md` §5-7.</annotation>
+    <naming-convention>
+      <rule-1>`M-*` prefix: legacy modules tied to the Node.js engine (MINT_ENGINE=js path) — e.g. M-CONFIG, M-CLI, M-SANDBOX, M-VALIDATE, M-CREATE, M-EDIT.</rule-1>
+      <rule-2>`MP-*` prefix: Pure Python Edition modules under `src/mint_python/` (MINT_ENGINE=python path) — e.g. MP-PKG, MP-STYLE, MP-CONTENT, MP-TABLE, MP-SECTION, MP-DOCUMENT, MP-SDK, MP-GRACE.</rule-2>
+      <rule-3>`V-M-*` and `V-MP-*` mirror the same prefixes for verification entries; `VF-*` for cross-cutting flow verifications regardless of engine.</rule-3>
+      <rule-4>When a legacy module has a Pure Python successor (e.g. M-VALIDATE → MP-VALIDATE in Phase-3 of pure-python rollout), both retain their full prefix. Never write `M-SDK` to mean `MP-SDK` — they are distinct modules in distinct engines.</rule-4>
+    </naming-convention>
 
     <!-- Phase 1: Foundation + Validation (G0+G1) -->
 
@@ -469,7 +475,7 @@
         <fn-set_header PURPOSE="Document-wide header (Phase-1 scope)" />
         <fn-set_footer PURPOSE="Document-wide footer" />
         <fn-save PURPOSE="Serialize to .docx; emits BLOCK_SAVE_DOCX with section_count + table_count + output_path" />
-        <fn-inject_grace PURPOSE="STUB Phase-5 — Custom XML Parts emission deferred to MP-GRACE" />
+        <fn-inject_grace PURPOSE="CORE METHOD (delegation pattern): public API on Document per handover §3.1; delegates to MP-GRACE.inject_manifest_and_instructions; Phase-7 stub raises NotImplementedError pointing at Phase 5" />
         <fn-validate PURPOSE="STUB Phase-3 — pure-Python validation deferred to MP-RULES + MP-VALIDATE" />
         <fn-fix PURPOSE="STUB Phase-3 — pure-Python fix engine deferred" />
         <fn-to_pdf PURPOSE="STUB Phase-5 — Gotenberg/render integration deferred" />
@@ -506,5 +512,17 @@
     <CrossLink from="MP-SDK" to="MP-CONTENT" relation="SDK re-exports Image" />
     <CrossLink from="MP-SDK" to="MP-STYLE" relation="SDK re-exports Style, Pt, ColorPalette + hosts the preset registry" />
     <CrossLink from="MP-DOCUMENT" to="M-VALIDATE" relation="Phase-7 e2e gate: saved .docx must pass M-VALIDATE on lenient mode (existing js-side validator; Phase-3 will land MP-VALIDATE pure-Python successor)" />
+
+    <!-- Future module placeholder: registered to anchor MP-DOCUMENT.inject_grace delegation contract. Not part of Phase-7. -->
+
+    <MP-GRACE NAME="Pure Python GRACE Injector v1.1" TYPE="CORE_LOGIC" STATUS="planned" PLANNED_FOR="Phase-5 of pure-python rollout (handover §6); separate dedicated phase TBD">
+      <purpose>Pure Python successor to M-GRACE: emit GRACE manifest + instructions as Custom XML Parts under urn:mint:grace:2026:manifest into a saved .docx, preserving any existing Custom XML Parts from other vendors. Called via delegation from MP-DOCUMENT.inject_grace; not invoked directly by user code through the SDK.</purpose>
+      <path>src/mint_python/grace/ (skeleton only in Phase-7; concrete implementation in handover §6 Phase 5)</path>
+      <depends>MP-DOCUMENT (for the saved-file path), lxml (for Custom XML Parts emission), MP-STYLE (for serializing Style references inside the manifest)</depends>
+      <verification-ref>V-MP-GRACE (planned)</verification-ref>
+      <note>This node is registered now (Phase-7 plan) so MP-DOCUMENT.inject_grace has a concrete delegation target in the graph. Annotation surface will populate when Phase-5-pure-python lands.</note>
+    </MP-GRACE>
+
+    <CrossLink from="MP-DOCUMENT" to="MP-GRACE" relation="Document.inject_grace is a delegation chokepoint: the public API lives on Document per handover §3.1; the OOXML Custom XML Parts emission lives in MP-GRACE; Phase-7 stubs the chokepoint with NotImplementedError" />
   </Project>
 </KnowledgeGraph>

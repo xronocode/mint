@@ -128,11 +128,20 @@ src/mint/
 
 ## 7. Acceptance Criteria
 
-- На 20+ тестовых кейсах (включая showcase.docx) качество ≥ текущей JS-версии.
-- `mint create ... --engine=python` работает.
-- Все существующие тесты зелёные.
-- Установка: `pip install -e .` + одна команда.
-- GRACE полностью сохраняется и читается.
+Each criterion below is anchored to a concrete GRACE artifact (see `docs/verification-plan.xml`):
+
+- **На 20+ тестовых кейсах (включая showcase.docx) качество ≥ текущей JS-версии.**
+  Anchored to `VF-012 PurePythonRegression` (STATUS=`deferred`; activates when handover §6 Phase 4 ships MP-EXEC-FRONTIER). Baseline path: `tests/baseline/python-vs-js-showcase.json` (planned). Until activation, the Phase-7 surrogate is `VF-013 PurePythonDocFlow` with `tests/fixtures/mp_e2e_baseline.json` — single-doc, python-engine-only.
+- **`mint create ... --engine=python` работает.**
+  Phase-7 lands the SDK + Document.save (`Gate-Phase-7` evidence-1..3). End-to-end `mint create --engine=python` requires Phase-4 execution tiers (MP-EXEC-{SMALL,MEDIUM,FRONTIER}) to route the LLM-generated python through a sandbox; until then, users invoke `mint_python.sdk.Document` directly.
+- **Все существующие тесты зелёные.**
+  Anchored to `Gate-Phase-7` evidence-8: `pytest tests/ -x --timeout=120` returns non-zero violations only on the new MP-* surface; existing 309 tests remain unaffected (validated by `tests/integration/test_cli.py::_run` pinned to `--engine js`).
+- **Установка: `pip install -e .` + одна команда.**
+  Anchored to `V-MP-FLAG scenario-13` (pyproject.toml shape) + `Gate-Phase-7` evidence-7 (uv build wheel ships populated `core/` and `sdk/` modules).
+- **GRACE полностью сохраняется и читается.**
+  Phase-7 STUB: `Document.inject_grace` raises NotImplementedError naming Phase 5 (delegation chokepoint declared in MP-DOCUMENT contract → MP-GRACE registered as `STATUS="planned"` in knowledge-graph.xml). VF-013 inv-3 explicitly forbids GRACE Custom XML Parts in Phase-7 output. Full GRACE surface lands with handover §6 Phase 5.
+
+**Phase-7 (this phase) acceptance gate:** `Gate-Phase-7` (verification-plan.xml) — 8 evidence items including VF-013 trace-sequence, M-VALIDATE lenient pass on the 3-section golden doc, lxml schema validity, M-FINGERPRINT idempotency, and stub-method coverage.
 
 ## 8. Риски и Mitigation
 

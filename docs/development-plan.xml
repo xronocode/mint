@@ -1070,7 +1070,7 @@ writeFileSync('output.docx', buffer);
         <fn-set_header PURPOSE="Document-wide header (Phase-1 scope; per-section deferred)" />
         <fn-set_footer PURPOSE="Document-wide footer" />
         <fn-save PURPOSE="Serialize to .docx via python-docx + lxml; emits BLOCK_SAVE_DOCX with section_count + table_count + output_path payload" />
-        <fn-inject_grace PURPOSE="STUB — Phase-5 (handover §6 GRACE)" />
+        <fn-inject_grace PURPOSE="CORE METHOD with delegation pattern: public surface lives on Document per handover §3.1; implementation delegates to MP-GRACE.inject_manifest_and_instructions(saved_path, manifest, level). Phase-7 STUB raises NotImplementedError naming Phase 5; Phase-5 lands MP-GRACE as a separate module so the Custom XML Parts emission stays decoupled from MP-DOCUMENT.save serialization. Delegation contract: Document.inject_grace(manifest, level=GraceLevel.FULL) → MP-GRACE writes urn:mint:grace:2026:manifest customXml/item*.xml into the saved .docx in-place, preserving all other Custom XML Parts." />
         <fn-validate PURPOSE="STUB — Phase-3 (Validation Pure Python)" />
         <fn-fix PURPOSE="STUB — Phase-3 (Fix Pure Python)" />
         <fn-to_pdf PURPOSE="STUB — Phase-5 (Gotenberg/render integration)" />
