@@ -259,25 +259,37 @@ def build_section_wrapper(
         f"}}"
     )
 
-    if spec.type == "cover":
-        pass
-    else:
-        if header_js != "undefined":
-            props_parts.append(f"header: {header_js}")
-        if footer_js != "undefined":
-            props_parts.append(f"footer: {footer_js}")
-
     props_js = ",\n  ".join(props_parts)
 
     toc_note = ""
     if spec.type == "toc":
         toc_note = "// Note: TableOfContents should be added as first child\n"
 
+    # docx-js Section: `headers` and `footers` are SIBLINGS of `properties`,
+    # not nested inside it. Cover skips them so the cover page is clean.
+    headers_block = ""
+    footers_block = ""
+    if spec.type != "cover":
+        if header_js != "undefined":
+            headers_block = (
+                f"  headers: {{\n"
+                f"    default: {header_js},\n"
+                f"  }},\n"
+            )
+        if footer_js != "undefined":
+            footers_block = (
+                f"  footers: {{\n"
+                f"    default: {footer_js},\n"
+                f"  }},\n"
+            )
+
     return (
         f"{{\n"
         f"  properties: {{\n"
         f"    {props_js}\n"
         f"  }},\n"
+        f"{headers_block}"
+        f"{footers_block}"
         f"  children: [\n"
         f"    {toc_note}"
         f"    /* SECTION_CODE_PLACEHOLDER:{spec.id} */\n"
@@ -381,14 +393,11 @@ def render_assembly_template(
                 "muted", "#6B7280"
             ).lstrip("#")
             cover_title = spec.title.replace("'", "\\'")
-            tagline = (
-                spec.description
-                if spec.description
-                else "MINT-generated technical report"
-            )
-            tagline = tagline.replace("'", "\\'")
-            if len(tagline) > 200:
-                tagline = tagline[:197] + "..."
+            # spec.description from M-PLAN often contains formatting
+            # instructions ("Title in 72pt bold, color #1B3A5C, centered.
+            # Subtitle '...'") which leaks visually as cover text. Use a
+            # generic short subtitle instead so the cover is clean.
+            tagline = "Technical Report"
 
             code = (
                 # Top spacer to vertically center the title block
