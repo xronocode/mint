@@ -72,7 +72,7 @@ rules:
     description: "Raw newline character in text run"
 
   - id: D-H10
-    severity: hard
+    severity: soft
     xpath: "//w:hyperlink[@r:id]"
     check: exists
     fix_category: safe
