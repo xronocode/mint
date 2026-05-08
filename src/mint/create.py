@@ -603,6 +603,33 @@ def _postprocess_docx(
                     toc_separate_p = p
                     break
             if toc_separate_p is not None:
+                # Idempotency guard: if a paragraph immediately following
+                # the TOC field already has the injected-entry shape
+                # (tabs with dot-leader), the TOC was already populated by
+                # a prior postprocess pass — skip re-injecting to avoid
+                # duplicate entries.
+                already_injected = False
+                parent_check = toc_separate_p.getparent()
+                if parent_check is not None:
+                    children = list(parent_check)
+                    try:
+                        idx_check = children.index(toc_separate_p)
+                    except ValueError:
+                        idx_check = -1
+                    for sib in children[idx_check + 1: idx_check + 6]:
+                        if sib.tag != f"{{{w_ns}}}p":
+                            continue
+                        leader_tab = sib.find(
+                            f"{{{w_ns}}}pPr/{{{w_ns}}}tabs/{{{w_ns}}}tab"
+                        )
+                        if (
+                            leader_tab is not None
+                            and leader_tab.get(f"{{{w_ns}}}leader") == "dot"
+                        ):
+                            already_injected = True
+                            break
+
+            if toc_separate_p is not None and not already_injected:
                 tocs: list[tuple[int, str]] = []
                 seen_toc = False
                 for p in doc_root.iter(f"{{{w_ns}}}p"):
@@ -852,6 +879,15 @@ def _postprocess_docx(
     #     cover sits on its own page.
     #   - The FINAL sectPr (top-level body child) governs the overall
     #     document — leave alone (it's the doc-final config).
+    #
+    # Wave I.2: unify header/footer references. With per-section headers
+    # (header1.xml..header7.xml all containing the same running header),
+    # LibreOffice picks the SECTION's header for each page, and continuous
+    # sections that don't have an explicit headerReference inherit
+    # inconsistently — causing the running header to disappear on body
+    # pages mid-document. Fix: rewrite every non-cover sectPr to point at
+    # the SAME first header/footer rId so every body page renders the
+    # same running header.
     doc_root = _parse_xml(doc_path)
     if doc_root is not None:
         sect_prs = doc_root.findall(f".//{{{w_ns}}}sectPr")
@@ -880,6 +916,177 @@ def _postprocess_docx(
             logger.info(
                 "[Create][postprocess] Wave I: %d sectPr → continuous",
                 sect_changes,
+            )
+
+        # Wave I.2: unify header/footer rIds across non-cover sections.
+        rel_ns = (
+            "http://schemas.openxmlformats.org/"
+            "officeDocument/2006/relationships"
+        )
+        first_hdr_rid: str | None = None
+        first_ftr_rid: str | None = None
+        for sp in sect_prs:
+            if first_hdr_rid is None:
+                hr = sp.find(f"{{{w_ns}}}headerReference")
+                if hr is not None:
+                    first_hdr_rid = hr.get(f"{{{rel_ns}}}id")
+            if first_ftr_rid is None:
+                fr = sp.find(f"{{{w_ns}}}footerReference")
+                if fr is not None:
+                    first_ftr_rid = fr.get(f"{{{rel_ns}}}id")
+            if first_hdr_rid and first_ftr_rid:
+                break
+
+        unified_changes = 0
+        if first_hdr_rid or first_ftr_rid:
+            for idx, sp in enumerate(sect_prs):
+                if idx == 0:
+                    continue  # cover keeps no header/footer
+                # Wipe existing references and inject the unified pair.
+                for ref in list(
+                    sp.findall(f"{{{w_ns}}}headerReference")
+                    + sp.findall(f"{{{w_ns}}}footerReference")
+                ):
+                    sp.remove(ref)
+                if first_hdr_rid:
+                    hr_el = etree.SubElement(
+                        sp, f"{{{w_ns}}}headerReference"
+                    )
+                    hr_el.set(f"{{{w_ns}}}type", "default")
+                    hr_el.set(f"{{{rel_ns}}}id", first_hdr_rid)
+                    # headerReference must come before <w:type> per
+                    # OOXML schema; reorder by moving to front.
+                    sp.remove(hr_el)
+                    sp.insert(0, hr_el)
+                if first_ftr_rid:
+                    fr_el = etree.SubElement(
+                        sp, f"{{{w_ns}}}footerReference"
+                    )
+                    fr_el.set(f"{{{w_ns}}}type", "default")
+                    fr_el.set(f"{{{rel_ns}}}id", first_ftr_rid)
+                    sp.remove(fr_el)
+                    sp.insert(1 if first_hdr_rid else 0, fr_el)
+                unified_changes += 1
+        if unified_changes:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += unified_changes
+            logger.info(
+                "[Create][postprocess] Wave I.2: unified %d sectPr to "
+                "header=%s footer=%s",
+                unified_changes,
+                first_hdr_rid,
+                first_ftr_rid,
+            )
+
+        # Wave I.4: cap excessive after-spacing on cover paragraphs.
+        # The cover JS uses spacing.after=7200 (5 inches) on the tagline
+        # to push the metadata footer toward the bottom — but the value
+        # is so large that the footer overflows to page 2 instead. Cap
+        # any after-spacing above 4000 dxa on cover paragraphs to 2880.
+        cover_cap_changes = 0
+        cover_section_found = False
+        body_iter = list(body_for_sect) if body_for_sect is not None else []
+        for el in body_iter:
+            if el.tag == f"{{{w_ns}}}p":
+                # Stop scanning once we leave the cover (i.e. once we hit
+                # the paragraph containing sectPr 0).
+                inner_sect = el.find(f"{{{w_ns}}}pPr/{{{w_ns}}}sectPr")
+                if inner_sect is not None:
+                    cover_section_found = True
+                cover_ppr = el.find(f"{{{w_ns}}}pPr")
+                if cover_ppr is not None:
+                    sp_el = cover_ppr.find(f"{{{w_ns}}}spacing")
+                    if sp_el is not None:
+                        after_v = sp_el.get(f"{{{w_ns}}}after", "")
+                        if after_v.isdigit() and int(after_v) > 4000:
+                            sp_el.set(f"{{{w_ns}}}after", "2880")
+                            cover_cap_changes += 1
+                if cover_section_found:
+                    break
+        if cover_cap_changes:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += cover_cap_changes
+            logger.info(
+                "[Create][postprocess] Wave I.4: capped %d cover "
+                "after-spacing values to 2880",
+                cover_cap_changes,
+            )
+
+        # Wave I.3: delete redundant intermediate sectPr. After Wave I+I.2
+        # they all carry the same continuous type and the same header/
+        # footer — i.e., they're effectively no-ops. But LibreOffice
+        # still rebinds page-headers per intermediate sectPr boundary,
+        # which causes the running header to vanish on body pages mid-
+        # document. Keep just two sections in the whole doc:
+        #   - sectPr 0 (in cover paragraph): ends the cover.
+        #   - final body sectPr: governs the rest.
+        # Drop everything between by removing the parent paragraph of
+        # those intermediate sectPrs. Each intermediate sectPr lives
+        # inside a <w:p><w:pPr><w:sectPr/></w:pPr></w:p> hand-off
+        # paragraph emitted by docx-js per Section — these paragraphs
+        # contribute no visible content, so deleting them is safe.
+        delete_changes = 0
+        for idx, sp in enumerate(sect_prs):
+            if idx == 0:
+                continue
+            if sp is final_sect_pr:
+                continue
+            # sp is inside a p/pPr. Remove the whole containing paragraph.
+            ppr_parent = sp.getparent()
+            if ppr_parent is None:
+                continue
+            p_parent = ppr_parent.getparent()
+            if p_parent is None:
+                continue
+            grandparent = p_parent.getparent()
+            if grandparent is None:
+                continue
+            # Sanity: only delete the wrapper paragraph if it has nothing
+            # but pPr/sectPr — never blow away real content.
+            visible_runs = [
+                r for r in p_parent.iter(f"{{{w_ns}}}r")
+            ]
+            visible_text = "".join(
+                (t.text or "") for t in p_parent.iter(f"{{{w_ns}}}t")
+            ).strip()
+            if visible_runs and visible_text:
+                # Has real content — strip just the sectPr instead.
+                ppr_parent.remove(sp)
+            else:
+                grandparent.remove(p_parent)
+            delete_changes += 1
+        if delete_changes:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += delete_changes
+            logger.info(
+                "[Create][postprocess] Wave I.3: removed %d redundant "
+                "intermediate sectPr(s)",
+                delete_changes,
+            )
+
+        # Wave I.5: the FINAL body sectPr governs the body section. Wave I
+        # forced it to `continuous`, which is wrong for the document-last
+        # sectPr — there is no next section to be continuous with, and
+        # LibreOffice reads `continuous` as "this section IS the previous
+        # one", which causes the body section's headerReference to be
+        # ignored and the running header to vanish on body pages. Drop the
+        # type so it falls back to default (nextPage) and the body section
+        # owns its own header/footer chrome again.
+        final_type_dropped = False
+        if final_sect_pr is not None:
+            type_el = final_sect_pr.find(f"{{{w_ns}}}type")
+            if (
+                type_el is not None
+                and type_el.get(f"{{{w_ns}}}val") == "continuous"
+            ):
+                final_sect_pr.remove(type_el)
+                final_type_dropped = True
+        if final_type_dropped:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += 1
+            logger.info(
+                "[Create][postprocess] Wave I.5: dropped continuous type "
+                "from final body sectPr"
             )
 
     # Fix 7c (Wave G): keepNext on heading paragraphs that immediately

@@ -468,10 +468,12 @@ def render_assembly_template(
                 "  spacing: { after: 360 },\n"
                 "  children: [],\n"
                 "}),\n"
-                # Tagline (centered, italic, muted)
+                # Tagline (centered, italic, muted). After-spacing of 2880
+                # (~2 inches) pushes the bottom metadata footer toward the
+                # bottom of the cover without overflowing onto page 2.
                 "new Paragraph({\n"
                 "  alignment: AlignmentType.CENTER,\n"
-                "  spacing: { after: 7200 },\n"
+                "  spacing: { after: 2880 },\n"
                 "  children: [new TextRun({\n"
                 f"    text: '{tagline}',\n"
                 f"    italics: true, size: {theme.cover.tagline_size}, "
