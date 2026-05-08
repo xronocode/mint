@@ -23,7 +23,7 @@
       <path>src/mint/sandbox/</path>
       <depends>none</depends>
       <verification-ref>V-M-SANDBOX</verification-ref>
-      <note>Phase-6 dual-runtime context: this module is reachable only under MINT_ENGINE=js. Future `mint_python.execution.{small,medium,frontier}` (handover §5) replaces this surface for the Python path. Deprecation trajectory: fully-live through v0.3.x; STATUS flips to "deprecated" in v0.4 once VF-012 PurePythonRegression is green on the showcase corpus (a deprecation warning then fires on `MINT_ENGINE=js` resolution); removed in v0.5 (`MINT_ENGINE=js` raises ConfigInvalidError). Slip the deprecation if VF-012 slips.</note>
+      <note>Phase-6 dual-runtime context: this module is reachable only under MINT_ENGINE=js. Future `mint_python.execution.{small,medium,frontier}` (handover §5) replaces this surface for the Python path. Deprecation trajectory is PHASE-gated, not calendar-gated: STATUS flips to "deprecated" only when (a) handover rollout Phase 4 (Execution tiers) has shipped AND (b) VF-012 PurePythonRegression is green on the showcase corpus. Removal happens one minor version after deprecation lands. No version pin here — see development-plan.xml architecture-pattern-4 for the full rationale.</note>
       <annotations>
         <fn-execute PURPOSE="Run JS code in restricted sandbox, return output file" />
         <fn-validate_code PURPOSE="Pre-check code for forbidden patterns (fs, net, child_process)" />
