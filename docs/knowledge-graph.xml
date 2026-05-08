@@ -404,7 +404,7 @@
 
     <!-- Phase 7: Pure Python Edition Phase 1 — Core Document + SDK (handover §3, §6) -->
 
-    <MP-STYLE NAME="Pure Python Style Primitives" TYPE="UTILITY" STATUS="planned">
+    <MP-STYLE NAME="Pure Python Style Primitives" TYPE="UTILITY" STATUS="done">
       <purpose>Typography, color, spacing primitives + named style presets for the Pure Python core types</purpose>
       <path>src/mint_python/core/style.py</path>
       <depends>none</depends>

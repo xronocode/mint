@@ -980,10 +980,10 @@
 
     <!-- ===== PHASE 7: Pure Python Edition Phase 1 (Core Document + SDK) ===== -->
 
-    <V-MP-STYLE MODULE="MP-STYLE" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-1">
+    <V-MP-STYLE MODULE="MP-STYLE" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-1">
       <schema-reference>docs/style-preset-schema.md (normative); presets must validate against the JSON Schema described there. The schema is the single source of truth for required keys, color hex format, palette tokens (@primary etc.), StyleSpec defaults, and SemVer versioning rules.</schema-reference>
       <test-files>
-        <file status="planned" activates-at="Wave-7-1">tests/unit/test_mp_style.py</file>
+        <file status="active" activated-at="Wave-7-1">tests/unit/test_mp_style.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_mp_style.py -x</check-1>
@@ -1386,7 +1386,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Wave-6-1>
 
-    <Wave-7-1 PHASE="Phase-7" SCOPE="MP-STYLE" STATUS="planned">
+    <Wave-7-1 PHASE="Phase-7" SCOPE="MP-STYLE" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Land Style + Pt + ColorPalette + load_preset; ship initial preset registry (alga_corporate, minimal, compact); document JSON schema in docs/style-preset-schema.md.</goal>
       <commands>
         <command-1>pytest tests/unit/test_mp_style.py -x</command-1>
