@@ -36,27 +36,32 @@ cp .env.example .env
 
 ### CLI Usage
 
+> **Phase-6 note:** the default engine is `python`, which currently raises
+> `NotImplementedError` until rollout Phase 1. Set `MINT_ENGINE=js` in your
+> `.env` or pass `--engine js` to use the JS-backed runtime. Examples below
+> are written with `--engine js` so they remain runnable today.
+
 ```bash
 # Validate a document
-mint validate document.docx --severity strict
+mint --engine js validate document.docx --severity strict
 
 # Auto-fix violations
-mint fix document.docx
+mint --engine js fix document.docx
 
 # Compute style fingerprint
-mint fingerprint document.docx
+mint --engine js fingerprint document.docx
 
 # Extract design tokens
-mint extract document.pptx
+mint --engine js extract document.pptx
 
 # Generate a document (with model response)
-mint create docx "Create a business memo" --tier frontier --model-response-file response.js
+mint --engine js create docx "Create a business memo" --tier frontier --model-response-file response.js
 
 # Generate from template (small models)
-mint create docx "Quarterly report" --tier small --template business-memo --model-response-file content.json
+mint --engine js create docx "Quarterly report" --tier small --template business-memo --model-response-file content.json
 
 # Start MCP server
-mint serve
+mint --engine js serve
 ```
 
 ### MCP Server

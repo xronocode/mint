@@ -26,6 +26,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "MINT_SKILLS_DIR",
         "MINT_TEMPLATES_DIR",
         "MINT_TOKENS_DIR",
+        "MINT_ENGINE",
     ]
     for key in env_keys:
         monkeypatch.delenv(key, raising=False)

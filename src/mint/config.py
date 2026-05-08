@@ -12,12 +12,16 @@
 #   ConfigError - base exception for config errors
 #   ConfigMissingError - raised when required config is absent
 #   ConfigInvalidError - raised when config value is invalid
+#   Tier - StrEnum of supported model tiers
+#   SeverityMode - StrEnum of supported severity modes
+#   Engine - StrEnum {JS, PYTHON} selecting the runtime engine (Phase-6)
 #   load_config - load and validate config from env + .env file
 #   config - module-level singleton config instance (lazy)
 # END_MODULE_MAP
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from dataclasses import dataclass, field
@@ -27,14 +31,19 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 - Initial implementation
+#   LAST_CHANGE: v0.2.0 - Phase-6: added Engine StrEnum + engine field on
+#                MintConfig + MINT_ENGINE parsing
+#   PREVIOUS:    v0.1.0 - Initial implementation
 # END_CHANGE_SUMMARY
 
 _LOG_PREFIX = "Config"
+logger = logging.getLogger(__name__)
 
 VALID_TIERS = ("small", "medium", "frontier")
 VALID_SEVERITY_MODES = ("audit", "lenient", "strict")
+VALID_ENGINES = ("python", "js")
 DEFAULT_SEVERITY_MODE = "audit"
+DEFAULT_ENGINE = "python"
 DEFAULT_SANDBOX_TIMEOUT = 30
 
 
@@ -72,6 +81,11 @@ class SeverityMode(StrEnum):
     STRICT = "strict"
 
 
+class Engine(StrEnum):
+    JS = "js"
+    PYTHON = "python"
+
+
 # START_CONTRACT: MintConfig
 #   PURPOSE: Typed configuration dataclass holding all MINT runtime settings
 #   INPUTS: { field values }
@@ -90,6 +104,7 @@ class MintConfig:
     skills_dir: Path
     templates_dir: Path
     tokens_dir: Path
+    engine: Engine = Engine.PYTHON
     output_dir: Path = field(default_factory=lambda: Path("output"))
 
     def __post_init__(self) -> None:
@@ -143,6 +158,13 @@ def load_config(env_file: Path | None = None) -> MintConfig:
         raise ConfigInvalidError(
             f"MINT_SEVERITY_MODE must be one of {VALID_SEVERITY_MODES}, got '{severity_str}'"
         )
+
+    engine_str = os.environ.get("MINT_ENGINE", DEFAULT_ENGINE).strip().lower()
+    if engine_str not in VALID_ENGINES:
+        raise ConfigInvalidError(
+            f"MINT_ENGINE must be one of {VALID_ENGINES} "
+            f"(valid values: 'python', 'js'), got '{engine_str}'"
+        )
     # END_BLOCK_VALIDATE_OPTIONS
 
     # START_BLOCK_BUILD_PATHS
@@ -153,7 +175,7 @@ def load_config(env_file: Path | None = None) -> MintConfig:
     tokens_dir = project_root / os.environ.get("MINT_TOKENS_DIR", "tokens")
     # END_BLOCK_BUILD_PATHS
 
-    return MintConfig(
+    cfg = MintConfig(
         llm_base_url=llm_base_url,
         llm_model=llm_model,
         model_tier=Tier(tier_str),
@@ -166,7 +188,21 @@ def load_config(env_file: Path | None = None) -> MintConfig:
         skills_dir=skills_dir,
         templates_dir=templates_dir,
         tokens_dir=tokens_dir,
+        engine=Engine(engine_str),
     )
+
+    # START_BLOCK_LOAD_CONFIG
+    logger.info(
+        f"[{_LOG_PREFIX}][load][BLOCK_LOAD_CONFIG] "
+        "Config loaded: tier=%s severity=%s engine=%s sandbox_timeout=%d",
+        cfg.model_tier.value,
+        cfg.severity_mode.value,
+        cfg.engine.value,
+        cfg.sandbox_timeout,
+    )
+    # END_BLOCK_LOAD_CONFIG
+
+    return cfg
 
 
 _singleton: MintConfig | None = None
