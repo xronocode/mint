@@ -1,7 +1,7 @@
 <KnowledgeGraph>
   <Project NAME="MINT Runtime" VERSION="0.2.0">
     <keywords>docx, pptx, xlsx, OOXML, docx-js, pptxgenjs, exceljs, validation, auto-fix, QA, GRACE, MCP, template-engine, style-extraction, design-tokens, model-agnostic, local-first</keywords>
-    <annotation>Model-Independent Normalization Toolkit — Claude-quality document generation for any LLM. Self-contained runtime with skill prompts, execution engine, validation, QA, and GRACE metadata injection.</annotation>
+    <annotation>Model-Independent Normalization Toolkit — Claude-quality document generation for any LLM. Self-contained runtime with skill prompts, execution engine, validation, QA, and GRACE metadata injection. From v0.3 / Phase-6 onward: dual-runtime model — Pure Python (MINT_ENGINE=python, default; populates `src/mint_python/`) is the strategic execution path; the Node.js sandbox (MINT_ENGINE=js) is retained as opt-in legacy fallback. Living spec for the migration: `docs/pure-python/` (handover-v1, structure, feature-flag, acceptance-criteria) and `docs/mint-pure-python-handover-v1.md` §5-7.</annotation>
 
     <!-- Phase 1: Foundation + Validation (G0+G1) -->
 
@@ -11,17 +11,19 @@
       <depends>none</depends>
       <verification-ref>V-M-CONFIG</verification-ref>
       <annotations>
-        <fn-load_config PURPOSE="Load and validate config from env vars and .env file" />
-        <type-MintConfig PURPOSE="Typed config dataclass with all runtime settings" />
+        <fn-load_config PURPOSE="Load and validate config from env vars and .env file (incl. MINT_ENGINE)" />
+        <type-MintConfig PURPOSE="Frozen config dataclass with all runtime settings, including the engine field" />
+        <type-Engine PURPOSE="StrEnum {JS,PYTHON}; default PYTHON per Phase-6 feature flag" />
         <export-config PURPOSE="Singleton config instance" />
       </annotations>
     </M-CONFIG>
 
-    <M-SANDBOX NAME="Node.js Sandbox" TYPE="CORE_LOGIC" STATUS="done">
+    <M-SANDBOX NAME="Node.js Sandbox" TYPE="CORE_LOGIC" STATUS="done" DUAL_RUNTIME_TRACK="legacy">
       <purpose>Sandboxed Node.js execution for model-generated JS code (docx-js/pptxgenjs/exceljs)</purpose>
       <path>src/mint/sandbox/</path>
       <depends>none</depends>
       <verification-ref>V-M-SANDBOX</verification-ref>
+      <note>Phase-6 dual-runtime context: this module is reachable only under MINT_ENGINE=js. Future `mint_python.execution.{small,medium,frontier}` (handover §5) replaces this surface for the Python path. Deprecation trajectory: fully-live through v0.3.x; STATUS flips to "deprecated" in v0.4 once VF-012 PurePythonRegression is green on the showcase corpus (a deprecation warning then fires on `MINT_ENGINE=js` resolution); removed in v0.5 (`MINT_ENGINE=js` raises ConfigInvalidError). Slip the deprecation if VF-012 slips.</note>
       <annotations>
         <fn-execute PURPOSE="Run JS code in restricted sandbox, return output file" />
         <fn-validate_code PURPOSE="Pre-check code for forbidden patterns (fs, net, child_process)" />
@@ -113,7 +115,8 @@
       <verification-ref>V-M-CLI</verification-ref>
       <annotations>
         <fn-main PURPOSE="parse argv, dispatch to cmd_* handler, return exit code" />
-        <fn-build_parser PURPOSE="construct argparse.ArgumentParser with all subcommands" />
+        <fn-build_parser PURPOSE="construct argparse.ArgumentParser with all subcommands and the top-level --engine flag" />
+        <fn-_select_engine PURPOSE="Phase-6 chokepoint: returns 'js' or raises NotImplementedError when engine=='python' (Phase 0 scaffolding); emits [CLI][_select_engine][BLOCK_SELECT_ENGINE] at INFO unconditionally" />
         <fn-cmd_serve PURPOSE="start the merged FastMCP G1+G2 server on stdio or sse" />
         <fn-cmd_validate PURPOSE="run M-VALIDATE and emit ValidationReport JSON" />
         <fn-cmd_fix PURPOSE="run M-FIX and emit FixReport JSON" />
@@ -376,5 +379,21 @@
     <CrossLink from="M-EDIT" to="M-CONFIG" relation="reads severity mode and redaction policy" />
     <CrossLink from="M-MCP-G2" to="M-EDIT" relation="exposes mint_edit MCP tool over M-EDIT.edit" />
     <CrossLink from="M-CLI" to="M-EDIT" relation="exposes mint edit subcommand over M-EDIT.edit" />
+
+    <!-- Phase 6: Pure Python Edition (Phase 0 of pure-python rollout — skeleton + feature flag) -->
+
+    <MP-PKG NAME="Mint-Python Skeleton" TYPE="UTILITY" STATUS="planned">
+      <purpose>Empty parallel package skeleton for the Pure Python Edition (handover §5). Phase 0 ships only `__init__.py` files; subpackage contracts populate in Phases 1-5.</purpose>
+      <path>src/mint_python/</path>
+      <depends>none</depends>
+      <verification-ref>V-MP-PKG</verification-ref>
+      <note>Skeleton only. Contains 8 placeholder subpackages: core, sdk, execution, rules, grace, mcp, cli, tests. No public interfaces in Phase 0.</note>
+      <annotations>
+        <export-mint_python PURPOSE="Top-level package marker; __version__ set to 0.0.0 for later bumps" />
+      </annotations>
+    </MP-PKG>
+
+    <CrossLink from="MP-PKG" to="M-CONFIG" relation="placeholder package; engine flag (MINT_ENGINE / Engine enum) lives in M-CONFIG" />
+    <CrossLink from="MP-PKG" to="M-CLI" relation="placeholder package; engine dispatch chokepoint (_select_engine) lives in M-CLI; future MP-* modules will be routed here" />
   </Project>
 </KnowledgeGraph>

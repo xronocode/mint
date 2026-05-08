@@ -49,7 +49,7 @@
       </invariants>
       <required-signals>
         <log-marker>[Create][orchestrate][BLOCK_ORCHESTRATE]</log-marker>
-        <log-marker>[Skills][select][BLOCK_SELECT_SKILL]</log-marker>
+        <log-marker>[Skills][select_skill][BLOCK_SELECT_SKILL]</log-marker>
         <log-marker>[Sandbox][execute][BLOCK_EXECUTE_CODE]</log-marker>
         <log-marker>[Validate][run_checks][BLOCK_RUN_CHECKS]</log-marker>
         <trace-sequence>BLOCK_ORCHESTRATE -> BLOCK_SELECT_SKILL -> BLOCK_EXECUTE_CODE -> BLOCK_RUN_CHECKS -> RETURNED</trace-sequence>
@@ -70,9 +70,9 @@
       </invariants>
       <required-signals>
         <log-marker>[Create][orchestrate][BLOCK_ORCHESTRATE]</log-marker>
-        <log-marker>[Templates][fill][BLOCK_FILL_TEMPLATE]</log-marker>
+        <log-marker>[Templates][fill][BLOCK_FILL]</log-marker>
         <log-marker>[Validate][run_checks][BLOCK_RUN_CHECKS]</log-marker>
-        <trace-sequence>BLOCK_ORCHESTRATE -> BLOCK_FILL_TEMPLATE -> BLOCK_RUN_CHECKS -> RETURNED</trace-sequence>
+        <trace-sequence>BLOCK_ORCHESTRATE -> BLOCK_FILL -> BLOCK_RUN_CHECKS -> RETURNED</trace-sequence>
       </required-signals>
     </VF-002>
 
@@ -104,24 +104,24 @@
         <inv-2>Output JSON is valid against design-tokens schema</inv-2>
       </invariants>
       <required-signals>
-        <log-marker>[Extract][parse][BLOCK_PARSE_THEME]</log-marker>
-        <log-marker>[Extract][analyze][BLOCK_ANALYZE_LAYOUTS]</log-marker>
+        <log-marker>[Extract][parse_theme][BLOCK_PARSE_THEME]</log-marker>
+        <log-marker>[Extract][analyze_layouts][BLOCK_ANALYZE_LAYOUTS]</log-marker>
         <trace-sequence>BLOCK_PARSE_THEME -> BLOCK_ANALYZE_LAYOUTS -> RETURNED</trace-sequence>
       </required-signals>
     </VF-004>
 
     <VF-005 NAME="VisualQA" USE_CASES="UC-005" DATA_FLOW="DF-004" PRIORITY="medium">
-      <scenario>Document → Gotenberg render → overlap/margin/font detection</scenario>
-      <expected-outcome>QA report with confidence scores; overlap >2% = violation</expected-outcome>
+      <scenario>Document → L1 validation + L2 structural ZIP analysis</scenario>
+      <expected-outcome>QA report with confidence scores; malformed or incomplete OOXML structure is surfaced deterministically</expected-outcome>
       <invariants>
         <inv-1>L1 completes in &lt;1s</inv-1>
         <inv-2>L2 confidence score between 0 and 1</inv-2>
-        <inv-3>Overlap threshold enforced: >0.5% warn, >2% violation</inv-3>
+        <inv-3>Current executable L2 evidence is structural, not rendered visual overlap; render-based Gotenberg checks require a future VF before swarm agents may rely on them</inv-3>
       </invariants>
       <required-signals>
         <log-marker>[QA][l1][BLOCK_L1_CHECK]</log-marker>
-        <log-marker>[QA][l2][BLOCK_L2_RENDER]</log-marker>
-        <trace-sequence>BLOCK_L1_CHECK -> (async) BLOCK_L2_RENDER -> RETURNED</trace-sequence>
+        <log-marker>[QA][l2][BLOCK_L2_STRUCTURAL]</log-marker>
+        <trace-sequence>BLOCK_L1_CHECK -> BLOCK_L2_STRUCTURAL -> RETURNED</trace-sequence>
       </required-signals>
     </VF-005>
 
@@ -229,27 +229,84 @@
         <forbidden-4>Output written without a preceding BLOCK_RUN_CHECKS</forbidden-4>
       </forbidden-signals>
     </VF-010>
+
+    <VF-011 NAME="EngineDispatch" USE_CASES="UC-001,UC-002,UC-003,UC-007,UC-008" DATA_FLOW="DF-008" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-6-1">
+      <scenario>Phase-6 dual-engine flag: any `mint &lt;subcmd&gt;` invocation routes through M-CLI._select_engine. With engine=js (env or --engine), legacy DF-001..DF-007 proceed unchanged. With engine=python (default in Phase 0), _select_engine raises NotImplementedError and no cmd_* handler runs.</scenario>
+      <expected-outcome>(a) `--engine js` invocations remain trace-compatible with VF-001..VF-010; (b) default and explicit `--engine python` invocations exit non-zero with NotImplementedError naming Phase 0 + remediation, before any cmd_* / BLOCK_* legacy marker fires; (c) `--engine` always wins over MINT_ENGINE because M-CLI.main writes os.environ before config().</expected-outcome>
+      <invariants>
+        <inv-1>MintConfig stays frozen; the CLI override channel is os.environ, not dataclass mutation.</inv-1>
+        <inv-2>os.environ["MINT_ENGINE"] write (when --engine is set) precedes the FIRST config() call in main(); if config() is loaded before, the override is silently lost — forbidden.</inv-2>
+        <inv-3>_select_engine returns Engine.JS or raises; never returns Engine.PYTHON or any other string.</inv-3>
+        <inv-4>An invalid MINT_ENGINE value raises CONFIG_INVALID at load_config time, naming MINT_ENGINE in the message — never silently falls back to the default.</inv-4>
+      </invariants>
+      <required-signals>
+        <log-marker>[Config][load][BLOCK_LOAD_CONFIG] — exists today; Phase-6 extends INFO payload to include the resolved engine value</log-marker>
+        <log-marker>[CLI][_select_engine][BLOCK_SELECT_ENGINE] — NEW in Phase-6; fires once per main() between BLOCK_LOAD_CONFIG and (on js path) BLOCK_DISPATCH; INFO payload carries cfg.engine.value; absence on a non-help, non-error invocation is a bug</log-marker>
+        <conditional-marker>[CLI][main][BLOCK_DISPATCH] — fires only when _select_engine returned 'js'; absent on the python path</conditional-marker>
+        <trace-sequence>BLOCK_LOAD_CONFIG -&gt; BLOCK_SELECT_ENGINE -&gt; (engine==js) BLOCK_DISPATCH -&gt; cmd_*; (engine==python) BLOCK_LOAD_CONFIG -&gt; BLOCK_SELECT_ENGINE -&gt; NotImplementedError -&gt; non-zero exit</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>Any cmd_* / BLOCK_RUN_CHECKS / BLOCK_ORCHESTRATE / BLOCK_EXECUTE_CODE / BLOCK_OOXML_UNPACK / BLOCK_FILL marker firing on the python path</forbidden-1>
+        <forbidden-2>NotImplementedError firing on the js path</forbidden-2>
+        <forbidden-3>BLOCK_DISPATCH firing without a preceding BLOCK_SELECT_ENGINE in the same process — proves the chokepoint was bypassed</forbidden-3>
+        <forbidden-4>BLOCK_SELECT_ENGINE firing twice in a single main() invocation — proves config() reloaded mid-flight</forbidden-4>
+      </forbidden-signals>
+      <chokepoint-scope>The `_select_engine` chokepoint gates ONLY two entry surfaces: (a) the `mint &lt;subcmd&gt;` CLI invocation (every cmd_* dispatch), and (b) the `mint serve` MCP server bootstrap (chokepoint fires once when the server process starts). It does NOT gate direct module imports. Tests under tests/integration/ that bypass the CLI by importing `mint.mcp_g1.mint_validate`, `mint.mcp_g2.mint_create`, `mint.edit.edit`, or `mint.create.create` directly are intentionally outside this contract — they exercise the underlying Python API which has no engine concept. A future fix-agent encountering such a direct import MUST NOT "patch" the test to route through the CLI. The chokepoint is a policy gate for end-user-facing entry points, not a security boundary on the Python API surface.</chokepoint-scope>
+      <serve-mode-invariant>For `mint serve` (long-running MCP server): _select_engine fires exactly once at server bootstrap, BEFORE the first MCP tool call is dispatched. Subsequent changes to MINT_ENGINE in the parent shell are silently ignored — the engine choice is frozen for the lifetime of the server process. This is intentional and matches the immutable-config invariant. To switch engines, restart the server.</serve-mode-invariant>
+      <swarm-safety>SWARM-SAFE under monkeypatch.setenv (process-scoped) and pytest-xdist (process-per-worker). In-process serial test ordering MUST use the clean_env autouse fixture extended to include MINT_ENGINE; otherwise an os.environ write in main() leaks to sibling tests.</swarm-safety>
+    </VF-011>
+
+    <VF-012 NAME="PurePythonRegression" USE_CASES="UC-001,UC-002" DATA_FLOW="DF-001,DF-006" PRIORITY="high" STATUS="deferred" ACTIVATES_AT="Phase-6 step beyond skeleton (handover Phase 1+ when MP-EXEC and MP-SDK ship code)">
+      <scenario>Same prompt + same design tokens executed under MINT_ENGINE=js and MINT_ENGINE=python; outputs compared on validation pass-rate, structural fingerprint, and visual QA. Establishes the dual-runtime parity contract that gates flipping the JS engine to deprecated.</scenario>
+      <expected-outcome>Python output matches or exceeds JS output on the showcase corpus per acceptance #1 of `docs/mint-pure-python-handover-v1.md` §7 ("≥ текущей JS-версии on 20+ test cases including showcase.docx"); GRACE Custom XML Parts read identically from both outputs.</expected-outcome>
+      <invariants>
+        <inv-1>Python engine passes every existing fixture in tests/fixtures/ that the JS engine passes (no regressions on D-H, P-H, or GRACE rules)</inv-1>
+        <inv-2>For every prompt in the parity corpus, M-VALIDATE reports identical violation sets (or a Python-superset) on both engines</inv-2>
+        <inv-3>M-FINGERPRINT structural fingerprint of the Python output is within drift threshold of the JS output (theme1.xml + styles.xml hash families bounded — exact byte equality is NOT required because docx-js and python-docx serialize attributes in different orders)</inv-3>
+        <inv-4>M-GRACE manifest + instructions parse to the same logical content from both outputs (Custom XML Parts under urn:mint:grace:2026:manifest)</inv-4>
+        <inv-5>Visual QA L1+L2 (M-QA via Gotenberg) reports overlap and font-substitution rates within the same severity band on both engines</inv-5>
+      </invariants>
+      <required-signals>
+        <log-marker>[CLI][_select_engine][BLOCK_SELECT_ENGINE] — fires once per invocation, payload identifies engine</log-marker>
+        <log-marker>[Validate][run_checks][BLOCK_RUN_CHECKS] — fires on both engines' outputs, used to compare violation sets</log-marker>
+        <trace-sequence>For each parity-corpus prompt: run twice (engine=js, engine=python); both runs emit BLOCK_SELECT_ENGINE → BLOCK_DISPATCH → cmd_create → BLOCK_RUN_CHECKS → RETURNED. Trace runs are independent processes; comparison is post-hoc on captured outputs.</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>Python engine emits a violation that the JS engine does not, AND the violation is not classified as a known Python-engine improvement (whitelist maintained alongside the parity corpus)</forbidden-1>
+      </forbidden-signals>
+      <activation-gate>This VF cannot be exercised in Phase 0 because mint_python is empty. It MUST be wired up before mint_python.execution and mint_python.sdk land production code (handover Phase 1 boundary). Until activated, this VF is informational documentation of the dual-runtime parity contract.</activation-gate>
+      <deprecation-trigger>VF-012 passing on the showcase corpus is the gate for M-SANDBOX `STATUS="deprecated"` in v0.4. Until VF-012 is green, M-SANDBOX stays `STATUS="done"`. Slip the deprecation if VF-012 slips.</deprecation-trigger>
+      <swarm-safety>Comparison runs are independent processes by construction; no shared mutable state across engines. SWARM-SAFE for parallel execution.</swarm-safety>
+    </VF-012>
   </CriticalFlows>
 
   <ModuleVerification>
     <!-- ===== PHASE 1: Foundation + Validation (G0+G1) ===== -->
 
     <V-M-CONFIG MODULE="M-CONFIG" PRIORITY="high">
-      <test-files><file>tests/unit/test_config.py</file></test-files>
+      <test-files>
+        <file>tests/unit/test_config.py</file>
+        <file status="planned" activates-at="Wave-6-1">tests/unit/test_engine_flag.py</file>
+      </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_config.py -x</check-1>
         <check-2>ruff check src/mint/config.py</check-2>
         <check-3>mypy src/mint/config.py</check-3>
+        <check-4 status="planned" activates-at="Wave-6-1">pytest tests/unit/test_config.py tests/unit/test_engine_flag.py -x</check-4>
       </module-checks>
       <scenarios>
         <scenario-1 kind="success" evidence="deterministic">loadConfig reads LLM_BASE_URL + LLM_MODEL + MINT_MODEL_TIER from env → valid MintConfig</scenario-1>
         <scenario-2 kind="success" evidence="deterministic">loadConfig reads .env file when env vars absent → valid MintConfig</scenario-2>
         <scenario-3 kind="failure" evidence="deterministic">Missing LLM_BASE_URL raises CONFIG_MISSING with message containing "LLM_BASE_URL"</scenario-3>
         <scenario-4 kind="failure" evidence="deterministic">Invalid MINT_MODEL_TIER (e.g. "huge") raises CONFIG_INVALID with valid options listed</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE unset → MintConfig.engine == Engine.PYTHON (default)</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE="js" → MintConfig.engine == Engine.JS</scenario-6>
+        <scenario-7 kind="failure" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE="garbage" raises CONFIG_INVALID with message containing "MINT_ENGINE" and listing {python, js}</scenario-7>
       </scenarios>
       <forbidden-behaviors>
         <forbidden-1>Never returns None — must raise or return valid MintConfig</forbidden-1>
         <forbidden-2>Never logs API keys at INFO level</forbidden-2>
+        <forbidden-3 status="planned" activates-at="Wave-6-1">(Phase-6) MintConfig must remain frozen — engine field must not be mutable post-construction</forbidden-3>
       </forbidden-behaviors>
       <autonomy-assessment>SAFE — no external deps, pure config loading, fully deterministic</autonomy-assessment>
     </V-M-CONFIG>
@@ -269,8 +326,8 @@
         <scenario-6 kind="failure" evidence="deterministic">execute(syntax_error.js) → SANDBOX_RUNTIME_ERROR with stderr containing error line</scenario-6>
       </scenarios>
       <required-log-markers>
-        <marker-1>[Sandbox][execute][BLOCK_VALIDATE_CODE]</marker-1>
-        <marker-2>[Sandbox][execute][BLOCK_EXECUTE_CODE]</marker-2>
+        <marker-1 status="planned">[Sandbox][execute][BLOCK_VALIDATE_CODE] — required before trace-based sandbox swarm gates; current source only emits unanchored validation logs</marker-1>
+        <marker-2 status="planned">[Sandbox][execute][BLOCK_EXECUTE_CODE] — required before trace-based sandbox swarm gates; current source only emits unanchored execution logs</marker-2>
       </required-log-markers>
       <forbidden-behaviors>
         <forbidden-1>Code with require('fs'), require('net'), require('child_process'), require('http'), require('https') must be rejected in validate_code BEFORE execution</forbidden-1>
@@ -424,8 +481,8 @@
         <scenario-4 kind="failure" evidence="deterministic">extract_style(non_ooxml_file) → raises EXTRACTION_FAILED</scenario-4>
       </scenarios>
       <required-log-markers>
-        <marker-1>[Extract][parse][BLOCK_PARSE_THEME]</marker-1>
-        <marker-2>[Extract][analyze][BLOCK_ANALYZE_LAYOUTS]</marker-2>
+        <marker-1>[Extract][parse_theme][BLOCK_PARSE_THEME]</marker-1>
+        <marker-2>[Extract][analyze_layouts][BLOCK_ANALYZE_LAYOUTS]</marker-2>
       </required-log-markers>
       <autonomy-assessment>SAFE — read-only analysis</autonomy-assessment>
     </V-M-EXTRACT>
@@ -439,7 +496,7 @@
         <scenario-1 kind="success" evidence="integration">create(CreateRequest with model_response_override=hello_world_docx.js, tier=frontier) → CreateResult(success=True, execution_mode="code")</scenario-1>
         <scenario-2 kind="success" evidence="integration">create(CreateRequest with template_content.json, tier=small, template_name="board-deck") → CreateResult(success=True, execution_mode="template")</scenario-2>
         <scenario-3 kind="failure" evidence="integration">create with sandbox violation code → CreateResult(success=False, error contains "SANDBOX")</scenario-3>
-        <scenario-4 kind="success" evidence="trace">BLOCK_ORCHESTRATE → BLOCK_SELECT_SKILL → (BLOCK_EXECUTE_CODE or BLOCK_FILL_TEMPLATE) → BLOCK_RUN_CHECKS all logged</scenario-4>
+        <scenario-4 kind="success" evidence="trace">BLOCK_ORCHESTRATE → BLOCK_SELECT_SKILL → (BLOCK_EXECUTE_CODE or BLOCK_FILL) → BLOCK_RUN_CHECKS all logged</scenario-4>
       </scenarios>
       <required-log-markers>
         <marker-1>[Create][orchestrate][BLOCK_ORCHESTRATE]</marker-1>
@@ -476,14 +533,14 @@
       <scenarios>
         <scenario-1 kind="success" evidence="deterministic">run_l1(minimal_valid.docx) → L1Report with passed=True, duration_ms &lt; 1000</scenario-1>
         <scenario-2 kind="success" evidence="deterministic">run_l1(bad_column_widths.docx) → L1Report with passed=False, violations non-empty</scenario-2>
-        <scenario-3 kind="success" evidence="integration">run_l2(docx_fixture) with Gotenberg mock → L2Report with confidence score 0.0-1.0</scenario-3>
-        <scenario-4 kind="failure" evidence="deterministic">run_l2(docx_fixture) with Gotenberg unavailable → raises GOTENBERG_UNAVAILABLE</scenario-4>
+        <scenario-3 kind="success" evidence="integration">run_l2(docx_fixture) structural analysis → L2Report with confidence score 0.0-1.0 and stable structural findings</scenario-3>
+        <scenario-4 kind="planned" evidence="integration" activates-at="future-render-vf">Gotenberg-backed render path detects overlap and margin defects with PNG evidence</scenario-4>
       </scenarios>
       <required-log-markers>
         <marker-1>[QA][l1][BLOCK_L1_CHECK]</marker-1>
-        <marker-2>[QA][l2][BLOCK_L2_RENDER]</marker-2>
+        <marker-2>[QA][l2][BLOCK_L2_STRUCTURAL]</marker-2>
       </required-log-markers>
-      <autonomy-assessment>SAFE — L1 is deterministic; L2 depends on Gotenberg availability</autonomy-assessment>
+      <autonomy-assessment>SAFE for current structural QA; NOT sufficient as visual render evidence until a Gotenberg-backed VF and harness are added</autonomy-assessment>
     </V-M-QA>
 
     <V-M-GRACE MODULE="M-GRACE" PRIORITY="medium">
@@ -624,7 +681,7 @@
         <scenario-6 kind="success" evidence="integration">Full assembly output → postprocessor fixes applied (no empty comments, tblLayout fixed)</scenario-6>
       </scenarios>
       <required-log-markers>
-        <marker-1>[Assemble][template][BLOCK_ASSEMBLE_TEMPLATE]</marker-1>
+        <marker-1 status="planned">[Assemble][template][BLOCK_ASSEMBLE_TEMPLATE] — semantic block exists; add an INFO marker before treating VF-007 trace order as executable evidence</marker-1>
         <marker-2>[Assemble][execute][BLOCK_ASSEMBLE_EXECUTE]</marker-2>
       </required-log-markers>
       <forbidden-behaviors>
@@ -634,10 +691,10 @@
       <autonomy-assessment>SAFE — pure code generation + sandbox execution, fully deterministic given valid inputs</autonomy-assessment>
     </V-M-ASSEMBLE>
 
-    <V-M-LLM MODULE="M-LLM" PRIORITY="medium">
-      <test-files><file>tests/unit/test_llm.py</file></test-files>
+    <V-M-LLM MODULE="M-LLM" PRIORITY="medium" STATUS="planned-verification">
+      <test-files><file status="planned">tests/unit/test_llm.py</file></test-files>
       <module-checks>
-        <check-1>pytest tests/unit/test_llm.py -x</check-1>
+        <check-1 status="planned">pytest tests/unit/test_llm.py -x</check-1>
         <check-2>ruff check src/mint/llm.py</check-2>
         <check-3>mypy src/mint/llm.py</check-3>
       </module-checks>
@@ -648,21 +705,25 @@
         <scenario-4 kind="success" evidence="deterministic">LLMClient never logs api_key or full prompt at INFO; redaction policy applies (api_key never logged at any level; prompt and response text only at DEBUG)</scenario-4>
       </scenarios>
       <required-log-markers>
-        <marker-1>[LLM][call][BLOCK_LLM_CALL]</marker-1>
+        <marker-1>[LLM][call][BLOCK_CALL_MODEL]</marker-1>
       </required-log-markers>
       <forbidden-behaviors>
         <forbidden-1>Must never log api_key, full prompt, or full response at INFO or above</forbidden-1>
         <forbidden-2>Must never silently swallow non-2xx responses</forbidden-2>
       </forbidden-behaviors>
-      <autonomy-assessment>SAFE — thin httpx wrapper with deterministic stub coverage</autonomy-assessment>
+      <autonomy-assessment>NOT YET SWARM-SAFE as a verified module — source is bounded and stub-friendly, but tests/unit/test_llm.py is absent; add the planned deterministic httpx transport tests before assigning LLM changes to autonomous workers</autonomy-assessment>
     </V-M-LLM>
 
     <V-M-CLI MODULE="M-CLI" PRIORITY="medium">
-      <test-files><file>tests/integration/test_cli.py</file></test-files>
+      <test-files>
+        <file>tests/integration/test_cli.py</file>
+        <file status="planned" activates-at="Wave-6-1">tests/unit/test_engine_flag.py</file>
+      </test-files>
       <module-checks>
         <check-1>pytest tests/integration/test_cli.py -x</check-1>
         <check-2>ruff check src/mint/cli.py</check-2>
         <check-3>mypy src/mint/cli.py</check-3>
+        <check-4 status="planned" activates-at="Wave-6-1">pytest tests/integration/test_cli.py tests/unit/test_engine_flag.py -x</check-4>
       </module-checks>
       <scenarios>
         <scenario-1 kind="success" evidence="integration">mint validate fixture.docx --severity=lenient prints ValidationReport JSON to stdout, exit 0 on pass / non-zero on fail</scenario-1>
@@ -672,6 +733,13 @@
         <scenario-5 kind="failure" evidence="deterministic">mint create with unknown subcommand or missing required arg exits CLI_USAGE_ERROR (non-zero) and prints argparse-style usage to stderr</scenario-5>
         <scenario-6 kind="failure" evidence="deterministic">mint validate /nonexistent/path.docx exits CLI_FILE_NOT_FOUND (non-zero) with a clear error line on stderr</scenario-6>
         <scenario-7 kind="success" evidence="integration">(Phase-5) mint edit fixture.docx --plan plan.json prints EditResult JSON; output_path inside the JSON points to an existing file</scenario-7>
+        <scenario-8 kind="failure" evidence="integration" status="planned" activates-at="Wave-6-1">(Phase-6) mint validate fixture.docx (no --engine, no MINT_ENGINE) exits non-zero; stderr contains "MINT_ENGINE=python" and "Phase 0"; no output file created</scenario-8>
+        <scenario-9 kind="failure" evidence="integration" status="planned" activates-at="Wave-6-1">(Phase-6) mint --engine python validate fixture.docx — same as scenario-8</scenario-9>
+        <scenario-10 kind="success" evidence="integration" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE=js mint validate fixture.docx — succeeds (env supplies engine)</scenario-10>
+        <scenario-11 kind="success" evidence="integration" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE=python mint --engine js validate fixture.docx — succeeds (CLI overrides env via os.environ pre-load)</scenario-11>
+        <scenario-12 kind="success" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) mint --help shows top-level `--engine {python,js}` flag with help text mentioning MINT_ENGINE</scenario-12>
+        <scenario-13 kind="failure" evidence="trace" status="planned" activates-at="Wave-6-1">(Phase-6) NEGATIVE TRACE: mint validate fixture.docx (no --engine, no MINT_ENGINE) — captured stderr contains [CLI][_select_engine][BLOCK_SELECT_ENGINE] and NotImplementedError but does NOT contain any [Validate], [Create], [Sandbox], [OOXML], [Edit], or BLOCK_RUN_CHECKS / BLOCK_ORCHESTRATE / BLOCK_EXECUTE_CODE / BLOCK_OOXML_UNPACK markers. Proves the chokepoint runs BEFORE any cmd_* would have started side effects.</scenario-13>
+        <scenario-14 kind="failure" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) ARG POSITION: mint validate --engine js fixture.docx (--engine after subcommand) → CLI_USAGE_ERROR (non-zero), argparse usage to stderr. --engine is top-level only.</scenario-14>
       </scenarios>
       <required-log-markers>
         <marker-1>[CLI][cmd_*] entry log per dispatched subcommand</marker-1>
@@ -776,6 +844,74 @@
       </forbidden-behaviors>
       <autonomy-assessment>CAUTIOUS — depends on external LLM for plan generation, but plan is typed JSON and every op is validated and bounded; backup is mandatory before any tree mutation</autonomy-assessment>
     </V-M-EDIT>
+
+    <!-- ===== PHASE 6: Pure Python Edition (Phase 0) ===== -->
+
+    <V-MP-PKG MODULE="MP-PKG" PRIORITY="medium" STATUS="planned" ACTIVATES_AT="Wave-6-1">
+      <test-files>
+        <file>tests/unit/test_engine_flag.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>python -c "import mint_python; import mint_python.core, mint_python.sdk, mint_python.execution, mint_python.rules, mint_python.grace, mint_python.mcp, mint_python.cli, mint_python.tests"</check-1>
+        <check-2>ruff check src/mint_python</check-2>
+        <check-3>mypy src/mint_python</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">All 9 entry points (top-level + 8 subpackages) import without error; exit 0</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">mint_python.__version__ == "0.0.0"</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" level="phase">mint_python and every subpackage are listed in `unzip -l dist/*.whl` after `uv build`. Phase-level only — module-level workers do not run uv build per change.</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">Each subpackage __init__.py contains the repo's `# FILE:` header convention (grep `^# FILE: src/mint_python/`). Forbids drift to one-line-docstring style.</scenario-4>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>No subpackage may export a public function/class in Phase 0 — contracts populate in Phases 1-5; an early export risks contract drift before code lands</forbidden-1>
+        <forbidden-2>__init__.py files must not import from src/mint/* — the skeleton stays decoupled from the legacy package</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — empty package skeleton; idempotent file creation, no shared mutable state, no env reads. A worker creating these files cannot interfere with another worker editing src/mint/ as long as both stay within their declared write scope (worker-owns / controller-owns split in development-plan.xml ExecutionPolicy).</autonomy-assessment>
+    </V-MP-PKG>
+
+    <V-MP-FLAG MODULE="M-CONFIG,M-CLI" PRIORITY="high" KIND="feature-verification" STATUS="planned" ACTIVATES_AT="Wave-6-1">
+      <note>Cross-cuts M-CONFIG (Engine enum + field + parsing) and M-CLI (--engine arg + os.environ write + _select_engine chokepoint). Hosted as a separate V-* entry so a single failure packet maps cleanly to the feature; V-M-CONFIG and V-M-CLI cross-reference it via their test-files lists.</note>
+      <test-files>
+        <file>tests/unit/test_engine_flag.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_engine_flag.py -v</check-1>
+        <check-2>ruff check src/mint/config.py src/mint/cli.py tests/unit/test_engine_flag.py</check-2>
+        <check-3>mypy src/mint/config.py src/mint/cli.py</check-3>
+      </module-checks>
+      <swarm-fixtures>
+        <fixture-1>Reuse the `clean_env` autouse fixture from tests/unit/test_config.py (copy or import). MUST extend its env_keys list with "MINT_ENGINE" before any test in this file runs. Without this extension, an os.environ write inside one test (e.g. via subprocess or main()) leaks into a sibling pytest test run in the same process.</fixture-1>
+        <fixture-2>For subprocess scenarios use `subprocess.run([..., env={...minimal env without MINT_ENGINE..., **overrides}], capture_output=True)`. NEVER inherit os.environ — that defeats isolation across pytest workers when one worker pre-set the var.</fixture-2>
+      </swarm-fixtures>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">MintConfig with required env set, MINT_ENGINE unset → engine == Engine.PYTHON (default)</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">monkeypatch.setenv("MINT_ENGINE", "js"); load_config() → engine == Engine.JS</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic">monkeypatch.setenv("MINT_ENGINE", "garbage"); load_config() raises ConfigInvalidError; message contains the literal substring "MINT_ENGINE" and lists both valid values "python" and "js"</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">_select_engine(MintConfig(engine=Engine.JS)) returns "js" without raising</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">_select_engine(MintConfig(engine=Engine.PYTHON)) raises NotImplementedError; message contains both "MINT_ENGINE=python" and "Phase 0"</scenario-5>
+        <scenario-6 kind="success" evidence="integration">subprocess: env={MINT_ENGINE=python, ...required}, args=[python, -m, mint.cli, --engine, js, --help] → exit 0; stdout contains "--engine"</scenario-6>
+        <scenario-7 kind="failure" evidence="deterministic">FROZEN INVARIANT: cfg = load_config(); pytest.raises(dataclasses.FrozenInstanceError): cfg.engine = Engine.JS — proves the dataclass is frozen and the override channel is os.environ, not setattr</scenario-7>
+        <scenario-8 kind="failure" evidence="integration">ARG POSITION: subprocess `python -m mint.cli validate --engine js fixture.docx` (--engine AFTER subcommand) → non-zero exit, argparse usage error to stderr. Confirms --engine is top-level only and does not silently accept post-subcommand placement.</scenario-8>
+        <scenario-9 kind="success" evidence="trace">CLI override precedence: subprocess with env MINT_ENGINE=python, args [..., --engine, js, validate, ...] → captured stderr/log shows BLOCK_LOAD_CONFIG entry where engine resolved to "js", proving os.environ write in main() ran BEFORE config() was first called. (Asserts on the log payload, not on the side effect alone.)</scenario-9>
+        <scenario-10 kind="success" evidence="trace">Default-engine path: subprocess with no MINT_ENGINE, no --engine, args [..., validate, fixture] → stderr contains BLOCK_LOAD_CONFIG and BLOCK_SELECT_ENGINE markers; does NOT contain BLOCK_DISPATCH or any [Validate]/[Create]/[Sandbox] block markers; exit non-zero with NotImplementedError surfaced.</scenario-10>
+        <scenario-11 kind="success" evidence="deterministic">Env-isolation invariant: extend tests/unit/test_config.py::clean_env env_keys to include "MINT_ENGINE"; assert that running this V-MP-FLAG suite immediately followed by tests/unit/test_config.py with no isolation passes — i.e., no test in this file leaks MINT_ENGINE into os.environ for the next test.</scenario-11>
+        <scenario-12 kind="success" evidence="deterministic">.ENV-FILE PRECEDENCE: write a temp .env containing `MINT_ENGINE=python`; with os.environ["MINT_ENGINE"]="js" set, call load_config(env_file=tmp) → engine == Engine.JS. Confirms os.environ wins over .env file (mirrors the existing dotenv_values + os.environ overlay pattern in load_config). Inverse case (no env override, only .env): engine == Engine.PYTHON from the .env value.</scenario-12>
+        <scenario-13 kind="success" evidence="deterministic">PYPROJECT.TOML SHAPE: `python -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); assert d['tool']['hatch']['build']['targets']['wheel']['packages']==['src/mint','src/mint_python']"` exits 0. Module-level guard catches typos in the packages list before phase-level uv build would.</scenario-13>
+        <scenario-14 kind="success" evidence="deterministic">.ENV.EXAMPLE DOCS: `.env.example` contains a `# MINT_ENGINE=js` commented opt-in line; grep `-E "^# *MINT_ENGINE=" .env.example` matches exactly once. Forbids the file shipping without engine documentation when the default fail-closed is python.</scenario-14>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[Config][load][BLOCK_LOAD_CONFIG] — payload extended (Phase-6) to include resolved engine value at INFO</marker-1>
+        <marker-2>[CLI][_select_engine][BLOCK_SELECT_ENGINE] — NEW; emitted on every non-help/non-usage-error main() before dispatch; INFO level</marker-2>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>NotImplementedError raised on the js path</forbidden-1>
+        <forbidden-2>config() loaded before os.environ override is applied (CLI override silently dropped)</forbidden-2>
+        <forbidden-3>MintConfig.engine mutated after construction</forbidden-3>
+        <forbidden-4>Any test in this file mutates os.environ without using monkeypatch.setenv (must be reverted automatically by pytest)</forbidden-4>
+        <forbidden-5>Subprocess scenarios that inherit the parent os.environ for MINT_ENGINE — defeats parallel worker isolation</forbidden-5>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE provided the clean_env fixture is extended (fixture-1) and subprocess scenarios pass explicit env (fixture-2). Without these, parallel test workers in the same process can leak MINT_ENGINE between tests via main()'s os.environ write, producing flaky failures. Process-level workers (pytest-xdist -n auto) are inherently safe because each worker is a fresh process. Document the in-process risk explicitly in the test file header so a future contributor (or fix-agent) does not strip the fixture.</autonomy-assessment>
+    </V-MP-FLAG>
   </ModuleVerification>
 
   <WaveChecks>
@@ -831,7 +967,7 @@
     </Wave-2-2>
 
     <Wave-3-1 PHASE="Phase-3" SCOPE="M-QA, M-GRACE" STATUS="done">
-      <goal>QA pipeline (L1 programmatic + L2 render via Gotenberg) and GRACE manifest injection ship together; existing Custom XML Parts from other vendors are preserved.</goal>
+      <goal>QA pipeline (L1 programmatic + L2 structural ZIP analysis) and GRACE manifest injection ship together; existing Custom XML Parts from other vendors are preserved.</goal>
       <commands>
         <command-1>pytest tests/unit/test_qa/ tests/unit/test_grace/ -x</command-1>
         <command-2>ruff check src/mint/qa/ src/mint/grace/</command-2>
@@ -839,7 +975,7 @@
       </commands>
       <required-evidence>
         <evidence-1>L1 programmatic check on minimal_valid_docx and minimal_valid_pptx returns confidence ≥ 0.95 within 1s; trace contains [QA][l1_check][BLOCK_L1_CHECK]</evidence-1>
-        <evidence-2>L2 render path on minimal_valid_docx invokes Gotenberg, writes a PNG snapshot, runs overlap/margin checks; trace contains [QA][l2_render][BLOCK_L2_RENDER]; if Gotenberg is unreachable the test marks itself xfail rather than failing the wave</evidence-2>
+        <evidence-2>L2 structural path on minimal_valid_docx inspects OOXML ZIP structure and emits [QA][l2][BLOCK_L2_STRUCTURAL]. Gotenberg render/overlap evidence is not an executable Phase-3 gate in the current codebase.</evidence-2>
         <evidence-3>GRACE bootstrap on docx_with_vendor_xml fixture preserves the non-GRACE Custom XML Parts byte-for-byte; trace contains [GRACE][inject][BLOCK_INJECT_MANIFEST] and [GRACE][preserve][BLOCK_PRESERVE_EXISTING]</evidence-3>
         <evidence-4>GRACE manifest namespace urn:mint:grace:2026:manifest is present in the output and readable by a fresh OOXML parser</evidence-4>
       </required-evidence>
@@ -947,6 +1083,33 @@
         <evidence-3>VF-010 trace-sequence emitted in correct order on a successful edit through the MCP path</evidence-3>
       </required-evidence>
     </Wave-5-3>
+
+    <Wave-6-1 PHASE="Phase-6" SCOPE="M-CONFIG (engine field), M-CLI (--engine, _select_engine, BLOCK_SELECT_ENGINE), MP-PKG, V-MP-FLAG" STATUS="planned">
+      <goal>Single-wave Phase-0 surface: dual-engine flag wired through M-CONFIG and M-CLI, MP-PKG skeleton importable, all V-MP-FLAG / V-MP-PKG scenarios green, every legacy DF-001..DF-007 trace sequence still passes when invoked under --engine js. Wave is intentionally small (one wave covers the whole Phase-6) because Phase 0 is scaffolding-only.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_engine_flag.py -v</command-1>
+        <command-2>pytest tests/unit/test_config.py -x</command-2>
+        <command-3>pytest tests/integration/test_cli.py -x</command-3>
+        <command-4>ruff check src/mint/config.py src/mint/cli.py src/mint_python tests/unit/test_engine_flag.py tests/integration/test_cli.py</command-4>
+        <command-5>mypy src/mint/config.py src/mint/cli.py src/mint_python</command-5>
+      </commands>
+      <swarm-policy>
+        <isolation>Process-per-worker via pytest-xdist (-n auto) is recommended. In-process serial is acceptable ONLY if the clean_env autouse fixture in tests/unit/test_config.py has been extended to clear MINT_ENGINE; otherwise os.environ writes by main() leak between tests.</isolation>
+        <writescope-controller>docs/development-plan.xml, docs/knowledge-graph.xml, docs/verification-plan.xml — workers MUST NOT touch.</writescope-controller>
+        <writescope-worker>src/mint/config.py, src/mint/cli.py, src/mint/__init__.py, src/mint_python/**, tests/unit/test_engine_flag.py, tests/integration/test_cli.py (only the _run helper), pyproject.toml ([tool.hatch.build.targets.wheel].packages line only), .env.example (one comment line only). Any other file is out-of-scope for this wave.</writescope-worker>
+      </swarm-policy>
+      <required-evidence>
+        <evidence-1>All V-MP-FLAG scenarios 1-11 pass (default→python, env override, garbage→CONFIG_INVALID, _select_engine branches, frozen invariant, arg position, CLI overrides env via os.environ pre-load, env isolation)</evidence-1>
+        <evidence-2>All V-MP-PKG scenarios 1-2, 4 pass at module level (import smoke, version, header convention)</evidence-2>
+        <evidence-3>V-M-CONFIG scenarios 1-7 all pass (existing 1-4 unchanged, new 5-7 cover MINT_ENGINE)</evidence-3>
+        <evidence-4>V-M-CLI scenarios 1-14 all pass; scenarios 1-7 succeed only after the test_cli `_run` helper is pinned to `--engine js`; scenarios 8-14 are new Phase-6 surface</evidence-4>
+        <evidence-5>VF-011 EngineDispatch trace-sequence holds on both branches; BLOCK_SELECT_ENGINE marker present on every non-help main() call</evidence-5>
+        <evidence-6>VF-011 forbidden-signals 1-4 hold (no legacy markers on python path; no NotImplementedError on js path; no BLOCK_DISPATCH without preceding BLOCK_SELECT_ENGINE; no double BLOCK_SELECT_ENGINE)</evidence-6>
+        <evidence-7>VF-001..VF-006 trace sequences remain green when invoked via the CLI (`mint --engine js &lt;subcmd&gt;`); these are the flows that route through the chokepoint. VF-007..VF-010 are unaffected by Phase-6 by construction — their tests (test_mcp_g1.py, test_mcp_g2.py, test_create.py) use `from mint.mcp_g1 import ...` / `from mint.create import create` direct imports and bypass `_select_engine` entirely. See VF-011 chokepoint-scope.</evidence-7>
+        <evidence-8>`pyproject.toml` parses cleanly via `python -c "import tomllib; tomllib.load(open('pyproject.toml','rb'))"` AND `[tool.hatch.build.targets.wheel].packages` equals `["src/mint", "src/mint_python"]` exactly. Cheap module-level guard against typos before the phase-level `uv build` would catch them.</evidence-8>
+        <evidence-9>`.env.example` contains a commented-out `# MINT_ENGINE=js` line with an explainer comment immediately above it ("# Default is python; set js to keep the legacy Node.js sandbox path"). Greppable: `grep -E "^# *MINT_ENGINE=js" .env.example`.</evidence-9>
+      </required-evidence>
+    </Wave-6-1>
   </WaveChecks>
 
   <PhaseGates>
@@ -990,7 +1153,7 @@
         <command-1>pytest tests/ -x --timeout=120</command-1>
       </commands>
       <required-evidence>
-        <evidence-1>QA L2 detects overlap >2% as violation</evidence-1>
+        <evidence-1>QA L2 structural checks report confidence and structural findings deterministically; visual overlap detection remains a future render-gate</evidence-1>
         <evidence-2>GRACE metadata readable from injected documents</evidence-2>
         <evidence-3>Cross-model edit test passes (GLM creates → Qwen edits → MINT validates)</evidence-3>
         <evidence-4>All trace markers logged for VF-004, VF-005, VF-006</evidence-4>
@@ -1013,7 +1176,71 @@
         <evidence-6>All trace markers logged for VF-007, VF-008, VF-009 critical flows</evidence-6>
       </required-evidence>
     </Gate-Phase-4>
+
+    <Gate-Phase-6 PHASE="Phase-6" STATUS="planned" ACTIVATES_AT="Wave-6-1 completion">
+      <goal>Pure Python Edition Phase 0 lands as scaffolding only: skeleton importable, dual-engine flag wired through M-CONFIG and M-CLI, default engine=python fails closed via NotImplementedError, --engine js / MINT_ENGINE=js keeps every legacy DF-001..DF-007 flow green.</goal>
+      <commands>
+        <command-1>pytest tests/ -x --timeout=120</command-1>
+        <command-2>ruff check src/mint/config.py src/mint/cli.py src/mint_python tests/unit/test_engine_flag.py tests/integration/test_cli.py</command-2>
+        <command-3>mypy src/mint/config.py src/mint/cli.py src/mint_python</command-3>
+        <command-4>uv build &amp;&amp; unzip -l dist/*.whl | grep -c mint_python</command-4>
+      </commands>
+      <required-evidence>
+        <evidence-1>All V-MP-PKG scenarios pass (import smoke, version, wheel layout)</evidence-1>
+        <evidence-2>All V-MP-FLAG scenarios pass (default→python, env override, garbage→CONFIG_INVALID, _select_engine branches, CLI overrides env, --help)</evidence-2>
+        <evidence-3>tests/integration/test_cli.py passes after _run helper is pinned to --engine js — proof that legacy DF-001..DF-007 are unaffected on the js path</evidence-3>
+        <evidence-4>VF-011 EngineDispatch trace-sequence holds on both branches (js: BLOCK_LOAD_CONFIG → BLOCK_SELECT_ENGINE → BLOCK_DISPATCH → cmd_*; python: BLOCK_LOAD_CONFIG → BLOCK_SELECT_ENGINE → NotImplementedError → non-zero exit)</evidence-4>
+        <evidence-5>VF-011 forbidden-signals hold: no cmd_*/BLOCK_RUN_CHECKS/etc. fires on the python path; no NotImplementedError on the js path</evidence-5>
+        <evidence-6>uv build wheel includes 9 mint_python __init__.py files (1 top-level + 8 subpackages)</evidence-6>
+        <evidence-7>No existing test required content edits beyond the test_cli _run helper — proof that Phase 0 is non-invasive to the legacy modules' behavior</evidence-7>
+      </required-evidence>
+    </Gate-Phase-6>
   </PhaseGates>
+
+  <SwarmExecutionReadiness UPDATED="2026-05-09">
+    <summary>Current executable verification is strong for deterministic OOXML, validation, edit, theme, MCP, and CLI adapter paths. Swarm execution is permitted only when workers stay inside declared module write scopes and controller-owned docs are edited serially. Phase-6 engine-dispatch verification is planned but not yet executable in the current checkout because src/mint_python, tests/unit/test_engine_flag.py, MINT_ENGINE, Engine, and M-CLI._select_engine are absent.</summary>
+    <verification-matrix>
+      <target-1 MODULES="M-RULES,M-VALIDATE,M-FINGERPRINT,M-THEME,M-THEMEEXTRACT" STATUS="swarm-safe">
+        <evidence>Pure or read-only deterministic tests; run module-local pytest plus ruff/mypy on touched files.</evidence>
+        <commands>pytest tests/unit/test_rules/ tests/unit/test_validate.py tests/unit/test_fingerprint.py tests/unit/test_theme.py tests/unit/test_theme_extract.py -x</commands>
+      </target-1>
+      <target-2 MODULES="M-OOXML,M-EDIT" STATUS="swarm-safe-with-isolated-fixtures">
+        <evidence>Round-trip, anchor, tracked-change, comments, backup, validation, and trace-order tests are broad. File-mutating tests MUST operate on tmp_path copies only.</evidence>
+        <commands>pytest tests/unit/test_ooxml.py tests/unit/test_edit.py -x</commands>
+      </target-2>
+      <target-3 MODULES="M-QA" STATUS="limited-safe">
+        <evidence>Current L2 evidence is structural ZIP analysis only. Do not assign visual-render or overlap claims to autonomous workers until a Gotenberg-backed VF and harness exist.</evidence>
+        <commands>pytest tests/unit/test_qa/ -x</commands>
+      </target-3>
+      <target-4 MODULES="M-SANDBOX,M-ASSEMBLE" STATUS="cautious">
+        <evidence>Behavior tests exist, but required trace markers are incomplete for sandbox validation/execution and assembly template rendering. Security-sensitive edits require reviewer inspection before merge.</evidence>
+        <commands>pytest tests/unit/test_sandbox.py tests/unit/test_assemble.py -x</commands>
+      </target-4>
+      <target-5 MODULES="M-LLM" STATUS="not-swarm-safe-yet">
+        <evidence>tests/unit/test_llm.py is absent. Add deterministic httpx transport tests and confirm [LLM][call][BLOCK_CALL_MODEL] redaction before autonomous work.</evidence>
+        <commands status="planned">pytest tests/unit/test_llm.py -x</commands>
+      </target-5>
+      <target-6 MODULES="M-CONFIG,M-CLI,MP-PKG" STATUS="planned">
+        <evidence>Phase-6 engine-dispatch contract is documented but not implemented in source. Keep Wave-6-1 as a planned activation gate; do not run Phase-6 commands until the files and symbols exist.</evidence>
+        <commands status="planned">pytest tests/unit/test_engine_flag.py tests/integration/test_cli.py -x</commands>
+      </target-6>
+    </verification-matrix>
+    <telemetry-requirements>
+      <requirement-1>Normalize executable trace markers to source reality before asserting on them: [Skills][select_skill][BLOCK_SELECT_SKILL], [Templates][fill][BLOCK_FILL], [Extract][parse_theme][BLOCK_PARSE_THEME], [Extract][analyze_layouts][BLOCK_ANALYZE_LAYOUTS], [QA][l2][BLOCK_L2_STRUCTURAL], [LLM][call][BLOCK_CALL_MODEL].</requirement-1>
+      <requirement-2>Before sandbox or assembly trace gates can be trusted, add INFO markers for [Sandbox][execute][BLOCK_VALIDATE_CODE], [Sandbox][execute][BLOCK_EXECUTE_CODE], and [Assemble][template][BLOCK_ASSEMBLE_TEMPLATE].</requirement-2>
+      <requirement-3>Do not log API keys, prompts, raw OOXML XML, document text, or edit snippets above DEBUG; use op_id, lengths, hashes, and stable IDs at INFO.</requirement-3>
+    </telemetry-requirements>
+    <level-split>
+      <module-level>Run only touched module tests plus ruff/mypy for touched source. Prefer pytest -x and tmp_path fixtures for file-mutating modules.</module-level>
+      <wave-level>Run integration checks for surfaces touched by the wave only. For multi-agent waves, the controller owns docs, pyproject, .env.example, and shared test helpers unless the wave explicitly assigns one worker to that file.</wave-level>
+      <phase-level>Run pytest tests/ -x --timeout=120, ruff check src/mint tests, and mypy src/mint after all wave changes merge. Add src/mint_python to phase commands only after Wave-6-1 activates.</phase-level>
+    </level-split>
+    <open-gaps>
+      <gap-1>Helper modules src/mint/_security.py, src/mint/_xml_ns.py, src/mint/paths.py, and src/mint/sandbox/runner.js lack MODULE_CONTRACT / MODULE_MAP headers.</gap-1>
+      <gap-2>Phase-6 source and tests are still absent in the current checkout; keep V-MP-FLAG and VF-011 marked planned until MINT_ENGINE, Engine, _select_engine, src/mint_python, and tests/unit/test_engine_flag.py exist.</gap-2>
+      <gap-3>M-THEME and M-THEMEEXTRACT are verified and present in the graph, but their placement in development-plan.xml should be refreshed so future agents do not treat them as orphaned modules.</gap-3>
+    </open-gaps>
+  </SwarmExecutionReadiness>
 
   <FailurePackets>
     <packet-template>
@@ -1025,6 +1252,27 @@
       <observed-evidence>Fix loop ran 4 iterations without raising</observed-evidence>
       <first-divergent-block>[Fix][apply][BLOCK_APPLY_FIX] iteration counter not incremented</first-divergent-block>
       <next-action>Check iteration counting logic in M-FIX apply_fixes</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>V-MP-FLAG scenario-7: frozen invariant</scenario>
+      <expected-evidence>setattr(cfg, "engine", Engine.JS) raises dataclasses.FrozenInstanceError</expected-evidence>
+      <observed-evidence>setattr succeeded; cfg.engine became Engine.JS without raising</observed-evidence>
+      <first-divergent-block>src/mint/config.py @dataclass decorator on MintConfig — frozen=True missing or removed</first-divergent-block>
+      <next-action>Restore @dataclass(frozen=True) on MintConfig; re-confirm tests/unit/test_config.py::test_config_is_frozen still asserts the same invariant for non-engine fields</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>V-MP-FLAG scenario-11: env-isolation invariant</scenario>
+      <expected-evidence>tests/unit/test_engine_flag.py and tests/unit/test_config.py both pass when run in the same pytest process with `-p no:xdist`</expected-evidence>
+      <observed-evidence>test_config.py::test_default_tier_when_no_env fails because MINT_ENGINE survived from a prior test_engine_flag.py run</observed-evidence>
+      <first-divergent-block>tests/unit/test_config.py::clean_env autouse fixture — env_keys list does not include "MINT_ENGINE"</first-divergent-block>
+      <next-action>Add "MINT_ENGINE" to the env_keys list in clean_env (or copy the fixture into test_engine_flag.py with the extended list); re-run both files in a single process to confirm</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>VF-011 forbidden-3: BLOCK_DISPATCH without BLOCK_SELECT_ENGINE</scenario>
+      <expected-evidence>Trace shows BLOCK_LOAD_CONFIG → BLOCK_SELECT_ENGINE → BLOCK_DISPATCH on every js-path invocation</expected-evidence>
+      <observed-evidence>Trace shows BLOCK_LOAD_CONFIG → BLOCK_DISPATCH; BLOCK_SELECT_ENGINE absent</observed-evidence>
+      <first-divergent-block>src/mint/cli.py main() — _select_engine call missing or placed AFTER the cmd_* dispatch dict resolution</first-divergent-block>
+      <next-action>Move the _select_engine call to immediately after config() and before the dispatch dict; ensure it logs [CLI][_select_engine][BLOCK_SELECT_ENGINE] at INFO unconditionally; re-run V-MP-FLAG scenario-9 and 10</next-action>
     </packet-example>
   </FailurePackets>
 </VerificationPlan>

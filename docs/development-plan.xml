@@ -9,6 +9,13 @@
     <architecture-pattern-1 name="Single-pass generation">M-CREATE → skill → model → sandbox → validate. Works for Claude-class models. 33% success on 35B.</architecture-pattern-1>
     <architecture-pattern-2 name="Modular generation">M-PLAN → M-SECTION[] → M-ASSEMBLE → validate. Each section is small enough for 35B. Plan is cheap JSON. Assembly is deterministic. ~90% success rate expected.</architecture-pattern-2>
     <architecture-pattern-3 name="Edit pipeline">M-EDIT receives a typed JSON EditPlan, not raw OOXML. M-OOXML unpacks/repacks the container; M-EDIT applies typed operations over the lxml tree. Tracked changes and comments follow ECMA-376; reply linkage lives in word/commentsExtended.xml.</architecture-pattern-3>
+    <architecture-pattern-4 name="Dual Runtime Strategy (Phase-6 onward)">From v0.3 MINT runs under one of two execution engines, selected by `MINT_ENGINE=python|js` (default: python). The chokepoint is M-CLI._select_engine; the surface is the `engine` field on M-CONFIG.MintConfig. Migration scope is asymmetric: M-VALIDATE / M-RULES / M-FIX / M-FINGERPRINT / M-OOXML / M-EDIT / M-GRACE / M-EXTRACT / M-PLAN are ALREADY pure Python and are unaffected by the dual-runtime split. The legacy Node.js dependency exists only inside M-SANDBOX (vm-based JS execution) and the modules that route through it (M-CREATE single-pass, M-ASSEMBLE, M-SECTION). Phase-6 (Phase 0 of the pure-python rollout) ships only the dispatch chokepoint + the empty MP-PKG skeleton; later phases populate `mint_python.execution.{small,medium,frontier}` to replace M-SANDBOX, and `mint_python.sdk` to replace docx-js/pptxgenjs as the model-targeted authoring surface. Pure Python is the strategic default; the JS engine is an opt-in fallback retained for the existing fixture corpus and for the docx-js model-output path until parity is reached. **Living spec** for the migration is split between `docs/pure-python/` (per-aspect notes: handover-v1, structure, feature-flag, acceptance-criteria) and the consolidated `docs/mint-pure-python-handover-v1.md` (§5 module structure, §6 phase plan, §7 acceptance criteria). Agents reading this plan MUST consult both before designing any MP-* module contract. **Deprecation horizon for M-SANDBOX:** fully-live legacy through v0.3.x. In v0.4: once VF-012 PurePythonRegression is green on the showcase corpus, M-SANDBOX is marked `STATUS="deprecated"` in the KG and a deprecation log warning fires whenever `MINT_ENGINE=js` resolves at startup. In v0.5: M-SANDBOX is removed; `MINT_ENGINE=js` raises ConfigInvalidError. Trajectory is gated by the parity contract — if VF-012 cannot be activated by v0.4 (e.g. matplotlib chart parity slips), the deprecation slips with it.</architecture-pattern-4>
+    <terminology>
+      <term-1>"Phase-6" — internal dev-plan ImplementationOrder slot, follows historical Phase-1..Phase-5. Refers to Phase 0 (skeleton + flag) of the pure-python rollout. Not the same as "Phase 0".</term-1>
+      <term-2>"Phase 0/1/2/3/4/5" (per handover §6) — pure-python rollout phases. Phase 0 = skeleton + flag (== this Phase-6). Phase 1 = core Document/SDK. Phase 2 = Chart/matplotlib. Phase 3 = validation+fix. Phase 4 = execution tiers + sandbox. Phase 5 = MCP/CLI/GRACE. When speaking about the dev-plan ImplementationOrder, say "Phase-6"; when speaking about the rollout, say "rollout Phase N" or "handover Phase N".</term-2>
+      <term-3>"Pure Python Edition" = the entire migration program. "mint_python" = the package path (src/mint_python/). "MP-* modules" = GRACE module IDs registered for that package (currently only MP-PKG). "Python engine" = the runtime choice exposed via MINT_ENGINE=python. Use the most specific term in any given sentence.</term-3>
+      <term-4>"M-ENGINE-PYTHON" / "M-ENGINE-JS" are NOT registered GRACE module IDs. The dispatch lives in M-CLI._select_engine + M-CONFIG.engine; there is no separate M-ENGINE module in Phase 0. A real M-ENGINE may be registered in handover Phase 1 when there is code to abstract over.</term-4>
+    </terminology>
     <followup-1 name="M-GRACE on M-OOXML">M-GRACE currently maintains its own zip + Custom XML Parts logic. Once M-OOXML lands, M-GRACE should be refactored to use M-OOXML.unpack/pack so the round-trip and auto-repair invariants apply uniformly. Tracked as a Phase-5+ follow-up wave; not blocking for the Edit pipeline.</followup-1>
   </ArchitectureNotes>
 
@@ -32,13 +39,14 @@
       </contract>
       <interface>
         <export-config PURPOSE="Validated singleton config instance" />
-        <fn-loadConfig PURPOSE="Load from env + .env, validate, return MintConfig" />
-        <type-MintConfig PURPOSE="dataclass: base_url, model, tier, severity_mode, gotenberg_url, sandbox_timeout, rules_dir, skills_dir, templates_dir, tokens_dir" />
+        <fn-loadConfig PURPOSE="Load from env + .env, validate, return MintConfig (incl. MINT_ENGINE)" />
+        <type-MintConfig PURPOSE="frozen dataclass: base_url, model, tier, severity_mode, gotenberg_url, sandbox_timeout, rules_dir, skills_dir, templates_dir, tokens_dir, engine" />
+        <type-Engine PURPOSE="StrEnum: JS='js', PYTHON='python'; default PYTHON" />
       </interface>
       <depends>none</depends>
       <target>
         <source>src/mint/config.py</source>
-        <tests>tests/unit/test_config.py</tests>
+        <tests>tests/unit/test_config.py, tests/unit/test_engine_flag.py</tests>
       </target>
       <observability>
         <log-prefix>[Config]</log-prefix>
@@ -284,14 +292,14 @@
       </target>
       <observability>
         <log-prefix>[LLM]</log-prefix>
-        <critical-block>BLOCK_LLM_CALL</critical-block>
+        <critical-block>BLOCK_CALL_MODEL</critical-block>
       </observability>
       <verification-ref>V-M-LLM</verification-ref>
     </M-LLM>
 
     <M-CLI NAME="CLI Entry Point" TYPE="ENTRY_POINT" LAYER="3" ORDER="2" STATUS="done">
       <contract>
-        <purpose>argparse-based CLI surface for MINT runtime. Subcommands: serve (MCP server), validate, fix, fingerprint, create, extract, and (Phase-5) edit. Each subcommand is a thin shim over the corresponding module entry point and prints JSON to stdout; non-zero exit on logical failure.</purpose>
+        <purpose>argparse-based CLI surface for MINT runtime. Subcommands: serve (MCP server), validate, fix, fingerprint, create, extract, and (Phase-5) edit. Each subcommand is a thin shim over the corresponding module entry point and prints JSON to stdout; non-zero exit on logical failure. (Phase-6) Top-level --engine {python,js} flag overrides MINT_ENGINE env; default engine=python raises NotImplementedError via _select_engine until the Pure Python Edition lands.</purpose>
         <inputs>
           <param name="argv" type="list[str]" />
         </inputs>
@@ -314,11 +322,12 @@
         <fn-cmd_create PURPOSE="run M-CREATE and emit CreateResult JSON" />
         <fn-cmd_extract PURPOSE="run M-EXTRACT and emit DesignTokens JSON" />
         <fn-cmd_edit PURPOSE="(Phase-5) load EditPlan from --plan JSON file, run M-EDIT, emit EditResult JSON" />
+        <fn-_select_engine PURPOSE="(Phase-6) private chokepoint: returns cfg.engine.value when 'js'; raises NotImplementedError(message naming Phase 0 + remediation) when 'python'. Called once per main() before the cmd_* dispatch dict." />
       </interface>
       <depends>M-CONFIG, M-VALIDATE, M-FIX, M-FINGERPRINT, M-CREATE, M-EXTRACT, M-MCP-G1, M-MCP-G2</depends>
       <target>
         <source>src/mint/cli.py</source>
-        <tests>tests/integration/test_cli.py</tests>
+        <tests>tests/integration/test_cli.py, tests/unit/test_engine_flag.py</tests>
       </target>
       <observability>
         <log-prefix>[CLI]</log-prefix>
@@ -537,7 +546,7 @@
       <observability>
         <log-prefix>[QA]</log-prefix>
         <critical-block>BLOCK_L1_CHECK</critical-block>
-        <critical-block>BLOCK_L2_RENDER</critical-block>
+        <critical-block>BLOCK_L2_STRUCTURAL</critical-block>
       </observability>
       <verification-ref>V-M-QA</verification-ref>
     </M-QA>
@@ -863,6 +872,35 @@ writeFileSync('output.docx', buffer);
       </observability>
       <verification-ref>V-M-EDIT</verification-ref>
     </M-EDIT>
+
+    <!-- PHASE 6: Pure Python Edition (Phase 0 of pure-python rollout — skeleton + feature flag) -->
+
+    <MP-PKG NAME="Mint-Python Skeleton" TYPE="UTILITY" LAYER="0" ORDER="9" STATUS="planned">
+      <contract>
+        <purpose>Empty parallel package skeleton for the Pure Python Edition. Phase 0 ships only `__init__.py` files for the 8 subpackages mandated by handover §5; subpackage contracts populate in Phases 1-5.</purpose>
+        <inputs>
+          <param name="(none)" type="—" />
+        </inputs>
+        <outputs>
+          <param name="importable_package" type="package" />
+        </outputs>
+        <errors>
+          <error code="(none in Phase 0)" />
+        </errors>
+      </contract>
+      <interface>
+        <export-mint_python PURPOSE="Top-level package marker; __version__='0.0.0'" />
+      </interface>
+      <depends>none</depends>
+      <target>
+        <source>src/mint_python/__init__.py + 8 subpackage __init__.py files (core, sdk, execution, rules, grace, mcp, cli, tests)</source>
+        <tests>tests/unit/test_engine_flag.py (covers import smoke; dedicated MP- test files arrive with future phases)</tests>
+      </target>
+      <observability>
+        <log-prefix>(none in Phase 0; subpackages will register their own prefixes when contracts land)</log-prefix>
+      </observability>
+      <verification-ref>V-MP-PKG</verification-ref>
+    </MP-PKG>
   </Modules>
 
   <DataFlow>
@@ -893,12 +931,11 @@ writeFileSync('output.docx', buffer);
       <evidence>[Extract] produced design-tokens.json with colors, typography, layout</evidence>
     </DF-003>
 
-    <DF-004 NAME="Visual QA" TRIGGER="mint_qa MCP call">
-      <step-1>M-QA sends document to Gotenberg → PDF → PNG</step-1>
-      <step-2>Overlap detection: >0.5% = warn, >2% = violation</step-2>
-      <step-3>Margin check, font substitution detection</step-3>
-      <step-4>Output: QA report with confidence scores (0-1)</step-4>
-      <evidence>[QA][l2_render][BLOCK_L2_RENDER], confidence scores in report</evidence>
+    <DF-004 NAME="QA Structural Analysis" TRIGGER="mint_qa MCP call">
+      <step-1>M-QA runs L1 programmatic validation over the OOXML package</step-1>
+      <step-2>M-QA runs L2 structural ZIP analysis over styles, numbering, headers, footers, and document sections</step-2>
+      <step-3>Output: QA report with confidence scores (0-1) and structural findings</step-3>
+      <evidence>[QA][l1][BLOCK_L1_CHECK], [QA][l2][BLOCK_L2_STRUCTURAL], confidence scores in report. Rendered visual overlap detection is deferred until a future Gotenberg-backed VF exists.</evidence>
     </DF-004>
 
     <DF-005 NAME="GRACE Injection" TRIGGER="mint_bootstrap MCP call">
@@ -935,6 +972,15 @@ writeFileSync('output.docx', buffer);
       <step-8>M-EDIT.render_diff produces the per-op diff list; backup_path is the pre-edit copy. Return EditResult with success flag, ops_total/succeeded/failed, validation_report, diff, duration_ms.</step-8>
       <evidence>[Edit][validate_plan][BLOCK_EDIT_PLAN_VALIDATE], [Edit][backup][BLOCK_EDIT_BACKUP], [OOXML][unpack][BLOCK_OOXML_UNPACK], [Edit][extract_text][BLOCK_EDIT_EXTRACT_TEXT], [Edit][resolve_anchor][BLOCK_EDIT_RESOLVE_ANCHOR] per op, [Edit][apply_op][BLOCK_EDIT_APPLY_OP] per op (may emit [Edit][tracked_change][BLOCK_EDIT_TRACKED_CHANGE]), [OOXML][pack][BLOCK_OOXML_PACK] (may emit [OOXML][autorepair][BLOCK_OOXML_AUTOREPAIR]), [Validate][run_checks][BLOCK_RUN_CHECKS]</evidence>
     </DF-007>
+
+    <DF-008 NAME="Engine Selection" TRIGGER="any `mint &lt;subcmd&gt;` invocation (Phase-6)">
+      <step-1>argparse parses optional top-level `--engine {python,js}`; default None when user omits.</step-1>
+      <step-2>If args.engine is not None, M-CLI.main writes os.environ["MINT_ENGINE"] = args.engine BEFORE the first config() call. This is the override channel — MintConfig stays frozen.</step-2>
+      <step-3>config() lazy-loads MintConfig; load_config reads MINT_ENGINE → Engine enum (default Engine.PYTHON when env unset). Invalid value raises CONFIG_INVALID with a message naming MINT_ENGINE and the valid set {python,js}.</step-3>
+      <step-4>_select_engine(cfg) returns "js" when cfg.engine == Engine.JS; raises NotImplementedError naming Phase 0 + remediation when cfg.engine == Engine.PYTHON.</step-4>
+      <step-5>On "js": legacy cmd_* dispatch proceeds unchanged (DF-001..DF-007 entry conditions unaffected).</step-5>
+      <evidence>[Config][load][BLOCK_LOAD_CONFIG], [CLI][_select_engine][BLOCK_SELECT_ENGINE], and [CLI][main][BLOCK_DISPATCH] on the js path. The python path emits BLOCK_LOAD_CONFIG and BLOCK_SELECT_ENGINE, then raises NotImplementedError before any cmd_* handler starts.</evidence>
+    </DF-008>
   </DataFlow>
 
   <ImplementationOrder>
@@ -979,6 +1025,15 @@ writeFileSync('output.docx', buffer);
       <step-2 module="M-EDIT" status="done" verification="V-M-EDIT">Edit pipeline: declarative EditPlan → anchor resolve → typed op handlers → pack → validate</step-2>
       <step-3 module="M-MCP-G2" status="done" verification="V-M-MCP-G2">Add MCP tool mint_edit (input document_path + EditPlan JSON, output EditResult); also extend src/mint/cli.py with a mint edit subcommand reading EditPlan from a JSON file</step-3>
     </Phase-5>
+
+    <Phase-6 name="Pure Python Edition — Phase 0 (skeleton + feature flag)" status="active">
+      <goal>Lay groundwork for the Pure Python Edition: parallel `src/mint_python/` skeleton (no engine code) and a dual-engine feature flag (MINT_ENGINE / --engine) wired through M-CONFIG and M-CLI. Default engine=python — picking it raises NotImplementedError from a single chokepoint in M-CLI._select_engine; engine=js keeps the legacy pipeline working unchanged. Phases 1-5 of the pure-python rollout populate MP-* subpackages and replace the chokepoint with a real router.</goal>
+      <step-1 module="M-CONFIG" status="planned" verification="V-M-CONFIG">Extend MintConfig with `engine: Engine` field (default Engine.PYTHON); add Engine StrEnum {JS,PYTHON}; parse MINT_ENGINE in load_config mirroring the tier/severity pattern (raises CONFIG_INVALID on unknown values).</step-1>
+      <step-2 module="M-CLI" status="planned" verification="V-M-CLI">Add top-level `--engine {python,js}` arg in build_parser (default None to distinguish "unset" from explicit "js"); in main(), if args.engine is set, write os.environ["MINT_ENGINE"] before any config() call; add private _select_engine chokepoint called once before the cmd_* dispatch dict. _select_engine MUST emit `[CLI][_select_engine][BLOCK_SELECT_ENGINE]` at INFO with the resolved engine value (Phase-6 trace contract; required by VF-011, V-MP-FLAG scenarios 9-10, and V-M-CLI scenario 13).</step-2>
+      <step-3 module="MP-PKG" status="planned" verification="V-MP-PKG">Create `src/mint_python/{__init__.py,core/__init__.py,sdk/__init__.py,execution/__init__.py,rules/__init__.py,grace/__init__.py,mcp/__init__.py,cli/__init__.py,tests/__init__.py}` using the repo's `# FILE:` / `# START_MODULE_CONTRACT` header convention. Add `__version__='0.0.0'` to top-level marker. No public interfaces.</step-3>
+      <step-4 module="(infrastructure)" status="planned" verification="V-MP-FLAG">Update pyproject.toml `[tool.hatch.build.targets.wheel].packages = ["src/mint", "src/mint_python"]`; bump src/mint/__init__.py to 0.2.0; add `# MINT_ENGINE=js` opt-in line to `.env.example`; pin `tests/integration/test_cli.py::_run` helper to pass `--engine js` so the legacy integration suite stays green under the new python-default.</step-4>
+      <step-5 module="(test surface)" status="planned" verification="V-MP-FLAG">Add `tests/unit/test_engine_flag.py`: default→python, env override→js, garbage→CONFIG_INVALID, _select_engine js/python branches, CLI overrides env (via os.environ pre-load), import smoke for all 9 mint_python entry points.</step-5>
+    </Phase-6>
   </ImplementationOrder>
 
   <ExecutionPolicy>
