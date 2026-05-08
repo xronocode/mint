@@ -37,14 +37,16 @@ logger = logging.getLogger(__name__)
 _LOG_PREFIX = "Sandbox"
 
 FORBIDDEN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("fs", re.compile(r"""require\s*\(\s*['"]fs['"]\s*\)""")),
-    ("net", re.compile(r"""require\s*\(\s*['"]net['"]\s*\)""")),
-    ("child_process", re.compile(r"""require\s*\(\s*['"]child_process['"]\s*\)""")),
-    ("http", re.compile(r"""require\s*\(\s*['"]http['"]\s*\)""")),
-    ("https", re.compile(r"""require\s*\(\s*['"]https['"]\s*\)""")),
-    ("process.exit", re.compile(r"""process\s*\.\s*exit""")),
+    ("fs", re.compile(r"""require\s*\(\s*['"`]fs['"`]\s*\)""")),
+    ("net", re.compile(r"""require\s*\(\s*['"`]net['"`]\s*\)""")),
+    ("child_process", re.compile(r"""require\s*\(\s*['"`]child_process['"`]\s*\)""")),
+    ("http", re.compile(r"""require\s*\(\s*['"`]http['"`]\s*\)""")),
+    ("https", re.compile(r"""require\s*\(\s*['"`]https['"`]\s*\)""")),
+    ("process.exit", re.compile(r"""\bprocess\s*\[\s*['"`]exit['"`]\s*\]|\bprocess\s*\.\s*exit""")),
     ("eval", re.compile(r"""\beval\s*\(""")),
     ("Function constructor", re.compile(r"""new\s+Function\s*\(""")),
+    ("dynamic import", re.compile(r"""import\s*\(""")),
+    ("bracket require", re.compile(r"""require\s*\[""")),
 ]
 
 
@@ -226,9 +228,14 @@ def execute(
         import os as _os
         _dump_target = _os.environ.get("MINT_DEBUG_DUMP_JS")
         if _dump_target:
+            from mint._security import resolve_safe_path
+
             try:
-                Path(_dump_target).write_text(code)
-            except OSError as _exc:
+                safe_dump = resolve_safe_path(
+                    _dump_target, Path(_os.environ.get("MINT_ROOT", ".")).resolve()
+                )
+                safe_dump.write_text(code)
+            except (OSError, ValueError) as _exc:
                 logger.warning(
                     "[Sandbox][execute] failed to dump JS to %s: %s",
                     _dump_target,

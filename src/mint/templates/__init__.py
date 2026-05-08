@@ -120,6 +120,9 @@ class TemplateEngine:
         with tempfile.TemporaryDirectory(prefix="mint_unzip_") as unzip_dir_str:
             unzip_dir = Path(unzip_dir_str)
             with zipfile.ZipFile(src, "r") as zf:
+                from mint._security import validate_zip_paths
+
+                validate_zip_paths(zf)
                 zf.extractall(unzip_dir)
 
             replaced: list[str] = []

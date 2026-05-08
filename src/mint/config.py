@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -35,6 +36,15 @@ VALID_TIERS = ("small", "medium", "frontier")
 VALID_SEVERITY_MODES = ("audit", "lenient", "strict")
 DEFAULT_SEVERITY_MODE = "audit"
 DEFAULT_SANDBOX_TIMEOUT = 30
+
+
+def _parse_int(raw: str, field_name: str) -> int:
+    try:
+        return int(raw)
+    except ValueError:
+        raise ConfigInvalidError(
+            f"{field_name} must be an integer, got '{raw}'"
+        ) from None
 
 
 
@@ -148,8 +158,9 @@ def load_config(env_file: Path | None = None) -> MintConfig:
         llm_model=llm_model,
         model_tier=Tier(tier_str),
         severity_mode=SeverityMode(severity_str),
-        sandbox_timeout=int(
-            os.environ.get("MINT_SANDBOX_TIMEOUT", str(DEFAULT_SANDBOX_TIMEOUT))
+        sandbox_timeout=_parse_int(
+            os.environ.get("MINT_SANDBOX_TIMEOUT", str(DEFAULT_SANDBOX_TIMEOUT)),
+            "MINT_SANDBOX_TIMEOUT",
         ),
         rules_dir=rules_dir,
         skills_dir=skills_dir,
@@ -159,6 +170,7 @@ def load_config(env_file: Path | None = None) -> MintConfig:
 
 
 _singleton: MintConfig | None = None
+_singleton_lock = threading.Lock()
 
 
 # START_CONTRACT: config
@@ -171,5 +183,7 @@ _singleton: MintConfig | None = None
 def config() -> MintConfig:
     global _singleton
     if _singleton is None:
-        _singleton = load_config()
+        with _singleton_lock:
+            if _singleton is None:
+                _singleton = load_config()
     return _singleton

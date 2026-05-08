@@ -31,6 +31,15 @@ from pathlib import Path
 from typing import Any
 
 from mint.config import SeverityMode, Tier
+from mint.paths import (
+    RULES_DIR as _DEFAULT_RULES_DIR,
+)
+from mint.paths import (
+    SKILLS_DIR as _DEFAULT_SKILLS_DIR,
+)
+from mint.paths import (
+    TEMPLATES_DIR as _DEFAULT_TEMPLATES_DIR,
+)
 from mint.sandbox import SandboxResult
 from mint.sandbox import execute as sandbox_execute
 from mint.skills import SkillRef, SkillRegistry
@@ -110,9 +119,9 @@ def create(
         )
 
     if skills_dir is None:
-        skills_dir = Path(__file__).parent.parent.parent / "skills"
+        skills_dir = _DEFAULT_SKILLS_DIR
     if rules_dir is None:
-        rules_dir = Path(__file__).parent.parent.parent / "rules"
+        rules_dir = _DEFAULT_RULES_DIR
 
     skill_registry = SkillRegistry(skills_dir)
     try:
@@ -155,7 +164,7 @@ def _call_model(request: CreateRequest, skill: SkillRef) -> str:
             "Set model_response_override or configure LLM endpoint."
         )
 
-    registry = SkillRegistry(Path(__file__).parent.parent.parent / "skills")
+    registry = SkillRegistry(_DEFAULT_SKILLS_DIR)
     skill_prompt = registry.render_prompt(skill, request.design_tokens)
 
     code_or_json = (
@@ -450,6 +459,116 @@ def _postprocess_docx(path: Path) -> None:
                 "[Create][postprocess] Removed %d invalid XML tags", count
             )
 
+    # Fix 5b: TOC quality — when document.xml has a TOC field but no static
+    # entries, generate them from H1/H2 paragraphs so the page is not blank
+    # before Word's manual field-refresh. Also flag updateFields=true in
+    # settings.xml so a refresh prompt appears on open.
+    raw_doc = entries.get(doc_path, b"")
+    if raw_doc and b"TOC" in raw_doc:
+        doc_root = _parse_xml(doc_path)
+        if doc_root is not None:
+            # Inject updateFields hint into settings.xml (helps Word refresh field on open)
+            settings_path = "word/settings.xml"
+            settings_root = _parse_xml(settings_path)
+            if settings_root is not None:
+                upd = settings_root.find(f"{{{w_ns}}}updateFields")
+                if upd is None:
+                    upd_el = etree.SubElement(
+                        settings_root, f"{{{w_ns}}}updateFields"
+                    )
+                    upd_el.set(f"{{{w_ns}}}val", "true")
+                    entries[settings_path] = _serialize_xml(settings_root)
+                    changes += 1
+
+            # Find the TOC field-character region and inject static entries
+            # right after the begin → instrText → separate run.
+            # Locate the paragraph containing fldCharType="begin" with TOC instr.
+            toc_separate_p = None
+            for p in doc_root.iter(f"{{{w_ns}}}p"):
+                instr = p.find(f".//{{{w_ns}}}instrText")
+                if instr is not None and instr.text and "TOC" in instr.text:
+                    toc_separate_p = p
+                    break
+            if toc_separate_p is not None:
+                # Collect H1 and H2 entries from document.xml AFTER the TOC paragraph
+                tocs: list[tuple[int, str]] = []
+                seen_toc = False
+                for p in doc_root.iter(f"{{{w_ns}}}p"):
+                    if p is toc_separate_p:
+                        seen_toc = True
+                        continue
+                    if not seen_toc:
+                        continue
+                    p_style = p.find(f"{{{w_ns}}}pPr/{{{w_ns}}}pStyle")
+                    if p_style is None:
+                        continue
+                    style_id = p_style.get(f"{{{w_ns}}}val", "")
+                    if style_id not in ("Heading1", "Heading2"):
+                        continue
+                    text = "".join(
+                        (t.text or "") for t in p.iter(f"{{{w_ns}}}t")
+                    ).strip()
+                    if not text:
+                        continue
+                    level = 1 if style_id == "Heading1" else 2
+                    tocs.append((level, text))
+
+                if tocs:
+                    parent = toc_separate_p.getparent()
+                    if parent is not None:
+                        idx = list(parent).index(toc_separate_p) + 1
+                        for level, text in tocs:
+                            indent_left = (level - 1) * 360
+                            new_p = etree.Element(f"{{{w_ns}}}p")
+                            ppr = etree.SubElement(new_p, f"{{{w_ns}}}pPr")
+                            ind = etree.SubElement(ppr, f"{{{w_ns}}}ind")
+                            ind.set(f"{{{w_ns}}}left", str(indent_left))
+                            spacing = etree.SubElement(ppr, f"{{{w_ns}}}spacing")
+                            spacing.set(f"{{{w_ns}}}after", "60")
+                            r_el = etree.SubElement(new_p, f"{{{w_ns}}}r")
+                            t_el = etree.SubElement(r_el, f"{{{w_ns}}}t")
+                            t_el.text = text
+                            parent.insert(idx, new_p)
+                            idx += 1
+                            changes += 1
+                        entries[doc_path] = _serialize_xml(doc_root)
+
+    # Fix 5c: Cap cover-page title size. Empirical VLM feedback: a 72-half-
+    # point (36pt) title still reads as "too large" on US Letter — the title
+    # eats the whole top half of the page and looks unbalanced. Cap the FIRST
+    # H1 to 56 half-points (28pt). This still reads as a clear hero title
+    # without dominating the page.
+    doc_root = _parse_xml(doc_path)
+    if doc_root is not None:
+        # Find the first paragraph that has any visible text — that's the
+        # title regardless of whether the model used pStyle=Heading1 or
+        # raw `size: N` on the run.
+        first_h1 = None
+        for p in doc_root.iter(f"{{{w_ns}}}p"):
+            text = "".join((t.text or "") for t in p.iter(f"{{{w_ns}}}t"))
+            if text.strip():
+                first_h1 = p
+                break
+        if first_h1 is not None:
+            cover_changes = 0
+            for sz in first_h1.iter(f"{{{w_ns}}}sz"):
+                v = sz.get(f"{{{w_ns}}}val")
+                if v and v.isdigit() and int(v) > 56:
+                    sz.set(f"{{{w_ns}}}val", "56")  # 28pt cap
+                    cover_changes += 1
+            for sz in first_h1.iter(f"{{{w_ns}}}szCs"):
+                v = sz.get(f"{{{w_ns}}}val")
+                if v and v.isdigit() and int(v) > 56:
+                    sz.set(f"{{{w_ns}}}val", "56")
+                    cover_changes += 1
+            if cover_changes > 0:
+                entries[doc_path] = _serialize_xml(doc_root)
+                changes += cover_changes
+                logger.info(
+                    "[Create][postprocess] Capped %d cover-title sizes to 28pt",
+                    cover_changes,
+                )
+
     # Fix 6: Reconcile table widths with their gridCol sums (D-H01).
     # Models routinely emit columnWidths that don't sum to the declared table
     # width. Rather than redistributing column widths (which would alter the
@@ -723,7 +842,7 @@ def _create_template_mode(
             )
 
     if templates_dir is None:
-        templates_dir = Path(__file__).parent.parent.parent / "templates"
+        templates_dir = _DEFAULT_TEMPLATES_DIR
 
     template_name = request.template_name
     if not template_name:

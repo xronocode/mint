@@ -31,11 +31,10 @@ from pathlib import Path
 from mint.config import SeverityMode
 from mint.fingerprint import FingerprintResult
 from mint.fingerprint import compute as fp_compute
+from mint.paths import RULES_DIR
 from mint.validate import ValidationReport, run_checks
 
 logger = logging.getLogger(__name__)
-
-RULES_DIR = Path(__file__).parent.parent.parent.parent / "rules"
 
 
 @dataclass
@@ -83,6 +82,7 @@ def run_l1(
         logger.exception("[QA][l1][BLOCK_L1_CHECK] Validation failed")
         return L1Report(
             passed=False,
+            xml_well_formed=False,
             duration_ms=int((time.monotonic() - start) * 1000),
         )
 
@@ -90,8 +90,8 @@ def run_l1(
     try:
         fp_result: FingerprintResult = fp_compute(document_path)
         fingerprint_hash = fp_result.hash
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("[QA][l1] Fingerprint computation failed: %s", exc)
 
     report = L1Report(
         passed=validation.passed,

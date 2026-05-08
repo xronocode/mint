@@ -89,12 +89,12 @@ def _open_document_xml(document_path: Path, internal_path: str) -> etree._Elemen
 
 
 def _detect_format(document_path: Path) -> str:
-    suffix = document_path.suffix.lower()
-    if suffix == ".docx":
-        return "docx"
-    elif suffix == ".pptx":
-        return "pptx"
-    raise InvalidDocumentError(f"Unsupported format: {suffix}")
+    from mint._xml_ns import detect_format
+
+    try:
+        return detect_format(document_path)
+    except ValueError as exc:
+        raise InvalidDocumentError(str(exc)) from exc
 
 
 def _get_main_xml_path(doc_format: str) -> str:

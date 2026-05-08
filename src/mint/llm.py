@@ -54,11 +54,14 @@ class LLMClient:
         api_key: str = "",
         model: str = "glm-5",
         timeout: int = 300,
+        max_tokens: int = 65536,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._model = model
         self._timeout = timeout
+        self._max_tokens = max_tokens
+        self._client = httpx.Client(timeout=timeout)
 
     # START_BLOCK_CALL_MODEL
     def call(self, prompt: str, system: str | None = None) -> LLMResponse:
@@ -73,9 +76,9 @@ class LLMClient:
             "model": self._model,
             "messages": messages,
             "temperature": 0.3,
-            "max_tokens": 65536,
+            "max_tokens": self._max_tokens,
             "options": {
-                "num_predict": 65536,
+                "num_predict": self._max_tokens,
             },
         }
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -86,8 +89,7 @@ class LLMClient:
 
         start = time.monotonic()
         try:
-            with httpx.Client(timeout=self._timeout) as client:
-                resp = client.post(url, json=payload, headers=headers)
+            resp = self._client.post(url, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
             raise LLMCallError(f"LLM request timed out after {self._timeout}s") from exc
         except httpx.ConnectError as exc:

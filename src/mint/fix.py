@@ -125,7 +125,8 @@ def _apply_simple_fix(document_path: Path, violation: Violation) -> bool:
                     zo.writestr(name, data)
             document_path.write_bytes(buf.getvalue())
             return True
-    except Exception:
+    except (KeyError, zipfile.BadZipFile, OSError) as exc:
+        logger.warning("[Fix][_apply_simple_fix] Failed: %s", exc)
         return False
 
     return False

@@ -199,6 +199,9 @@ def _inject_custom_xml_part(
     with tempfile.TemporaryDirectory(prefix="mint_grace_") as tmp_dir_str:
         tmp_dir = Path(tmp_dir_str)
         with zipfile.ZipFile(src_path, "r") as zf_in:
+            from mint._security import validate_zip_paths
+
+            validate_zip_paths(zf_in)
             zf_in.extractall(tmp_dir)
 
         grace_dir = tmp_dir / "grace"

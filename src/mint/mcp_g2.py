@@ -31,13 +31,18 @@ from fastmcp import FastMCP
 from mint.create import CreateRequest, create
 from mint.edit import EditError, edit, edit_plan_from_dict
 from mint.extract import extract_style
+from mint.paths import RULES_DIR, SKILLS_DIR, TEMPLATES_DIR
 from mint.templates import TemplateEngine
 
 mcp_g2 = FastMCP("MINT-G2", instructions="MINT G2 tools: create, extract_style, list_templates")
+ALLOWED_BASE = Path.cwd().resolve()
 
-SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
-TEMPLATES_DIR = Path(__file__).parent.parent.parent / "templates"
-RULES_DIR = Path(__file__).parent.parent.parent / "rules"
+
+def _safe_doc(raw: str) -> Path:
+    resolved = Path(raw).resolve()
+    if ".." in Path(raw).parts:
+        raise ValueError(f"Path traversal detected in '{raw}'")
+    return resolved
 
 
 @mcp_g2.tool()
@@ -104,7 +109,7 @@ def mint_extract_style(document_path: str) -> str:
     Args:
         document_path: Path to DOCX or PPTX file
     """
-    tokens = extract_style(Path(document_path))
+    tokens = extract_style(_safe_doc(document_path))
     return json.dumps(tokens, indent=2)
 
 
@@ -181,7 +186,7 @@ def mint_edit(
         )
 
     try:
-        result = edit(Path(document_path), plan, author=author)
+        result = edit(_safe_doc(document_path), plan, author=author)
     except EditError as exc:
         return json.dumps(
             {

@@ -32,20 +32,12 @@ from pathlib import Path
 import yaml
 from lxml import etree
 
+from mint._xml_ns import NAMESPACES
+from mint.paths import RULES_DIR
+
 logger = logging.getLogger(__name__)
 
 _LOG_PREFIX = "Rules"
-
-RULES_DIR = Path(__file__).parent.parent.parent.parent / "rules"
-
-NAMESPACES = {
-    "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
-    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
-    "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
-    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
-    "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
-    "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
-}
 
 
 class Severity(StrEnum):
@@ -239,7 +231,7 @@ def get_hint(rule_id: str, rules: list[Rule] | None = None) -> dict[str, str]:
 def _load_yaml_rules(path: Path, doc_format: str) -> list[Rule]:
     if not path.exists():
         return []
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not data or "rules" not in data:
         raise RuleLoadError(f"Invalid rule file {path}: missing 'rules' key")

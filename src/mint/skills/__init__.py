@@ -26,9 +26,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from mint.config import VALID_TIERS
+from mint.paths import _PROJECT_ROOT
+
 logger = logging.getLogger(__name__)
 
-VALID_TIERS = ("small", "medium", "frontier")
 VALID_FORMATS = ("docx", "pptx")
 TOKENS_PLACEHOLDER = "{{DESIGN_TOKENS}}"
 
@@ -52,9 +54,7 @@ class SkillRef:
 
 
 class SkillRegistry:
-    _DEFAULT_TOKENS_PATH = (
-        Path(__file__).parent.parent.parent.parent / "config" / "default-tokens.json"
-    )
+    _DEFAULT_TOKENS_PATH = _PROJECT_ROOT / "config" / "default-tokens.json"
 
     def __init__(self, skills_dir: Path) -> None:
         self._skills_dir = skills_dir

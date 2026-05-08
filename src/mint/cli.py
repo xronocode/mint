@@ -234,7 +234,7 @@ def build_parser() -> argparse.ArgumentParser:
     # serve
     srv = sub.add_parser("serve", help="Start MCP server (G1+G2 tools)")
     srv.add_argument("--transport", default="stdio", choices=["stdio", "sse"])
-    srv.add_argument("--host", default="0.0.0.0")
+    srv.add_argument("--host", default="127.0.0.1")
     srv.add_argument("--port", type=int, default=8080)
 
     # validate

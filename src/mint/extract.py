@@ -26,15 +26,9 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-logger = logging.getLogger(__name__)
+from mint._xml_ns import NAMESPACES
 
-NAMESPACES = {
-    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
-    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
-    "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
-    "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
-    "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
-}
+logger = logging.getLogger(__name__)
 
 
 class ExtractionFailedError(Exception):
@@ -46,14 +40,12 @@ class UnsupportedFormatError(Exception):
 
 
 def _detect_format(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix == ".docx":
-        return "docx"
-    if suffix == ".pptx":
-        return "pptx"
-    raise UnsupportedFormatError(
-        f"Unsupported format '{suffix}'. Only .docx and .pptx are supported.",
-    )
+    from mint._xml_ns import detect_format
+
+    try:
+        return detect_format(path)
+    except ValueError as exc:
+        raise UnsupportedFormatError(str(exc)) from exc
 
 
 # START_BLOCK_PARSE_THEME
