@@ -901,6 +901,225 @@ writeFileSync('output.docx', buffer);
       </observability>
       <verification-ref>V-MP-PKG</verification-ref>
     </MP-PKG>
+
+    <!-- Phase 7: Pure Python Edition — Phase 1 (Core Document + SDK per handover §3, §6) -->
+
+    <MP-STYLE NAME="Pure Python Style Primitives" TYPE="UTILITY" LAYER="0" ORDER="10" STATUS="planned">
+      <contract>
+        <purpose>Typography, color, and spacing primitives + named style presets ("alga_corporate" etc.) for the Pure Python Edition. Backbone for every other MP-* core type that emits styled OOXML.</purpose>
+        <inputs>
+          <param name="preset_name" type="str | None" />
+          <param name="preset_path" type="Path | None" />
+        </inputs>
+        <outputs>
+          <param name="Style_instance" type="Style" />
+        </outputs>
+        <errors>
+          <error code="STYLE_PRESET_NOT_FOUND" />
+          <error code="STYLE_PRESET_INVALID_SCHEMA" />
+        </errors>
+      </contract>
+      <interface>
+        <export-Style PURPOSE="Frozen dataclass: font, size_pt, color_hex, bold, italic, alignment, spacing_before/after, line_height, keep_with_next" />
+        <export-Pt PURPOSE="Pt(value) -&gt; int (twentieths of a point); twin of python-docx Pt for downstream conversion" />
+        <export-ColorPalette PURPOSE="Named color resolver: ColorPalette('alga_corporate').resolve('primary') -&gt; '#0F4C81'" />
+        <export-load_preset PURPOSE="Load JSON preset from registry by name OR from path; validate against schema; return populated Style namespace (heading1, body, table_header, caption, ...)" />
+      </interface>
+      <depends>none</depends>
+      <target>
+        <source>src/mint_python/core/style.py</source>
+        <tests>tests/unit/test_mp_style.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Style</log-prefix>
+      </observability>
+      <verification-ref>V-MP-STYLE</verification-ref>
+    </MP-STYLE>
+
+    <MP-CONTENT NAME="Pure Python Content Primitives (Paragraph / Run / Image)" TYPE="CORE_LOGIC" LAYER="1" ORDER="11" STATUS="planned">
+      <contract>
+        <purpose>Inline content building blocks placed inside a Section: styled text Paragraph (composed of Run instances) and Image embedded via python-docx + pillow. Direct emitters of `&lt;w:p&gt;`, `&lt;w:r&gt;`, `&lt;w:drawing&gt;` OOXML.</purpose>
+        <inputs>
+          <param name="text_or_runs" type="str | list[Run]" />
+          <param name="style" type="Style | None" />
+          <param name="image_path_or_bytes" type="Path | bytes" />
+        </inputs>
+        <outputs>
+          <param name="Paragraph_instance" type="Paragraph" />
+          <param name="Image_instance" type="Image" />
+        </outputs>
+        <errors>
+          <error code="IMAGE_FILE_NOT_FOUND" />
+          <error code="IMAGE_FORMAT_UNSUPPORTED" />
+        </errors>
+      </contract>
+      <interface>
+        <export-Paragraph PURPOSE="Styled paragraph; .add_run(text, style=None) returns self for chaining; .render(parent_doc) writes to python-docx Document" />
+        <export-Run PURPOSE="Inline styled text fragment within a Paragraph; carries Style override or inherits paragraph default" />
+        <export-Image PURPOSE="Image embed: Image.from_path(path, width=None, height=None) | Image.from_bytes(data, format='png'); .render(parent_doc) emits w:drawing with auto rId" />
+      </interface>
+      <depends>MP-STYLE</depends>
+      <target>
+        <source>src/mint_python/core/content.py</source>
+        <tests>tests/unit/test_mp_content.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Content</log-prefix>
+      </observability>
+      <verification-ref>V-MP-CONTENT</verification-ref>
+    </MP-CONTENT>
+
+    <MP-TABLE NAME="Pure Python Table" TYPE="CORE_LOGIC" LAYER="1" ORDER="12" STATUS="planned">
+      <contract>
+        <purpose>Table class with multiple factory constructors (from_list, from_markdown, from_list_of_dicts, financial, comparison) and post-construction shaping (apply_style, set_column_widths, autofit) per handover §3.3.</purpose>
+        <inputs>
+          <param name="rows" type="list[list[str | Cell]]" />
+          <param name="markdown_pipe_table" type="str" />
+          <param name="dicts" type="list[dict]" />
+          <param name="style_preset" type="str | None" />
+        </inputs>
+        <outputs>
+          <param name="Table_instance" type="Table" />
+        </outputs>
+        <errors>
+          <error code="TABLE_RAGGED_ROWS" />
+          <error code="TABLE_MARKDOWN_PARSE_ERROR" />
+          <error code="TABLE_INVALID_DICT_KEYS" />
+        </errors>
+      </contract>
+      <interface>
+        <export-Table PURPOSE="Table model + .render(parent_doc) -&gt; python-docx Table" />
+        <export-Cell PURPOSE="Cell value with optional Style override and merge directives" />
+        <fn-from_list PURPOSE="Table.from_list(rows: list[list]) — first row optional header" />
+        <fn-from_markdown PURPOSE="Table.from_markdown(text) — parses standard pipe-table syntax" />
+        <fn-from_list_of_dicts PURPOSE="Table.from_list_of_dicts(rows) — keys = headers, values = cells" />
+        <fn-financial PURPOSE="Table.financial(rows) — right-aligns numerics, applies thousands separator" />
+        <fn-comparison PURPOSE="Table.comparison(left_label, right_label, rows) — two-column side-by-side preset" />
+      </interface>
+      <depends>MP-STYLE, MP-CONTENT</depends>
+      <target>
+        <source>src/mint_python/core/table.py</source>
+        <tests>tests/unit/test_mp_table.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Table</log-prefix>
+      </observability>
+      <verification-ref>V-MP-TABLE</verification-ref>
+    </MP-TABLE>
+
+    <MP-SECTION NAME="Pure Python Section (fluent)" TYPE="CORE_LOGIC" LAYER="2" ORDER="13" STATUS="planned">
+      <contract>
+        <purpose>Section fluent surface per handover §3.2: `Section("Title", level=1).add_paragraph(text).add_table(table).add_image(image)`. Phase-1 stubs `add_chart` with NotImplementedError naming Phase 2.</purpose>
+        <inputs>
+          <param name="title" type="str" />
+          <param name="level" type="int" />
+        </inputs>
+        <outputs>
+          <param name="Section_instance" type="Section" />
+        </outputs>
+        <errors>
+          <error code="SECTION_LEVEL_OUT_OF_RANGE" />
+          <error code="PHASE_GUARD_NOT_IMPLEMENTED" />
+        </errors>
+      </contract>
+      <interface>
+        <export-Section PURPOSE="Section node holding a heading + ordered list of content blocks (Paragraph | Table | Image | Chart-stub)" />
+        <fn-add_paragraph PURPOSE="Append Paragraph or shorthand str; returns self" />
+        <fn-add_table PURPOSE="Append Table; returns self" />
+        <fn-add_image PURPOSE="Append Image; returns self" />
+        <fn-add_chart PURPOSE="STUB — raises NotImplementedError naming Phase 2 (matplotlib chart impl); emits BLOCK_PHASE_GUARD log marker" />
+      </interface>
+      <depends>MP-CONTENT, MP-TABLE</depends>
+      <target>
+        <source>src/mint_python/core/section.py</source>
+        <tests>tests/unit/test_mp_section.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Section</log-prefix>
+      </observability>
+      <verification-ref>V-MP-SECTION</verification-ref>
+    </MP-SECTION>
+
+    <MP-DOCUMENT NAME="Pure Python Document Facade" TYPE="CORE_LOGIC" LAYER="3" ORDER="14" STATUS="planned">
+      <contract>
+        <purpose>Document facade per handover §3.1: full API surface (cover, sections, TOC, header/footer, save). Stubs `inject_grace`, `validate`, `fix`, `to_pdf` with NotImplementedError pointing at later phases. Save uses python-docx as backbone with lxml drop-down for cover and header/footer parts python-docx doesn't expose cleanly.</purpose>
+        <inputs>
+          <param name="format" type="Literal['docx']" />
+          <param name="title" type="str" />
+          <param name="style_preset" type="str | None" />
+          <param name="output_path" type="Path | str" />
+        </inputs>
+        <outputs>
+          <param name="Document_instance" type="Document" />
+          <param name="output_file" type="Path" />
+        </outputs>
+        <errors>
+          <error code="DOCUMENT_FORMAT_UNSUPPORTED" />
+          <error code="DOCUMENT_PRESET_NOT_FOUND" />
+          <error code="PHASE_GUARD_NOT_IMPLEMENTED" />
+          <error code="DOCUMENT_SAVE_IO_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-Document PURPOSE="Document facade aggregating Section list, document-wide Style preset, header/footer, cover" />
+        <fn-with_style_preset PURPOSE="Load named preset; returns self for chaining" />
+        <fn-with_style_from PURPOSE="Load preset from path; returns self for chaining" />
+        <fn-add_cover PURPOSE="Add cover page (title + subtitle + optional logo); rendered via lxml direct write" />
+        <fn-add_section PURPOSE="Append Section to body" />
+        <fn-add_toc PURPOSE="Insert table-of-contents field anchor; rendered as Word TOC field with auto-update flag" />
+        <fn-set_header PURPOSE="Document-wide header (Phase-1 scope; per-section deferred)" />
+        <fn-set_footer PURPOSE="Document-wide footer" />
+        <fn-save PURPOSE="Serialize to .docx via python-docx + lxml; emits BLOCK_SAVE_DOCX with section_count + table_count + output_path payload" />
+        <fn-inject_grace PURPOSE="STUB — Phase-5 (handover §6 GRACE)" />
+        <fn-validate PURPOSE="STUB — Phase-3 (Validation Pure Python)" />
+        <fn-fix PURPOSE="STUB — Phase-3 (Fix Pure Python)" />
+        <fn-to_pdf PURPOSE="STUB — Phase-5 (Gotenberg/render integration)" />
+      </interface>
+      <depends>MP-SECTION, MP-STYLE</depends>
+      <target>
+        <source>src/mint_python/core/document.py</source>
+        <tests>tests/unit/test_mp_document.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Document</log-prefix>
+      </observability>
+      <verification-ref>V-MP-DOCUMENT</verification-ref>
+    </MP-DOCUMENT>
+
+    <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" LAYER="4" ORDER="15" STATUS="planned">
+      <contract>
+        <purpose>Public re-exports of all §3 types so users write `from mint_python.sdk import Document, Section, Table, Style, Image, TOC, Pt, ColorPalette`. Hosts the named-preset registry and the with_style_from(path) loader.</purpose>
+        <inputs>
+          <param name="preset_path" type="Path | None" />
+        </inputs>
+        <outputs>
+          <param name="public_namespace" type="module" />
+        </outputs>
+        <errors>
+          <error code="(none — re-export module; underlying modules raise their own errors)" />
+        </errors>
+      </contract>
+      <interface>
+        <export-Document PURPOSE="Re-export of MP-DOCUMENT.Document" />
+        <export-Section PURPOSE="Re-export of MP-SECTION.Section" />
+        <export-Table PURPOSE="Re-export of MP-TABLE.Table" />
+        <export-Style PURPOSE="Re-export of MP-STYLE.Style" />
+        <export-Image PURPOSE="Re-export of MP-CONTENT.Image" />
+        <export-TOC PURPOSE="Re-export of MP-DOCUMENT.TOC anchor type" />
+        <export-Pt PURPOSE="Re-export of MP-STYLE.Pt" />
+        <export-ColorPalette PURPOSE="Re-export of MP-STYLE.ColorPalette" />
+        <export-presets PURPOSE="Built-in preset registry: 'alga_corporate', 'minimal', 'compact'" />
+      </interface>
+      <depends>MP-DOCUMENT, MP-TABLE, MP-CONTENT, MP-STYLE</depends>
+      <target>
+        <source>src/mint_python/sdk/__init__.py</source>
+        <tests>tests/unit/test_mp_sdk.py</tests>
+      </target>
+      <observability>
+        <log-prefix>(none — re-export module; downstream modules log)</log-prefix>
+      </observability>
+      <verification-ref>V-MP-SDK</verification-ref>
+    </MP-SDK>
   </Modules>
 
   <DataFlow>
@@ -981,6 +1200,23 @@ writeFileSync('output.docx', buffer);
       <step-5>On "js": legacy cmd_* dispatch proceeds unchanged (DF-001..DF-007 entry conditions unaffected).</step-5>
       <evidence>[Config][load][BLOCK_LOAD_CONFIG], [CLI][_select_engine][BLOCK_SELECT_ENGINE], and [CLI][main][BLOCK_DISPATCH] on the js path. The python path emits BLOCK_LOAD_CONFIG and BLOCK_SELECT_ENGINE, then raises NotImplementedError before any cmd_* handler starts.</evidence>
     </DF-008>
+
+    <DF-009 NAME="Pure Python Document Construction" TRIGGER="user code: `Document(...).add_section(...).save(path)` (Phase-7)">
+      <step-1>SDK re-export resolves: `from mint_python.sdk import Document, Section, Table, Style` binds public names from MP-DOCUMENT, MP-SECTION, MP-TABLE, MP-STYLE.</step-1>
+      <step-2>Document() constructor applies optional with_style_preset(name) — loads JSON preset from registry; raises STYLE_PRESET_NOT_FOUND if name unknown.</step-2>
+      <step-3>add_cover / add_section / add_toc / set_header / set_footer mutate Document.body in declared order; each returns self for fluent chaining.</step-3>
+      <step-4>save(path) walks body: python-docx Document built; each Section.render() invoked; Paragraph/Table/Image render to python-docx primitives; cover and header/footer rendered via lxml direct write where python-docx lacks API. Emits [MP-Document][save][BLOCK_SAVE_DOCX] at INFO with section_count, table_count, output_path.</step-4>
+      <step-5>Stub methods (inject_grace, validate, fix, to_pdf) emit [MP-Document][stub][BLOCK_PHASE_GUARD] then raise NotImplementedError naming target phase + remediation.</step-5>
+      <evidence>[MP-Document][save][BLOCK_SAVE_DOCX] fires once per save; [MP-Document][stub][BLOCK_PHASE_GUARD] fires when a stub is touched. M-VALIDATE invoked on the saved file (via existing CLI `mint --engine js validate output.docx`) reports zero hard violations on lenient mode for simple text+table documents.</evidence>
+    </DF-009>
+
+    <DF-010 NAME="Style Preset Loading" TRIGGER="Document.with_style_preset(name) | Document.with_style_from(path) | Style.load_preset(name) (Phase-7)">
+      <step-1>Resolve preset source: registry lookup by name OR JSON file at path.</step-1>
+      <step-2>Load + validate against schema (typography, color_palette, spacing, named_styles dict). On failure raise STYLE_PRESET_INVALID_SCHEMA with field path of the violation.</step-2>
+      <step-3>Materialize Style namespace: heading1, heading2, body, table_header, caption — each a frozen Style instance.</step-3>
+      <step-4>Register on Document for downstream Section/Table/Image to inherit.</step-4>
+      <evidence>[MP-Style][load_preset][BLOCK_LOAD_PRESET] at INFO with preset name + source (registry|file). On failure: structured ValueError with field path.</evidence>
+    </DF-010>
   </DataFlow>
 
   <ImplementationOrder>
@@ -1034,6 +1270,18 @@ writeFileSync('output.docx', buffer);
       <step-4 module="(infrastructure)" status="done" verification="V-MP-FLAG">Update pyproject.toml `[tool.hatch.build.targets.wheel].packages = ["src/mint", "src/mint_python"]`; bump src/mint/__init__.py to 0.2.0; add `# MINT_ENGINE=js` opt-in line to `.env.example`; pin `tests/integration/test_cli.py::_run` helper to pass `--engine js` so the legacy integration suite stays green under the new python-default.</step-4>
       <step-5 module="(test surface)" status="done" verification="V-MP-FLAG">Add `tests/unit/test_engine_flag.py`: default→python, env override→js, garbage→CONFIG_INVALID, _select_engine js/python branches, CLI overrides env (via os.environ pre-load), import smoke for all 9 mint_python entry points.</step-5>
     </Phase-6>
+
+    <Phase-7 name="Pure Python Edition — Phase 1 (Core Document + SDK per handover §3, §6)" status="planned">
+      <goal>Land the foundational Pure Python document construction stack (handover §3.1, §3.2, §3.3, §3.5). Concrete: Style + Pt + ColorPalette + presets; Paragraph + Run + Image; Table with §3.3 factories; Section fluent; Document with save() producing a valid .docx via python-docx + lxml; SDK re-exports. Stubs (NotImplementedError naming target phase): Document.{inject_grace, validate, fix, to_pdf}, Section.add_chart. Phase-7 closes with VF-013 e2e green: a 3-section golden document opens in Word and passes M-VALIDATE on lenient mode. Phase-1 of pure-python rollout per handover §6.</goal>
+      <step-1 module="MP-STYLE" status="planned" verification="V-MP-STYLE">Style frozen dataclass + Pt(value) helper + ColorPalette resolver + load_preset(name|path) returning Style namespace. Built-in registry: 'alga_corporate', 'minimal', 'compact'. JSON schema for presets documented under docs/style-preset-schema.md. Emits [MP-Style][load_preset][BLOCK_LOAD_PRESET].</step-1>
+      <step-2 module="MP-CONTENT" status="planned" verification="V-MP-CONTENT">Paragraph.add_run(text, style=None) fluent; Run as styled fragment; Image.from_path / Image.from_bytes embedding via python-docx + pillow. Each renders into a python-docx Document. Emits [MP-Content][render][BLOCK_RENDER_CONTENT] when serialized.</step-2>
+      <step-3 module="MP-TABLE" status="planned" verification="V-MP-TABLE">Table model + factories per §3.3 (from_list, from_markdown, from_list_of_dicts, financial, comparison) + apply_style + set_column_widths + autofit. Renders into python-docx Table via .render(parent_doc). Emits [MP-Table][render][BLOCK_RENDER_TABLE].</step-3>
+      <step-4 module="MP-SECTION" status="planned" verification="V-MP-SECTION">Section(title, level).add_paragraph/.add_table/.add_image fluent chain. add_chart raises NotImplementedError naming Phase 2 (matplotlib chart impl). Emits [MP-Section][add_chart][BLOCK_PHASE_GUARD] in the stub path.</step-4>
+      <step-5 module="MP-DOCUMENT" status="planned" verification="V-MP-DOCUMENT">Document facade with full §3.1 API surface; save() implemented via python-docx + lxml direct-write for cover/header/footer; stubs (inject_grace/validate/fix/to_pdf) all emit BLOCK_PHASE_GUARD then raise NotImplementedError naming target phase. Emits [MP-Document][save][BLOCK_SAVE_DOCX] with section_count, table_count, output_path.</step-5>
+      <step-6 module="MP-SDK" status="planned" verification="V-MP-SDK">src/mint_python/sdk/__init__.py re-exports Document, Section, Table, Style, Image, TOC, Pt, ColorPalette + presets registry. with_style_from(path) loader. NO public exports beyond what handover §3 names.</step-6>
+      <step-7 module="(infrastructure)" status="planned" verification="V-MP-SDK">Update docs/technology.xml: add python-docx ≥1.1, pillow ≥10.x to dependencies. Update pyproject.toml [project].dependencies and uv.lock. Document in docs/style-preset-schema.md the JSON schema agreed in step-1.</step-7>
+      <step-8 module="(test surface)" status="planned" verification="VF-013">Add tests/integration/test_mp_e2e.py: build a 3-section golden document (cover + 2 body sections, each with a paragraph + a table) via mint_python.sdk, save to tmp, run existing M-VALIDATE on lenient mode, assert zero hard violations + non-empty soft list (audit baseline). Reused by future phases as the python-engine regression anchor.</step-8>
+    </Phase-7>
   </ImplementationOrder>
 
   <ExecutionPolicy>

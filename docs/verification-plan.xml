@@ -1,4 +1,4 @@
-<VerificationPlan VERSION="0.3.0">
+<VerificationPlan VERSION="0.4.0">
   <GlobalPolicy>
     <log-format>[Module][function][BLOCK_NAME] message</log-format>
     <deterministic-first>true</deterministic-first>
@@ -278,6 +278,64 @@
       <deprecation-trigger>VF-012 green on the showcase corpus + handover rollout Phase 4 (Execution tiers) shipped = the conjunctive gate for M-SANDBOX `STATUS="deprecated"`. Both conditions must hold. Until then M-SANDBOX stays `STATUS="done"`. No calendar version is pinned here — version numbers slip naturally with the gate. Removal happens one minor version after deprecation lands. Phase-4-shipped boolean: grep `&lt;MP-EXEC-FRONTIER ` and the small/medium MP-EXEC-* sibling tags in `docs/knowledge-graph.xml`; ALL must carry `STATUS="done"` (executable check via `grep -E 'MP-EXEC-(SMALL|MEDIUM|FRONTIER)[^&gt;]*STATUS=&quot;done&quot;' docs/knowledge-graph.xml | wc -l` returning 3).</deprecation-trigger>
       <swarm-safety>Comparison runs are independent processes by construction; no shared mutable state across engines. SWARM-SAFE for parallel execution.</swarm-safety>
     </VF-012>
+
+    <VF-013 NAME="PurePythonDocFlow" USE_CASES="UC-001" DATA_FLOW="DF-009,DF-010" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-5">
+      <scenario>Phase-7 acceptance: a 3-section golden document built via mint_python.sdk (Document.with_style_preset → add_cover → add_section × 2 with paragraph + table content → add_toc → save) produces a .docx that lxml parses cleanly AND passes M-VALIDATE on lenient mode (zero hard violations; aggregated soft violations stable against tests/fixtures/mp_e2e_baseline.json).</scenario>
+      <golden-document-spec>
+        <preset>alga_corporate</preset>
+        <output-format>docx</output-format>
+        <title>VF-013 Golden Document</title>
+        <body-spec>
+          <cover>title="Q2 Memo", subtitle="Phase-7 acceptance fixture", logo=None</cover>
+          <section-1 title="Summary" level="1">
+            <content-1>Paragraph: "This is the Phase-7 e2e fixture covering paragraph + table rendering through MP-CONTENT and MP-TABLE."</content-1>
+            <content-2>Table.from_list([["Quarter","Revenue"],["Q1","$1.0M"],["Q2","$1.3M"]], header=True)</content-2>
+          </section-1>
+          <section-2 title="Details" level="1">
+            <content-1>Paragraph: "Detail body line one." (style=body)</content-1>
+            <content-2>Paragraph: "Detail body line two." (style=body)</content-2>
+            <content-3>Table.from_list_of_dicts([{"Region":"NA","Share":"60%"},{"Region":"EU","Share":"30%"},{"Region":"APAC","Share":"10%"}])</content-3>
+          </section-2>
+          <toc-after-cover>add_toc(max_level=2)</toc-after-cover>
+        </body-spec>
+        <reproducibility>The function `tests/integration/test_mp_e2e.py::build_golden_document(tmp_path)` MUST be the single source of truth for this spec. Worker for Wave-7-5 implements this function; future agents MUST NOT inline the doc construction in test bodies — always call the helper.</reproducibility>
+      </golden-document-spec>
+      <expected-outcome>(a) save() emits exactly one BLOCK_SAVE_DOCX with section_count=3 (cover + Summary + Details), table_count=2, paragraph_count=9 (cover title + cover subtitle + 2 section titles + 1 toc placeholder + 4 body paragraphs depending on cover/toc rendering — exact value pinned at first baseline run), output_path matching the requested path; (b) lxml.etree.parse(zipfile.ZipFile(...).open("word/document.xml")) succeeds without exception; (c) `mint.validate.validate(saved_path, MintConfig(severity_mode=SeverityMode.LENIENT, ...))` returns ValidationReport with passed=True and hard_count=0; (d) audit-mode soft violations grouped by rule_id+count match tests/fixtures/mp_e2e_baseline.json::audit_violations; (e) Section.add_chart called anywhere raises NotImplementedError with BLOCK_PHASE_GUARD emitted first.</expected-outcome>
+      <invariants>
+        <inv-1>IDEMPOTENCY: build_golden_document(tmp_path/"a") and build_golden_document(tmp_path/"b") produce two .docx files with equal mint.fingerprint.fingerprint().hash. Byte-equality NOT asserted (python-docx attribute order varies); the structural hash IS asserted.</inv-1>
+        <inv-2>STRUCTURAL VALIDITY (Phase-7 level): word/document.xml MUST parse via lxml without raising; word/styles.xml MUST parse; the ZIP MUST contain at minimum {word/document.xml, word/styles.xml, [Content_Types].xml, _rels/.rels}. Full ECMA-376 schema validation is OUT OF SCOPE for Phase-7 (deferred to Phase-3 alongside MP-VALIDATE). A future agent MUST NOT downgrade this invariant by adding a "skipped because schema bundle absent" branch — keep it as lxml-parses-cleanly.</inv-2>
+        <inv-3>NO GRACE CUSTOM XML PARTS: ZIP entries matching `customXml/item*.xml` either do NOT exist OR exist but contain no payload under the `urn:mint:grace:2026:manifest` namespace. Phase-5 (MP-GRACE) will introduce these; Phase-7 must NOT preempt.</inv-3>
+        <inv-4>PRESET IS OBSERVABLE: lxml-parse word/styles.xml; the Heading 1 style entry's run-properties carry rFonts.ascii="Inter" and color.val="0F4C81" (or whatever alga_corporate.typography.heading1 resolves to). Pinned in the baseline JSON's `audit_violations` ONLY indirectly — assert directly via lxml XPath, not via fingerprint.</inv-4>
+        <inv-5>BASELINE HASH PIN: structural_fingerprint_sha256 matches tests/fixtures/mp_e2e_baseline.json::structural_fingerprint_sha256. First run writes the baseline (gated by MP_E2E_WRITE_BASELINE=1). Subsequent runs assert equality.</inv-5>
+        <inv-6>NO LEGACY SANDBOX TOUCHED: under the `--engine js` regression suite (existing tests/integration/test_cli.py with worker D's _run pin), VF-013 does NOT execute and the legacy js path remains green. Confirms VF-013 is python-engine-only.</inv-6>
+      </invariants>
+      <required-signals>
+        <log-marker>[MP-Style][load_preset][BLOCK_LOAD_PRESET] — fires exactly once per Document.with_style_preset call; payload: preset_name + source (registry|file)</log-marker>
+        <log-marker>[MP-Document][save][BLOCK_SAVE_DOCX] — fires exactly once per save() call; payload: section_count, table_count, output_path</log-marker>
+        <log-marker>[MP-Content][render][BLOCK_RENDER_CONTENT] — fires once per Paragraph or Image .render(); count must equal the paragraph_count + image_count emitted from BLOCK_SAVE_DOCX</log-marker>
+        <log-marker>[MP-Table][render][BLOCK_RENDER_TABLE] — fires exactly twice for the golden doc (one per add_table)</log-marker>
+        <conditional-marker>[MP-Section][add_chart][BLOCK_PHASE_GUARD] / [MP-Document][stub][BLOCK_PHASE_GUARD] — fires whenever a stub method is called; payload: method_name + target_phase. NEVER fires on the golden-doc path (no stub touched).</conditional-marker>
+        <trace-sequence>Per build_golden_document run, the ordered sequence is: BLOCK_LOAD_PRESET → (BLOCK_RENDER_TABLE | BLOCK_RENDER_CONTENT)+ → BLOCK_SAVE_DOCX. Counts: BLOCK_LOAD_PRESET=1, BLOCK_RENDER_TABLE=2, BLOCK_RENDER_CONTENT≥4 (one per body paragraph; cover/toc paragraphs may be rendered through python-docx primitives without emitting MP-Content marker — pinned in baseline), BLOCK_SAVE_DOCX=1, total BLOCK_PHASE_GUARD=0.</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>BLOCK_SAVE_DOCX firing more than once for a single Document.save call</forbidden-1>
+        <forbidden-2>NotImplementedError raised on a non-stub method (would indicate a regression in concrete implementations)</forbidden-2>
+        <forbidden-3>BLOCK_PHASE_GUARD firing without an immediately following NotImplementedError (stub MUST raise)</forbidden-3>
+        <forbidden-4>BLOCK_PHASE_GUARD firing on the golden-doc happy path (golden doc uses no stubs; presence here is a regression where a concrete method delegated to a stub)</forbidden-4>
+        <forbidden-5>Any [Sandbox][...], [Validate][run_checks][...] (other than the explicit M-VALIDATE invocation), or [Edit][...] log markers — the golden-doc construction path MUST NOT touch the legacy engine surface</forbidden-5>
+      </forbidden-signals>
+      <e2e-harness-spec PATH="tests/integration/test_mp_e2e.py">
+        <fixture>tmp_path (pytest builtin) — used for both the saved .docx and any baseline writes</fixture>
+        <helper>build_golden_document(out_path: Path) -&gt; Path — single source of truth for the golden doc spec; returns the path of the saved file</helper>
+        <validation-mode>Lenient via `mint.validate.validate(saved_path, MintConfig(severity_mode=SeverityMode.LENIENT, llm_base_url="http://x:1", llm_model="m", model_tier=Tier.SMALL))` — direct in-process call (NOT subprocess; faster and avoids env propagation flake)</validation-mode>
+        <fingerprint-call>`mint.fingerprint.fingerprint(saved_path).hash` — direct in-process call</fingerprint-call>
+        <baseline-read>tests/fixtures/mp_e2e_baseline.json — opened with `Path(__file__).parent.parent / 'fixtures' / 'mp_e2e_baseline.json'`</baseline-read>
+        <baseline-write-gate>If `os.environ.get("MP_E2E_WRITE_BASELINE") == "1"`, write the JSON; otherwise read-only assert. Pytest exit code on missing baseline file = FAIL with explicit "set MP_E2E_WRITE_BASELINE=1 on the first run" hint.</baseline-write-gate>
+        <log-capture>caplog with caplog.set_level(logging.INFO); records collected and filtered by marker substring; counts asserted via Counter([m.split(']')[2].split('[')[1] for m in messages]) or similar — implementation detail of the test, the contract is the marker counts above</log-capture>
+      </e2e-harness-spec>
+      <activation-gate>This VF is exercised at Wave-7-5 (the e2e closing wave). Earlier waves run only their module-local checks. Gate-Phase-7 references VF-013 as the headline acceptance signal.</activation-gate>
+      <swarm-safety>SWARM-SAFE: e2e test writes to tmp_path; no shared mutable state; M-VALIDATE and M-FINGERPRINT invocations are pure read-only on the saved file. Baseline write gated by MP_E2E_WRITE_BASELINE env so concurrent xdist workers cannot race-overwrite the baseline JSON. Module-local waves (7-1..7-4) are read-only against the rest of the repo and SAFE for pytest-xdist.</swarm-safety>
+    </VF-013>
   </CriticalFlows>
 
   <ModuleVerification>
@@ -913,6 +971,215 @@
       </forbidden-behaviors>
       <autonomy-assessment>SWARM-SAFE provided the clean_env fixture is extended (fixture-1) and subprocess scenarios pass explicit env (fixture-2). Without these, parallel test workers in the same process can leak MINT_ENGINE between tests via main()'s os.environ write, producing flaky failures. Process-level workers (pytest-xdist -n auto) are inherently safe because each worker is a fresh process. Document the in-process risk explicitly in the test file header so a future contributor (or fix-agent) does not strip the fixture.</autonomy-assessment>
     </V-MP-FLAG>
+
+    <!-- ===== PHASE 7: Pure Python Edition Phase 1 (Core Document + SDK) ===== -->
+
+    <V-MP-STYLE MODULE="MP-STYLE" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-1">
+      <schema-reference>docs/style-preset-schema.md (normative); presets must validate against the JSON Schema described there. The schema is the single source of truth for required keys, color hex format, palette tokens (@primary etc.), StyleSpec defaults, and SemVer versioning rules.</schema-reference>
+      <test-files>
+        <file status="planned" activates-at="Wave-7-1">tests/unit/test_mp_style.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_style.py -x</check-1>
+        <check-2>ruff check src/mint_python/core/style.py</check-2>
+        <check-3>mypy src/mint_python/core/style.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">Pt(12) returns 240 (twentieths of a point); Pt(0.5) returns 10</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">ColorPalette('alga_corporate').resolve('primary') returns the documented hex (e.g. '#0F4C81'); unknown name raises KeyError naming the palette + missing color</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">load_preset('alga_corporate') returns a Style namespace with heading1, heading2, body, table_header, caption all populated as frozen Style instances</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">load_preset(path=tmp_json) loads from arbitrary file when JSON validates against schema</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">load_preset('does_not_exist') raises STYLE_PRESET_NOT_FOUND naming the registry contents</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">load_preset(path=invalid_schema_json) raises STYLE_PRESET_INVALID_SCHEMA; message contains a JSON Pointer (e.g. "/typography/heading1/color") AND the constraint name. Test parametrizes 4+ violations: missing required key (color_palette.primary), bad hex format ("rgb(...)"), wrong type (size_pt as string), wrong enum (alignment="diagonal").</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic">Style frozen invariant: pytest.raises(FrozenInstanceError): style.color_hex = '#fff' — proves Style cannot be mutated post-construction</scenario-7>
+        <scenario-8 kind="success" evidence="trace">load_preset emits [MP-Style][load_preset][BLOCK_LOAD_PRESET] with name + source payload</scenario-8>
+        <scenario-9 kind="success" evidence="deterministic">PALETTE TOKEN RESOLUTION: a StyleSpec carrying color="@primary" resolves through the preset's own color_palette during load_preset; the returned Style instance has color_hex="#0F4C81" (or whatever primary is). Round-trip: re-serializing must NOT replace the literal hex with the @token (loaders don't compress).</scenario-9>
+        <scenario-10 kind="failure" evidence="deterministic">DANGLING TOKEN: a preset whose StyleSpec uses color="@nonexistent" raises STYLE_PRESET_INVALID_SCHEMA pointing at the typography field that referenced the missing palette key; message names the missing token.</scenario-10>
+        <scenario-11 kind="success" evidence="deterministic">DEFAULTS: a StyleSpec with only the three required fields (font, size_pt, color) loads without error and Style instance has bold=False, italic=False, alignment="left", spacing_before_pt=0, spacing_after_pt=0, line_height=1.15, keep_with_next=False — exactly the schema-documented defaults.</scenario-11>
+        <scenario-12 kind="failure" evidence="deterministic">VERSION MISMATCH: a preset with `"version": "2.0"` raises STYLE_PRESET_INVALID_SCHEMA naming "version" and the supported major (Phase-7 supports 1.x).</scenario-12>
+        <scenario-13 kind="success" evidence="deterministic">REGISTRY INTEGRITY: at module import, all three built-in presets (alga_corporate, minimal, compact) validate against the schema. A pytest test enumerates `mint_python.sdk.presets` and calls load_preset on each; all return non-empty Style namespaces with the six required typography keys.</scenario-13>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-Style][load_preset][BLOCK_LOAD_PRESET] — fires once per preset load</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Style instance must remain frozen — mutating any field after construction is forbidden</forbidden-1>
+        <forbidden-2>load_preset must never return a partially-populated Style namespace — all required keys (heading1..caption) must be present or the call must raise</forbidden-2>
+        <forbidden-3>SWARM-SAFETY: MP-STYLE must NOT introduce a module-level mutable singleton. The preset registry IS module-level, but it is read-only; load_preset(path=...) returns a fresh Style namespace WITHOUT updating the registry. Enforcement: `python -c "import mint_python.sdk; r = mint_python.sdk.presets; r2 = mint_python.sdk.presets; assert r is r2 and frozenset(r) == frozenset(['alga_corporate','minimal','compact'])"` exits 0 in any test order.</forbidden-3>
+        <forbidden-4>load_preset MUST NOT silently fall through to a partial Style on schema violation — raising is mandatory; this prevents downstream MP-CONTENT/MP-TABLE renders against undefined Style fields.</forbidden-4>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — pure deterministic; no I/O beyond JSON file reads in tmp; no env reads; module-level state is read-only registry</autonomy-assessment>
+    </V-MP-STYLE>
+
+    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-2">
+      <test-files>
+        <file status="planned" activates-at="Wave-7-2">tests/unit/test_mp_content.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_content.py -x</check-1>
+        <check-2>ruff check src/mint_python/core/content.py</check-2>
+        <check-3>mypy src/mint_python/core/content.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">Paragraph('hello').render(doc) appends a w:p element with a single w:r containing 'hello'</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">Paragraph fluent: Paragraph('a').add_run('b', style=bold_style) returns self; renders two w:r with distinct rPr</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">Paragraph inherits Style.body when no per-run style provided</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">Image.from_path(tmp_png).render(doc) produces a w:drawing with a unique rId; pillow loads the image to compute aspect ratio</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">Image.from_path('/nonexistent.png') raises IMAGE_FILE_NOT_FOUND</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">Image.from_bytes(b'\x00bad', format='png') raises IMAGE_FORMAT_UNSUPPORTED OR a pillow-derived error wrapped with the path/format context</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic">Image width=Inches(3) sets the OOXML extent in EMU correctly (3 * 914400)</scenario-7>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-Content][render][BLOCK_RENDER_CONTENT] — fires per Paragraph or Image .render() call</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Paragraph or Image must NEVER write to the filesystem during render — only into the python-docx Document object</forbidden-1>
+        <forbidden-2>Run must not be re-used across Paragraphs (would corrupt OOXML). Render() may consume the Run; subsequent renders raise.</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — render() target is a per-test python-docx Document instance; no shared mutable state</autonomy-assessment>
+    </V-MP-CONTENT>
+
+    <V-MP-TABLE MODULE="MP-TABLE" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-2">
+      <test-files>
+        <file status="planned" activates-at="Wave-7-2">tests/unit/test_mp_table.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_table.py -x</check-1>
+        <check-2>ruff check src/mint_python/core/table.py</check-2>
+        <check-3>mypy src/mint_python/core/table.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">Table.from_list([['a','b'],['1','2']]).render(doc) creates 2 rows × 2 cols; first row treated as header when header=True (default)</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">Table.from_markdown('| a | b |\n|---|---|\n| 1 | 2 |') produces equivalent table</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">Table.from_list_of_dicts([{'a':1,'b':2},{'a':3,'b':4}]) emits 3 rows × 2 cols (header + 2 data rows); column order follows insertion order of first dict</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">Table.financial(rows) right-aligns numeric cells AND applies thousands separator (1000 → '1,000')</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic">Table.comparison(left='Q1', right='Q2', rows=[...]) produces a 2-column table with left/right headers</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic">apply_style(preset_table) overrides cell style; set_column_widths([2,3]) sets column widths in inches; autofit=True sets the python-docx table autofit flag</scenario-6>
+        <scenario-7 kind="failure" evidence="deterministic">Table.from_list([['a','b'],['1']]) raises TABLE_RAGGED_ROWS naming the bad row index</scenario-7>
+        <scenario-8 kind="failure" evidence="deterministic">Table.from_markdown('not a markdown table') raises TABLE_MARKDOWN_PARSE_ERROR</scenario-8>
+        <scenario-9 kind="failure" evidence="deterministic">Table.from_list_of_dicts([{'a':1},{'b':2}]) raises TABLE_INVALID_DICT_KEYS naming the diverging keys (rows must share the same key set)</scenario-9>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-Table][render][BLOCK_RENDER_TABLE] — fires once per Table.render() call; payload: row_count, col_count</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Factories must validate row shape before constructing Table — never return a partially-built Table that would raise mid-render</forbidden-1>
+        <forbidden-2>financial() must not silently coerce non-numeric cells; non-numerics keep their raw value and skip thousands separator</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — pure construction + render onto per-test Document; no shared state</autonomy-assessment>
+    </V-MP-TABLE>
+
+    <V-MP-SECTION MODULE="MP-SECTION" PRIORITY="medium" STATUS="planned" ACTIVATES_AT="Wave-7-3">
+      <test-files>
+        <file status="planned" activates-at="Wave-7-3">tests/unit/test_mp_section.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_section.py -x</check-1>
+        <check-2>ruff check src/mint_python/core/section.py</check-2>
+        <check-3>mypy src/mint_python/core/section.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">Section('Title', level=1).add_paragraph('text') returns self (fluent chain works)</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">Section.render(doc) emits a w:p with heading style matching level (Heading 1, Heading 2, ...) followed by the content blocks in order</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">add_paragraph accepts both str (shorthand) and Paragraph instance</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic">Section('X', level=10) raises SECTION_LEVEL_OUT_OF_RANGE (valid: 1..6)</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">Section('X').add_chart(any) raises NotImplementedError; message contains "Phase 2" and "matplotlib"</scenario-5>
+        <scenario-6 kind="success" evidence="trace">Section.add_chart emits [MP-Section][add_chart][BLOCK_PHASE_GUARD] with method='add_chart' and target_phase='Phase 2' BEFORE raising</scenario-6>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-Section][add_chart][BLOCK_PHASE_GUARD] — fires on stub touch; payload: method + target_phase</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>add_chart must raise immediately after emitting BLOCK_PHASE_GUARD — never silently no-op</forbidden-1>
+        <forbidden-2>Fluent methods must NEVER mutate other Section instances — each .add_* mutates self only</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — pure construction and per-test render</autonomy-assessment>
+    </V-MP-SECTION>
+
+    <V-MP-DOCUMENT MODULE="MP-DOCUMENT" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-4">
+      <test-files>
+        <file status="planned" activates-at="Wave-7-4">tests/unit/test_mp_document.py</file>
+        <file status="planned" activates-at="Wave-7-5">tests/integration/test_mp_e2e.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_document.py -x</check-1>
+        <check-2>ruff check src/mint_python/core/document.py</check-2>
+        <check-3>mypy src/mint_python/core/document.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">Document(format='docx', title='X').with_style_preset('alga_corporate') returns self</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">add_cover/add_section/add_toc/set_header/set_footer all return self for chaining; stored in declared order</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">save(tmp_path / 'out.docx') produces a file that exists; lxml parses word/document.xml without error</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic">Document(format='pdf') raises DOCUMENT_FORMAT_UNSUPPORTED naming valid formats {'docx'} for Phase-1</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">Document(...).with_style_preset('does_not_exist') raises DOCUMENT_PRESET_NOT_FOUND</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">Each stub (inject_grace, validate, fix, to_pdf) raises NotImplementedError with target phase in message; emits BLOCK_PHASE_GUARD before raising</scenario-6>
+        <scenario-7 kind="success" evidence="trace">save() emits exactly one [MP-Document][save][BLOCK_SAVE_DOCX] with section_count, table_count, output_path payload</scenario-7>
+        <scenario-8 kind="success" evidence="deterministic">IDEMPOTENCY UNDER M-FINGERPRINT: invoking save() twice on the same Document produces two files whose `mint.fingerprint.fingerprint(path).hash` are equal. Pytest snippet (lives in tests/unit/test_mp_document.py):
+```
+from mint.fingerprint import fingerprint
+doc = build_doc(...)
+doc.save(tmp_path/"a.docx"); doc.save(tmp_path/"b.docx")
+assert fingerprint(tmp_path/"a.docx").hash == fingerprint(tmp_path/"b.docx").hash
+```
+Byte-equality is NOT asserted — python-docx writes attributes in non-deterministic order; the M-FINGERPRINT structural hash is the canonical equivalence relation. Failure mode: if hashes differ across two save() calls of the same Document, save() carries hidden non-determinism (e.g. uuid in cover, timestamp in header) — the test points at the diverging part by re-running with fingerprint().xml_sources to isolate which part of the ZIP changed.</scenario-8>
+        <scenario-9 kind="success" evidence="deterministic">AUDIT-BASELINE PIN (Wave-7-5 e2e shape; mirrored here for module-local sanity): the golden 3-section document built per VF-013 produces a structural fingerprint that matches `tests/fixtures/mp_e2e_baseline.json::structural_fingerprint_sha256`. First-ever run writes the baseline (with explicit `MP_E2E_WRITE_BASELINE=1` env, gated to prevent accidental overwrites). Subsequent runs assert equality; on mismatch the failure prints the new vs. old hash AND the diff of fingerprint().xml_sources to localize the regression.</scenario-9>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-Document][save][BLOCK_SAVE_DOCX] — fires once per save</marker-1>
+        <marker-2>[MP-Document][stub][BLOCK_PHASE_GUARD] — fires per stub method touch</marker-2>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>save() must never produce a partial file: on serialization error, the temp output is removed before re-raising</forbidden-1>
+        <forbidden-2>BLOCK_SAVE_DOCX firing more than once for a single save() call is forbidden (would indicate retry without state cleanup)</forbidden-2>
+        <forbidden-3>SWARM-SAFETY: MP-DOCUMENT must NOT introduce a module-level mutable singleton. Document instances are explicit per-call; no `_default_document` or registry. Tests MUST use tmp_path for every save target — never write to a stable repo path. Enforcement: `grep -rn 'output\.docx\|/tmp/[a-z]*\.docx' tests/unit/test_mp_document.py tests/integration/test_mp_e2e.py` returns zero matches outside tmp_path fixtures.</forbidden-3>
+        <forbidden-4>save() output must NEVER include GRACE Custom XML Parts in Phase-7 (those are Phase-5/MP-GRACE territory). VF-013 inv-3 enforces this; a regression here would silently break the Phase-5 contract.</forbidden-4>
+        <forbidden-5>NON-DETERMINISM: save() must NOT introduce timestamps, UUIDs, or random IDs into the output beyond what python-docx itself emits at fixed values. If python-docx ever starts emitting per-call timestamps (e.g. for core.xml created/modified fields), MP-DOCUMENT MUST override these to a fixed sentinel value to preserve idempotency under M-FINGERPRINT.</forbidden-5>
+      </forbidden-behaviors>
+      <audit-baseline-shape PATH="tests/fixtures/mp_e2e_baseline.json">
+        <field name="schema_version" type="string" example="1.0" description="Baseline format version; bumped on shape changes" />
+        <field name="committed_at" type="string" example="2026-05-09" description="ISO date of baseline commit; informational" />
+        <field name="generator" type="string" example="mint_python 0.0.0 + python-docx 1.1.x" description="Tool versions used to generate baseline" />
+        <field name="document_spec" type="string" example="tests/integration/test_mp_e2e.py::build_golden_document" description="Reference to the function that builds the golden doc; future agents must rebuild via this same function" />
+        <field name="structural_fingerprint_sha256" type="string" example="9f4c81d3...a7" description="mint.fingerprint.fingerprint(path).hash on the saved .docx" />
+        <field name="xml_sources" type="list[string]" example="['word/document.xml','word/styles.xml','word/theme/theme1.xml']" description="Parts contributing to the fingerprint hash; recorded so a future drift can be localized" />
+        <field name="counts" type="object" example="{'sections':3,'tables':2,'paragraphs':9,'images':0}" description="Structural counts from BLOCK_SAVE_DOCX payload + lxml introspection" />
+        <field name="audit_violations" type="list[object]" example="[{'rule_id':'D-S03','severity':'soft','count':2}]" description="M-VALIDATE audit-mode violations grouped by rule_id+severity (NOT individual instances — instances drift across python-docx versions; aggregated counts are stable)" />
+        <field name="hard_violation_count" type="integer" example="0" description="MUST be 0 for VF-013 lenient acceptance; tracked separately for fast-fail" />
+        <field name="schema_validation" type="object" example="{'lxml_parses':true,'ecma376_validated':false}" description="lxml_parses asserts word/document.xml parses without raising; ecma376_validated=false for Phase-7 (full ECMA-376 schema validation deferred to Phase-3)" />
+      </audit-baseline-shape>
+      <baseline-update-protocol>
+        <step-1>Set `MP_E2E_WRITE_BASELINE=1` in the test invocation env to allow overwrite (default is read-only assertion).</step-1>
+        <step-2>Manually inspect the diff: structural_fingerprint_sha256 change WITHOUT a corresponding intentional MP-* change is a regression flag, not a baseline update.</step-2>
+        <step-3>Commit the new baseline in the same PR that ships the corresponding MP-* code change; commit message MUST reference the rationale (e.g. "MP-DOCUMENT: switch heading rendering from Title to Heading 1; baseline rotated").</step-3>
+        <step-4>Audit-violation rotation: a baseline that grows hard_violation_count above 0 is a Phase-7 acceptance failure — no rotation; fix the regression.</step-4>
+      </baseline-update-protocol>
+      <autonomy-assessment>SWARM-SAFE — save() targets tmp_path per test; no shared mutable state. e2e wave (Wave-7-5) reads-only against M-VALIDATE; baseline assertion is deterministic. Worker-write to tests/fixtures/mp_e2e_baseline.json is gated by MP_E2E_WRITE_BASELINE env so concurrent workers cannot race-overwrite.</autonomy-assessment>
+    </V-MP-DOCUMENT>
+
+    <V-MP-SDK MODULE="MP-SDK" PRIORITY="medium" STATUS="planned" ACTIVATES_AT="Wave-7-5">
+      <test-files>
+        <file status="planned" activates-at="Wave-7-5">tests/unit/test_mp_sdk.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_sdk.py -x</check-1>
+        <check-2>ruff check src/mint_python/sdk/__init__.py</check-2>
+        <check-3>mypy src/mint_python/sdk/__init__.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">All §3 names import: `from mint_python.sdk import Document, Section, Table, Style, Image, TOC, Pt, ColorPalette, presets` exits 0</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">presets registry contains exactly the agreed Phase-1 entries: 'alga_corporate', 'minimal', 'compact'; presets['alga_corporate'] is a path-or-dict resolvable by load_preset</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">with_style_from(tmp_json) on a Document instance loads the preset and returns self for chaining</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">SDK module re-exports do NOT shadow underlying modules — `mint_python.sdk.Document is mint_python.core.document.Document`</scenario-4>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>(none — SDK is a re-export module; downstream modules log)</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>SDK must NOT export anything beyond the §3 surface — extras risk divergence from handover spec</forbidden-1>
+        <forbidden-2>SDK must NOT import from src/mint/* (legacy) — the skeleton stays decoupled per V-MP-PKG forbidden-2</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — pure re-export + small registry; no I/O</autonomy-assessment>
+    </V-MP-SDK>
   </ModuleVerification>
 
   <WaveChecks>
@@ -1112,6 +1379,106 @@
         <evidence-10>USER-FACING COLLATERAL AUDIT (Phase-0 fail-closed default breaks bare `mint &lt;subcmd&gt;` examples until Phase 1 ships). Run a recursive grep for `mint ` invocations across: `README.md`, `AGENTS.md`, `docs/*.md`, `docs/pure-python/*.md`, `e2e_*.py` at repo root, any `*.sh` scripts, any `Makefile`/`justfile` targets. For EACH match: either (a) update to `mint --engine js &lt;subcmd&gt;` if the example must stay runnable today, OR (b) prefix with a clear comment "Phase-6 note: default MINT_ENGINE=python raises NotImplementedError until rollout Phase 1; set MINT_ENGINE=js or pass `--engine js` to run". Discovery command: `grep -rn -E "(^|[^a-z])(mint|uv run mint|python -m mint\.cli)\s+(serve|validate|fix|fingerprint|create|extract|edit)" README.md AGENTS.md docs/ e2e_*.py Makefile justfile *.sh scripts/*.sh 2&gt;/dev/null`. The audit MUST be performed by the worker who flips the default in M-CONFIG; the worker's PR description lists every modified file. A worker who updates only code/tests but skips this audit fails Wave-6-1 acceptance.</evidence-10>
       </required-evidence>
     </Wave-6-1>
+
+    <Wave-7-1 PHASE="Phase-7" SCOPE="MP-STYLE" STATUS="planned">
+      <goal>Land Style + Pt + ColorPalette + load_preset; ship initial preset registry (alga_corporate, minimal, compact); document JSON schema in docs/style-preset-schema.md.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_mp_style.py -x</command-1>
+        <command-2>ruff check src/mint_python/core/style.py</command-2>
+        <command-3>mypy src/mint_python/core/style.py</command-3>
+      </commands>
+      <swarm-policy>
+        <isolation>Process-per-worker via pytest-xdist OK. Pure deterministic surface; no env or singleton concerns.</isolation>
+        <writescope-controller>docs/development-plan.xml, docs/knowledge-graph.xml, docs/verification-plan.xml, docs/technology.xml — workers MUST NOT touch.</writescope-controller>
+        <writescope-worker>src/mint_python/core/style.py, tests/unit/test_mp_style.py, docs/style-preset-schema.md, src/mint_python/core/presets/*.json (preset registry data).</writescope-worker>
+      </swarm-policy>
+      <required-evidence>
+        <evidence-1>All V-MP-STYLE scenarios 1-8 pass</evidence-1>
+        <evidence-2>BLOCK_LOAD_PRESET marker emitted with correct payload (asserted via caplog)</evidence-2>
+        <evidence-3>docs/style-preset-schema.md exists and documents the JSON schema; the three built-in presets validate against it</evidence-3>
+      </required-evidence>
+    </Wave-7-1>
+
+    <Wave-7-2 PHASE="Phase-7" SCOPE="MP-CONTENT, MP-TABLE" STATUS="planned">
+      <goal>Land Paragraph + Run + Image (MP-CONTENT) and Table with §3.3 factories (MP-TABLE) in parallel — both depend only on MP-STYLE.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_mp_content.py tests/unit/test_mp_table.py -x</command-1>
+        <command-2>ruff check src/mint_python/core/content.py src/mint_python/core/table.py</command-2>
+        <command-3>mypy src/mint_python/core/content.py src/mint_python/core/table.py</command-3>
+      </commands>
+      <swarm-policy>
+        <isolation>Workers operate on disjoint files (content.py vs table.py). pytest-xdist safe.</isolation>
+        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
+        <writescope-worker>src/mint_python/core/content.py, src/mint_python/core/table.py, tests/unit/test_mp_content.py, tests/unit/test_mp_table.py.</writescope-worker>
+      </swarm-policy>
+      <required-evidence>
+        <evidence-1>All V-MP-CONTENT scenarios 1-7 pass</evidence-1>
+        <evidence-2>All V-MP-TABLE scenarios 1-9 pass</evidence-2>
+        <evidence-3>BLOCK_RENDER_CONTENT and BLOCK_RENDER_TABLE markers fire as documented</evidence-3>
+      </required-evidence>
+    </Wave-7-2>
+
+    <Wave-7-3 PHASE="Phase-7" SCOPE="MP-SECTION" STATUS="planned">
+      <goal>Land Section fluent surface + add_chart stub raising NotImplementedError naming Phase 2.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_mp_section.py -x</command-1>
+        <command-2>ruff check src/mint_python/core/section.py</command-2>
+        <command-3>mypy src/mint_python/core/section.py</command-3>
+      </commands>
+      <swarm-policy>
+        <isolation>Solo wave; sequential after Wave-7-2.</isolation>
+        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
+        <writescope-worker>src/mint_python/core/section.py, tests/unit/test_mp_section.py.</writescope-worker>
+      </swarm-policy>
+      <required-evidence>
+        <evidence-1>All V-MP-SECTION scenarios 1-6 pass</evidence-1>
+        <evidence-2>BLOCK_PHASE_GUARD fires before NotImplementedError on add_chart</evidence-2>
+      </required-evidence>
+    </Wave-7-3>
+
+    <Wave-7-4 PHASE="Phase-7" SCOPE="MP-DOCUMENT" STATUS="planned">
+      <goal>Land Document facade with full §3.1 API: real save() via python-docx + lxml; cover/header/footer rendered via lxml direct write where python-docx APIs are insufficient; stubs (inject_grace/validate/fix/to_pdf) raise NotImplementedError naming target phase.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_mp_document.py -x</command-1>
+        <command-2>ruff check src/mint_python/core/document.py</command-2>
+        <command-3>mypy src/mint_python/core/document.py</command-3>
+      </commands>
+      <swarm-policy>
+        <isolation>Solo wave; sequential after Wave-7-3.</isolation>
+        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
+        <writescope-worker>src/mint_python/core/document.py, tests/unit/test_mp_document.py.</writescope-worker>
+      </swarm-policy>
+      <required-evidence>
+        <evidence-1>All V-MP-DOCUMENT scenarios 1-8 pass</evidence-1>
+        <evidence-2>save() produces a valid OOXML file (lxml parses cleanly)</evidence-2>
+        <evidence-3>save() idempotency under M-FINGERPRINT structural hash</evidence-3>
+        <evidence-4>BLOCK_SAVE_DOCX fires exactly once per save</evidence-4>
+        <evidence-5>BLOCK_PHASE_GUARD fires for each stub method before NotImplementedError</evidence-5>
+      </required-evidence>
+    </Wave-7-4>
+
+    <Wave-7-5 PHASE="Phase-7" SCOPE="MP-SDK + VF-013 e2e" STATUS="planned">
+      <goal>Land SDK re-exports + VF-013 end-to-end test: 3-section golden document built via mint_python.sdk passes M-VALIDATE on lenient mode (zero hard violations). Closes Phase-7.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_mp_sdk.py tests/integration/test_mp_e2e.py -x --timeout=120</command-1>
+        <command-2>ruff check src/mint_python/sdk tests/integration/test_mp_e2e.py</command-2>
+        <command-3>mypy src/mint_python/sdk</command-3>
+        <command-4>uv build &amp;&amp; unzip -l dist/*.whl | grep -E "mint_python/(core|sdk)" | wc -l</command-4>
+      </commands>
+      <swarm-policy>
+        <isolation>Solo wave; final Phase-7 step. e2e test writes to tmp_path; M-VALIDATE invocation is read-only.</isolation>
+        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
+        <writescope-worker>src/mint_python/sdk/__init__.py, tests/unit/test_mp_sdk.py, tests/integration/test_mp_e2e.py.</writescope-worker>
+      </swarm-policy>
+      <required-evidence>
+        <evidence-1>All V-MP-SDK scenarios 1-4 pass</evidence-1>
+        <evidence-2>VF-013 trace-sequence holds: BLOCK_LOAD_PRESET → BLOCK_RENDER_TABLE × 2 → BLOCK_SAVE_DOCX</evidence-2>
+        <evidence-3>M-VALIDATE on the saved golden document in lenient mode reports passed=true with hard_count=0; soft_count captured as audit baseline (recorded in tests/fixtures/mp_e2e_baseline.json)</evidence-3>
+        <evidence-4>Word can open the file (manual smoke OR via Gotenberg headless render — Gotenberg is optional Phase-7; manual smoke acceptable)</evidence-4>
+        <evidence-5>uv build wheel includes the new core/* and sdk/* modules (count of mint_python/core|sdk entries &gt; 9 — original 9 placeholders are now real modules + tests scaffold)</evidence-5>
+        <evidence-6>VF-013 inv-1 (idempotency) inv-2 (lxml schema validity) inv-3 (no GRACE Custom XML Parts in Phase-7 output) inv-4 (preset choice observable in heading style) all hold</evidence-6>
+      </required-evidence>
+    </Wave-7-5>
   </WaveChecks>
 
   <PhaseGates>
@@ -1179,6 +1546,26 @@
       </required-evidence>
     </Gate-Phase-4>
 
+    <Gate-Phase-7 PHASE="Phase-7" STATUS="planned" ACTIVATES_AT="Wave-7-5 completion">
+      <goal>Pure Python Edition Phase 1 (handover §6 Phase 1) lands: Document/Section/Table/Style stack works end-to-end via mint_python.sdk; a 3-section golden document passes M-VALIDATE on lenient mode; stubs (inject_grace/validate/fix/to_pdf, Section.add_chart) cleanly point to later phases. Foundation ready for Phase-2 (Chart + matplotlib).</goal>
+      <commands>
+        <command-1>pytest tests/ -x --timeout=120</command-1>
+        <command-2>ruff check src/mint_python tests/unit/test_mp_*.py tests/integration/test_mp_e2e.py</command-2>
+        <command-3>mypy src/mint_python</command-3>
+        <command-4>uv build</command-4>
+      </commands>
+      <required-evidence>
+        <evidence-1>All V-MP-STYLE / V-MP-CONTENT / V-MP-TABLE / V-MP-SECTION / V-MP-DOCUMENT / V-MP-SDK scenarios pass</evidence-1>
+        <evidence-2>VF-013 trace-sequence + invariants hold on the e2e golden document</evidence-2>
+        <evidence-3>M-VALIDATE lenient mode passes on the golden document with zero hard violations; soft baseline captured</evidence-3>
+        <evidence-4>Stubs raise NotImplementedError with target-phase string and emit BLOCK_PHASE_GUARD; no stub silently no-ops</evidence-4>
+        <evidence-5>docs/technology.xml lists python-docx ≥1.1 and pillow ≥10.x in Dependencies</evidence-5>
+        <evidence-6>docs/style-preset-schema.md exists and matches the three built-in presets</evidence-6>
+        <evidence-7>uv build wheel ships the populated core/ and sdk/ modules; no regression on Wave-6-1's mint_python skeleton wheel layout</evidence-7>
+        <evidence-8>Existing 309 tests + new MP-* tests all green; no test required content edits beyond the new MP-* surface</evidence-8>
+      </required-evidence>
+    </Gate-Phase-7>
+
     <Gate-Phase-6 PHASE="Phase-6" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Pure Python Edition Phase 0 lands as scaffolding only: skeleton importable, dual-engine flag wired through M-CONFIG and M-CLI, default engine=python fails closed via NotImplementedError, --engine js / MINT_ENGINE=js keeps every legacy DF-001..DF-007 flow green.</goal>
       <commands>
@@ -1200,7 +1587,7 @@
   </PhaseGates>
 
   <SwarmExecutionReadiness UPDATED="2026-05-09">
-    <summary>Current executable verification is strong for deterministic OOXML, validation, edit, theme, MCP, and CLI adapter paths. Swarm execution is permitted only when workers stay inside declared module write scopes and controller-owned docs are edited serially. Phase-6 engine-dispatch verification is now ACTIVE — Wave-6-1 landed 2026-05-09 across 5 commits (7ece0df, 2baab4a, 73ae169, 5cc23b9, 832912e); src/mint_python, tests/unit/test_engine_flag.py, MINT_ENGINE, Engine, BLOCK_LOAD_CONFIG, and _select_engine all exist and are tested.</summary>
+    <summary>Current executable verification is strong for deterministic OOXML, validation, edit, theme, MCP, and CLI adapter paths. Swarm execution is permitted only when workers stay inside declared module write scopes and controller-owned docs are edited serially. Phase-6 engine-dispatch verification is ACTIVE (Wave-6-1 landed 2026-05-09: 7ece0df, 2baab4a, 73ae169, 5cc23b9, 832912e + cleanup ddc678a). Phase-7 (Pure Python Edition Phase 1) is PLANNED — 6 MP-* modules, 5 sub-waves, VF-013 as the headline acceptance signal; verification surface is finalized and ready for $grace-multiagent-execute.</summary>
     <verification-matrix>
       <target-1 MODULES="M-RULES,M-VALIDATE,M-FINGERPRINT,M-THEME,M-THEMEEXTRACT" STATUS="swarm-safe">
         <evidence>Pure or read-only deterministic tests; run module-local pytest plus ruff/mypy on touched files.</evidence>
@@ -1226,6 +1613,12 @@
         <evidence>Phase-6 engine-dispatch contract is implemented and verified end-to-end. Wave-6-1 landed under commits 7ece0df (MP-PKG), 2baab4a (M-CONFIG), 73ae169 (M-CLI), 5cc23b9 (infra), 832912e (V-MP-FLAG tests). 309 unit/integration tests + 1 skipped pass; ruff and mypy clean across the touched surface; uv build wheel includes 9 mint_python __init__.py entries.</evidence>
         <commands>pytest tests/unit/test_engine_flag.py tests/integration/test_cli.py -x</commands>
       </target-6>
+      <target-7 MODULES="MP-STYLE,MP-CONTENT,MP-TABLE,MP-SECTION,MP-DOCUMENT,MP-SDK" STATUS="swarm-safe-with-isolated-fixtures" PLANNED_AT="2026-05-09">
+        <evidence>Phase-7 modules are deterministic and tmp_path-isolated. Wave-7-1 (MP-STYLE) is pure deterministic with read-only registry. Wave-7-2 dispatches MP-CONTENT and MP-TABLE in parallel — disjoint files, both depend only on MP-STYLE, no shared state. Wave-7-3 (MP-SECTION), Wave-7-4 (MP-DOCUMENT) are solo. Wave-7-5 closes with MP-SDK + VF-013 e2e — the e2e harness writes to tmp_path; baseline JSON write is gated by MP_E2E_WRITE_BASELINE env. Each MP-* module is forbidden from introducing a module-level mutable singleton (V-MP-* forbidden-3 across the family).</evidence>
+        <commands>pytest tests/unit/test_mp_style.py tests/unit/test_mp_content.py tests/unit/test_mp_table.py tests/unit/test_mp_section.py tests/unit/test_mp_document.py tests/unit/test_mp_sdk.py tests/integration/test_mp_e2e.py -x --timeout=120</commands>
+        <wave-dependencies>Wave-7-1 unlocks Wave-7-2; Wave-7-2 unlocks Wave-7-3; Wave-7-3 unlocks Wave-7-4; Wave-7-4 unlocks Wave-7-5. Within Wave-7-2, MP-CONTENT and MP-TABLE are parallel-safe (disjoint write scopes).</wave-dependencies>
+        <swarm-fixtures-required>(1) tmp_path for every save() and image write; (2) caplog for trace assertions; (3) reuse of central clean_env fixture from tests/unit/test_config.py if MP-* tests touch any config-driven path (most do not); (4) MP_E2E_WRITE_BASELINE env gate for the baseline JSON write — defaults to read-only.</swarm-fixtures-required>
+      </target-7>
     </verification-matrix>
     <telemetry-requirements>
       <requirement-1>Normalize executable trace markers to source reality before asserting on them: [Skills][select_skill][BLOCK_SELECT_SKILL], [Templates][fill][BLOCK_FILL], [Extract][parse_theme][BLOCK_PARSE_THEME], [Extract][analyze_layouts][BLOCK_ANALYZE_LAYOUTS], [QA][l2][BLOCK_L2_STRUCTURAL], [LLM][call][BLOCK_CALL_MODEL].</requirement-1>
@@ -1275,6 +1668,41 @@
       <observed-evidence>Trace shows BLOCK_LOAD_CONFIG → BLOCK_DISPATCH; BLOCK_SELECT_ENGINE absent</observed-evidence>
       <first-divergent-block>src/mint/cli.py main() — _select_engine call missing or placed AFTER the cmd_* dispatch dict resolution</first-divergent-block>
       <next-action>Move the _select_engine call to immediately after config() and before the dispatch dict; ensure it logs [CLI][_select_engine][BLOCK_SELECT_ENGINE] at INFO unconditionally; re-run V-MP-FLAG scenario-9 and 10</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>V-MP-STYLE scenario-6: schema violation pointer</scenario>
+      <expected-evidence>load_preset(path=invalid_json) raises STYLE_PRESET_INVALID_SCHEMA with message containing JSON Pointer "/typography/heading1/color" + constraint name (e.g. "expected hex #RRGGBB or @palette-token")</expected-evidence>
+      <observed-evidence>STYLE_PRESET_INVALID_SCHEMA raised with generic "schema mismatch" — no field path, no constraint name</observed-evidence>
+      <first-divergent-block>src/mint_python/core/style.py load_preset() — using bare `raise STYLE_PRESET_INVALID_SCHEMA(...)` without enriching from the schema validator's error iterator</first-divergent-block>
+      <next-action>Wire the schema validator's iter_errors() output into the exception message; for jsonschema library, use `.json_path` and `.validator` to build the formatted pointer; ensure docs/style-preset-schema.md examples in §2 (StyleSpec) match the actual error formatting</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>V-MP-DOCUMENT scenario-8: idempotency under fingerprint</scenario>
+      <expected-evidence>fingerprint(a.docx).hash == fingerprint(b.docx).hash for two save() calls of the same Document</expected-evidence>
+      <observed-evidence>Hashes differ; fingerprint().xml_sources show word/core.xml diverging (different created/modified timestamps)</observed-evidence>
+      <first-divergent-block>src/mint_python/core/document.py save() — relies on python-docx default core.xml emission which uses datetime.now() for created/modified fields; breaks idempotency invariant inv-1</first-divergent-block>
+      <next-action>Override core.xml dcterms:created and dcterms:modified to a fixed sentinel value (e.g. 1980-01-01T00:00:00Z, mirroring zipfile's epoch sentinel) before save serializes the part; re-run scenario-8 to confirm equal hashes; document the sentinel choice in MP-DOCUMENT MODULE_CONTRACT note</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>VF-013 trace-sequence: BLOCK_PHASE_GUARD on golden-doc happy path</scenario>
+      <expected-evidence>Counter of caplog messages: BLOCK_PHASE_GUARD count = 0 on the golden-doc construction path</expected-evidence>
+      <observed-evidence>BLOCK_PHASE_GUARD count = 1; payload shows method='inject_grace' fired during save()</observed-evidence>
+      <first-divergent-block>src/mint_python/core/document.py save() — the save path is calling self.inject_grace() unconditionally instead of leaving it as an explicit user-driven stub. VF-013 forbidden-4 violation.</first-divergent-block>
+      <next-action>Remove the implicit inject_grace call from save(); user must explicitly call doc.inject_grace(...) which is a Phase-5 stub for now. Re-run VF-013 and confirm BLOCK_PHASE_GUARD count = 0 on the golden path.</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>VF-013 inv-5: baseline hash drift</scenario>
+      <expected-evidence>structural_fingerprint_sha256 in tests/fixtures/mp_e2e_baseline.json equals fingerprint(saved_golden_doc).hash</expected-evidence>
+      <observed-evidence>Hash differs by one byte; xml_sources lists word/styles.xml as diverging</observed-evidence>
+      <first-divergent-block>Recent change to MP-STYLE typography defaults rotated the heading1 color from "#0F4C81" to "#0F4D81" (one-char drift); the change was not intentional</first-divergent-block>
+      <next-action>If the change is unintentional: revert MP-STYLE color, re-run VF-013, hash returns to baseline. If intentional: bump baseline by setting MP_E2E_WRITE_BASELINE=1, re-run, commit the new baseline JSON IN THE SAME PR with rationale per V-MP-DOCUMENT baseline-update-protocol step-3.</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>V-MP-STYLE forbidden-3: registry mutation</scenario>
+      <expected-evidence>`r1 = mint_python.sdk.presets; r2 = mint_python.sdk.presets; r1 is r2 and frozenset(r1) == {'alga_corporate','minimal','compact'}` is True after any test order</expected-evidence>
+      <observed-evidence>frozenset(r2) gained an extra entry "test_local" injected by a previous test that called load_preset(path=...) and silently registered it</observed-evidence>
+      <first-divergent-block>src/mint_python/core/style.py load_preset() — the path-loading branch updates the module-level registry as a side effect</first-divergent-block>
+      <next-action>Make load_preset(path=...) a pure function: read file, validate, return Style namespace; do NOT touch the registry. Add a regression test that asserts frozenset(presets) is unchanged after load_preset(path=tmp_json).</next-action>
     </packet-example>
   </FailurePackets>
 </VerificationPlan>

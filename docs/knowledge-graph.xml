@@ -395,5 +395,116 @@
 
     <CrossLink from="MP-PKG" to="M-CONFIG" relation="placeholder package; engine flag (MINT_ENGINE / Engine enum) lives in M-CONFIG" />
     <CrossLink from="MP-PKG" to="M-CLI" relation="placeholder package; engine dispatch chokepoint (_select_engine) lives in M-CLI; future MP-* modules will be routed here" />
+
+    <!-- Phase 7: Pure Python Edition Phase 1 — Core Document + SDK (handover §3, §6) -->
+
+    <MP-STYLE NAME="Pure Python Style Primitives" TYPE="UTILITY" STATUS="planned">
+      <purpose>Typography, color, spacing primitives + named style presets for the Pure Python core types</purpose>
+      <path>src/mint_python/core/style.py</path>
+      <depends>none</depends>
+      <verification-ref>V-MP-STYLE</verification-ref>
+      <annotations>
+        <type-Style PURPOSE="Frozen dataclass: font, size_pt, color_hex, bold, italic, alignment, spacing_before/after, line_height, keep_with_next" />
+        <fn-Pt PURPOSE="Pt(value) → int (twentieths of a point); compatible with python-docx units" />
+        <type-ColorPalette PURPOSE="Named color resolver tied to a preset (e.g. 'alga_corporate')" />
+        <fn-load_preset PURPOSE="Load named preset from registry OR JSON path; validate against schema; return Style namespace (heading1, body, table_header, ...)" />
+      </annotations>
+    </MP-STYLE>
+
+    <MP-CONTENT NAME="Pure Python Content Primitives" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Inline content blocks placed inside a Section: Paragraph + Run + Image, all OOXML emitters via python-docx + pillow</purpose>
+      <path>src/mint_python/core/content.py</path>
+      <depends>MP-STYLE</depends>
+      <verification-ref>V-MP-CONTENT</verification-ref>
+      <annotations>
+        <type-Paragraph PURPOSE="Styled paragraph; .add_run(text, style=None) fluent; .render(parent_doc) writes to python-docx Document" />
+        <type-Run PURPOSE="Inline styled fragment within a Paragraph" />
+        <type-Image PURPOSE="Image embed with .from_path / .from_bytes constructors; .render emits w:drawing with auto rId" />
+      </annotations>
+    </MP-CONTENT>
+
+    <MP-TABLE NAME="Pure Python Table" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Table class with §3.3 factory constructors and post-construction shaping; renders into python-docx Table</purpose>
+      <path>src/mint_python/core/table.py</path>
+      <depends>MP-STYLE, MP-CONTENT</depends>
+      <verification-ref>V-MP-TABLE</verification-ref>
+      <annotations>
+        <type-Table PURPOSE="Table model + .render(parent_doc) → python-docx Table" />
+        <type-Cell PURPOSE="Cell value + optional Style override + merge directives" />
+        <fn-from_list PURPOSE="Table.from_list(rows) — first row optional header" />
+        <fn-from_markdown PURPOSE="Table.from_markdown(text) — pipe-table syntax parser" />
+        <fn-from_list_of_dicts PURPOSE="Table.from_list_of_dicts(rows) — keys=headers, values=cells" />
+        <fn-financial PURPOSE="Table.financial(rows) — right-aligned numerics with thousands separator" />
+        <fn-comparison PURPOSE="Table.comparison(left, right, rows) — two-column side-by-side preset" />
+      </annotations>
+    </MP-TABLE>
+
+    <MP-SECTION NAME="Pure Python Section (fluent)" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Fluent Section per handover §3.2; Phase-1 stubs add_chart with NotImplementedError naming Phase 2</purpose>
+      <path>src/mint_python/core/section.py</path>
+      <depends>MP-CONTENT, MP-TABLE</depends>
+      <verification-ref>V-MP-SECTION</verification-ref>
+      <annotations>
+        <type-Section PURPOSE="Section node holding heading + ordered list of content blocks" />
+        <fn-add_paragraph PURPOSE="Append Paragraph or shorthand str; returns self" />
+        <fn-add_table PURPOSE="Append Table; returns self" />
+        <fn-add_image PURPOSE="Append Image; returns self" />
+        <fn-add_chart PURPOSE="STUB Phase-2 — emits BLOCK_PHASE_GUARD then raises NotImplementedError" />
+      </annotations>
+    </MP-SECTION>
+
+    <MP-DOCUMENT NAME="Pure Python Document Facade" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Full §3.1 Document facade; save() produces valid .docx via python-docx + lxml; stubs Phase-3/5 methods</purpose>
+      <path>src/mint_python/core/document.py</path>
+      <depends>MP-SECTION, MP-STYLE</depends>
+      <verification-ref>V-MP-DOCUMENT</verification-ref>
+      <annotations>
+        <type-Document PURPOSE="Document facade aggregating Sections, document-wide Style preset, header/footer, cover" />
+        <type-TOC PURPOSE="Table-of-contents anchor; rendered as Word TOC field with auto-update" />
+        <fn-with_style_preset PURPOSE="Load named preset; returns self for chaining" />
+        <fn-with_style_from PURPOSE="Load preset from path; returns self for chaining" />
+        <fn-add_cover PURPOSE="Cover page (title + subtitle + optional logo); rendered via lxml direct write" />
+        <fn-add_section PURPOSE="Append Section to body" />
+        <fn-add_toc PURPOSE="Insert TOC field anchor" />
+        <fn-set_header PURPOSE="Document-wide header (Phase-1 scope)" />
+        <fn-set_footer PURPOSE="Document-wide footer" />
+        <fn-save PURPOSE="Serialize to .docx; emits BLOCK_SAVE_DOCX with section_count + table_count + output_path" />
+        <fn-inject_grace PURPOSE="STUB Phase-5 — Custom XML Parts emission deferred to MP-GRACE" />
+        <fn-validate PURPOSE="STUB Phase-3 — pure-Python validation deferred to MP-RULES + MP-VALIDATE" />
+        <fn-fix PURPOSE="STUB Phase-3 — pure-Python fix engine deferred" />
+        <fn-to_pdf PURPOSE="STUB Phase-5 — Gotenberg/render integration deferred" />
+      </annotations>
+    </MP-DOCUMENT>
+
+    <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" STATUS="planned">
+      <purpose>Public re-exports of all §3 types + named-preset registry + with_style_from(path) loader</purpose>
+      <path>src/mint_python/sdk/__init__.py</path>
+      <depends>MP-DOCUMENT, MP-TABLE, MP-CONTENT, MP-STYLE</depends>
+      <verification-ref>V-MP-SDK</verification-ref>
+      <annotations>
+        <export-Document PURPOSE="Re-export of MP-DOCUMENT.Document" />
+        <export-Section PURPOSE="Re-export of MP-SECTION.Section" />
+        <export-Table PURPOSE="Re-export of MP-TABLE.Table" />
+        <export-Style PURPOSE="Re-export of MP-STYLE.Style" />
+        <export-Image PURPOSE="Re-export of MP-CONTENT.Image" />
+        <export-TOC PURPOSE="Re-export of MP-DOCUMENT.TOC" />
+        <export-Pt PURPOSE="Re-export of MP-STYLE.Pt" />
+        <export-ColorPalette PURPOSE="Re-export of MP-STYLE.ColorPalette" />
+        <export-presets PURPOSE="Built-in preset registry: 'alga_corporate', 'minimal', 'compact'" />
+      </annotations>
+    </MP-SDK>
+
+    <CrossLink from="MP-CONTENT" to="MP-STYLE" relation="Paragraph and Run consume Style for typography/color/spacing" />
+    <CrossLink from="MP-TABLE" to="MP-STYLE" relation="Table.apply_style and the financial/comparison factories consume Style" />
+    <CrossLink from="MP-TABLE" to="MP-CONTENT" relation="Table cells embed Paragraph instances for rich-text content" />
+    <CrossLink from="MP-SECTION" to="MP-CONTENT" relation="Section.add_paragraph / add_image consume Paragraph and Image" />
+    <CrossLink from="MP-SECTION" to="MP-TABLE" relation="Section.add_table consumes Table" />
+    <CrossLink from="MP-DOCUMENT" to="MP-SECTION" relation="Document body is an ordered list of Sections" />
+    <CrossLink from="MP-DOCUMENT" to="MP-STYLE" relation="Document.with_style_preset registers a Style namespace inherited by descendants" />
+    <CrossLink from="MP-SDK" to="MP-DOCUMENT" relation="SDK re-exports Document and TOC" />
+    <CrossLink from="MP-SDK" to="MP-TABLE" relation="SDK re-exports Table" />
+    <CrossLink from="MP-SDK" to="MP-CONTENT" relation="SDK re-exports Image" />
+    <CrossLink from="MP-SDK" to="MP-STYLE" relation="SDK re-exports Style, Pt, ColorPalette + hosts the preset registry" />
+    <CrossLink from="MP-DOCUMENT" to="M-VALIDATE" relation="Phase-7 e2e gate: saved .docx must pass M-VALIDATE on lenient mode (existing js-side validator; Phase-3 will land MP-VALIDATE pure-Python successor)" />
   </Project>
 </KnowledgeGraph>
