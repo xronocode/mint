@@ -1,0 +1,85 @@
+{
+  "$schema": "https://mint.dev/schema/style-preset-1.0.json",
+  "name": "minimal",
+  "version": "1.0",
+  "description": "Plain text-first preset, near-neutral palette, Inter only",
+  "color_palette": {
+    "primary":    "#1A1A1A",
+    "secondary":  "#6E6E6E",
+    "accent":     "#1A1A1A",
+    "text":       "#1A1A1A",
+    "text_muted": "#6E6E6E",
+    "background": "#FFFFFF",
+    "border":     "#D4D4D4"
+  },
+  "typography": {
+    "heading1": {
+      "font": "Inter",
+      "size_pt": 22,
+      "color": "@text",
+      "bold": true,
+      "alignment": "left",
+      "spacing_before_pt": 12,
+      "spacing_after_pt": 8,
+      "line_height": 1.3,
+      "keep_with_next": true
+    },
+    "heading2": {
+      "font": "Inter",
+      "size_pt": 16,
+      "color": "@text",
+      "bold": true,
+      "alignment": "left",
+      "spacing_before_pt": 10,
+      "spacing_after_pt": 6,
+      "line_height": 1.35,
+      "keep_with_next": true
+    },
+    "heading3": {
+      "font": "Inter",
+      "size_pt": 13,
+      "color": "@text",
+      "bold": true,
+      "alignment": "left",
+      "spacing_before_pt": 8,
+      "spacing_after_pt": 4,
+      "line_height": 1.4,
+      "keep_with_next": true
+    },
+    "body": {
+      "font": "Inter",
+      "size_pt": 11,
+      "color": "@text",
+      "alignment": "left",
+      "spacing_before_pt": 0,
+      "spacing_after_pt": 6,
+      "line_height": 1.45
+    },
+    "table_header": {
+      "font": "Inter",
+      "size_pt": 11,
+      "color": "@text",
+      "bold": true,
+      "alignment": "left",
+      "spacing_before_pt": 0,
+      "spacing_after_pt": 0,
+      "line_height": 1.2
+    },
+    "caption": {
+      "font": "Inter",
+      "size_pt": 9,
+      "color": "@text_muted",
+      "italic": true,
+      "alignment": "left",
+      "spacing_before_pt": 2,
+      "spacing_after_pt": 6,
+      "line_height": 1.3
+    }
+  },
+  "spacing": {
+    "paragraph_default_before_pt": 0,
+    "paragraph_default_after_pt": 6,
+    "default_line_height": 1.45,
+    "table_cell_padding_pt": 4
+  }
+}
