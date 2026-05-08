@@ -82,6 +82,7 @@ class CreateRequest:
     llm_fallback_model: str | None = None
     self_evaluate: bool = False
     max_refine_rounds: int = 1
+    theme_name: str | None = None
 
 
 @dataclass
@@ -373,8 +374,74 @@ def _postprocess_docx(
                 seen_ids.add(sid)
         for el in to_remove:
             styles_root.remove(el)
-        if to_remove:
+        # Wave H: force theme colors + font on Heading1/2/3 and Normal
+        # styles. docx-js writes paragraphStyles entries but Word's built-in
+        # Heading style defaults (Accent 1 = 2E74B5) override the run.color
+        # we asked for. We rewrite styles.xml directly so themed runs land
+        # on every heading.
+        styles_changed = False
+        primary_hex = theme.palette.primary
+        body_hex = theme.palette.body
+        default_font = theme.typography.default_font
+        for style_el in styles_root.findall(f"{{{w_ns}}}style"):
+            sid = style_el.get(f"{{{w_ns}}}styleId", "")
+            target_color: str | None = None
+            target_size: int | None = None
+            if sid in ("Heading1", "Heading2", "Heading3", "Heading4",
+                       "Heading5", "Heading6"):
+                target_color = primary_hex
+                role_map = {
+                    "Heading1": "heading1",
+                    "Heading2": "heading2",
+                    "Heading3": "heading3",
+                }
+                if sid in role_map:
+                    role = role_map[sid]
+                    if role in theme.typography.styles:
+                        target_size = theme.typography.style(role).size
+            elif sid == "Title":
+                target_color = primary_hex
+                if "title" in theme.typography.styles:
+                    target_size = theme.typography.style("title").size
+            elif sid == "Normal":
+                target_color = body_hex
+                if "body" in theme.typography.styles:
+                    target_size = theme.typography.style("body").size
+            else:
+                continue
+            rpr = style_el.find(f"{{{w_ns}}}rPr")
+            if rpr is None:
+                rpr = etree.SubElement(style_el, f"{{{w_ns}}}rPr")
+                style_el.insert(0, rpr)
+            col = rpr.find(f"{{{w_ns}}}color")
+            if col is None:
+                col = etree.SubElement(rpr, f"{{{w_ns}}}color")
+            col.set(f"{{{w_ns}}}val", target_color)
+            font_el = rpr.find(f"{{{w_ns}}}rFonts")
+            if font_el is None:
+                font_el = etree.SubElement(rpr, f"{{{w_ns}}}rFonts")
+            font_el.set(f"{{{w_ns}}}ascii", default_font)
+            font_el.set(f"{{{w_ns}}}hAnsi", default_font)
+            font_el.set(f"{{{w_ns}}}cs", default_font)
+            if target_size is not None:
+                sz_el = rpr.find(f"{{{w_ns}}}sz")
+                if sz_el is None:
+                    sz_el = etree.SubElement(rpr, f"{{{w_ns}}}sz")
+                sz_el.set(f"{{{w_ns}}}val", str(target_size))
+                szcs_el = rpr.find(f"{{{w_ns}}}szCs")
+                if szcs_el is None:
+                    szcs_el = etree.SubElement(rpr, f"{{{w_ns}}}szCs")
+                szcs_el.set(f"{{{w_ns}}}val", str(target_size))
+            styles_changed = True
+
+        if to_remove or styles_changed:
             entries[styles_path] = _serialize_xml(styles_root)
+            if styles_changed:
+                changes += 1
+                logger.info(
+                    "[Create][postprocess] Wave H: themed heading/Normal "
+                    "styles rewritten in styles.xml"
+                )
 
     # Fix 2: Remove empty comments.xml and its references
     comments_path = "word/comments.xml"
@@ -1112,6 +1179,12 @@ def _create_modular_mode(
             success=False,
         )
 
+    theme = (
+        load_theme(request.theme_name)
+        if request.theme_name
+        else load_theme()
+    )
+
     try:
         doc_plan = do_plan(
             request.prompt,
@@ -1139,6 +1212,7 @@ def _create_modular_mode(
         llm_api_key=request.llm_api_key or "",
         llm_model=request.llm_model or "qwen3.6:35b",
         llm_fallback_model=request.llm_fallback_model,
+        theme=theme,
     )
 
     logger.info(
@@ -1148,7 +1222,7 @@ def _create_modular_mode(
     )
 
     try:
-        assembly_result = do_assemble(doc_plan, gen_result.sections)
+        assembly_result = do_assemble(doc_plan, gen_result.sections, theme=theme)
     except Exception as e:
         return CreateResult(
             error=f"Assembly failed: {e}",
@@ -1180,7 +1254,7 @@ def _create_modular_mode(
             sections_succeeded=gen_result.succeeded,
         )
 
-    _postprocess_docx(output_path)
+    _postprocess_docx(output_path, theme=theme)
 
     validation = run_checks(output_path, SeverityMode.LENIENT, rules_dir=rules_dir)
 

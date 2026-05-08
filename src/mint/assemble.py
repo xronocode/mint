@@ -87,11 +87,11 @@ def build_styles_config(
     if theme is None:
         theme = load_theme()
     heading_styles = ""
-    primary_default = "#" + theme.palette.primary
     for level in range(1, 7):
         size_key = f"h{level}"
         size = styles.heading_sizes.get(size_key, 24)
-        color = styles.colors.get("primary", primary_default)
+        # Theme wins unconditionally for design colors.
+        color = "#" + theme.palette.primary
         if level <= 3:
             heading_styles += (
                 f"{{\n"
@@ -104,10 +104,12 @@ def build_styles_config(
                 f"    size: {size},\n"
                 f"    color: '{color}',\n"
                 f"    bold: true,\n"
-                f"    font: 'Calibri',\n"
+                f"    font: '{theme.typography.default_font}',\n"
                 f"  }},\n"
                 f"  paragraph: {{\n"
-                f"    spacing: {{ before: 240, after: 120 }},\n"
+                f"    spacing: {{ "
+                f"before: {theme.paragraph.heading_before}, "
+                f"after: {theme.paragraph.heading_after} }},\n"
                 f"  }},\n"
                 f"}},\n"
             )
@@ -123,7 +125,7 @@ def build_styles_config(
                 f"    size: {size},\n"
                 f"    color: '{color}',\n"
                 f"    bold: true,\n"
-                f"    font: 'Calibri',\n"
+                f"    font: '{theme.typography.default_font}',\n"
                 f"  }},\n"
                 f"}},\n"
             )
@@ -133,8 +135,8 @@ def build_styles_config(
         f"  document: {{\n"
         f"    run: {{\n"
         f"      size: {styles.body_size},\n"
-        f"      font: 'Calibri',\n"
-        f"      color: '{styles.colors.get('text', '#1F2937')}',\n"
+        f"      font: '{theme.typography.default_font}',\n"
+        f"      color: '#{theme.palette.body}',\n"
         f"    }},\n"
         f"  }},\n"
         f"}},\n"
@@ -144,7 +146,7 @@ def build_styles_config(
         f"    name: 'Normal',\n"
         f"    run: {{\n"
         f"      size: {styles.body_size},\n"
-        f"      font: 'Calibri',\n"
+        f"      font: '{theme.typography.default_font}',\n"
         f"    }},\n"
         f"  }},\n"
         f"  {heading_styles}"
@@ -357,12 +359,10 @@ def render_assembly_template(
         plan_data.sections[0] if plan_data.sections else None,
     )
     doc_title = cover_spec.title if cover_spec else "MINT Document"
-    primary = plan_data.styles.colors.get(
-        "primary", "#" + theme.palette.primary
-    ).lstrip("#")
-    muted = plan_data.styles.colors.get(
-        "muted", "#" + theme.palette.muted
-    ).lstrip("#")
+    # Theme is the design ground-truth — it always wins over plan.styles.colors
+    # which is the model's unhelpful guess from prompt context.
+    primary = theme.palette.primary
+    muted = theme.palette.muted
     footer_size = theme.typography.style("footer").size
     header_text_size = theme.typography.style("caption").size
 
@@ -403,15 +403,9 @@ def render_assembly_template(
             # layout. The model's text is unreliable for cover (long
             # paragraphs, weird sizes, missing decoration). All visual
             # parameters come from the active theme — no hardcoded literals.
-            primary_color = plan_data.styles.colors.get(
-                "primary", "#" + theme.palette.primary
-            ).lstrip("#")
-            accent_color = plan_data.styles.colors.get(
-                "accent", "#" + theme.palette.accent
-            ).lstrip("#")
-            muted_color = plan_data.styles.colors.get(
-                "muted", "#" + theme.palette.muted
-            ).lstrip("#")
+            primary_color = theme.palette.primary
+            accent_color = theme.palette.accent
+            muted_color = theme.palette.muted
             cover_title = spec.title.replace("'", "\\'")
             tagline = theme.cover.tagline
 

@@ -29,6 +29,9 @@ from mint.plan import (
 
 class TestBuildStylesConfig:
     def test_contains_heading_styles_with_colors_and_sizes(self):
+        # Theme is the design ground-truth — styles.colors no longer leaks
+        # into headings. The default theme (showcase_v1) provides primary
+        # 1B3A5C, so heading color is "#1B3A5C" regardless of plan input.
         styles = StylesConfig(
             colors={"primary": "#FF0000"},
             heading_sizes={"h1": 32, "h2": 28, "h3": 24},
@@ -37,7 +40,8 @@ class TestBuildStylesConfig:
         assert "Heading1" in js
         assert "Heading2" in js
         assert "Heading3" in js
-        assert "#FF0000" in js
+        assert "#1B3A5C" in js  # default theme primary, not plan
+        assert "#FF0000" not in js  # plan colors must NOT leak into heading
         assert "32" in js
         assert "28" in js
 

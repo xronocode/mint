@@ -1,0 +1,122 @@
+# MINT theme: claret_serif
+# An alternative palette: deep claret + warm gold + cream, with a Georgia
+# serif body for an editorial / memo / journal feel. Different in every
+# axis from showcase_v1: colors, fonts, sizes, spacing, callout palette,
+# tagline, footer style.
+
+[meta]
+name = "claret_serif"
+description = "Editorial claret + gold serif theme — alternative to showcase_v1"
+version = 1
+
+[palette]
+primary = "7A1F2B"          # Deep claret — table headers, h1, accent bar
+primary_text_on = "FFF8EC"  # Cream on top of primary (NOT pure white)
+body = "1F1F1F"             # Near-black body text
+muted = "8A8076"            # Warm grey — subtitles, page footer
+border = "E8E2D8"           # Subtle warm grey — table borders
+alt_row = "F8F4EE"          # Cream — zebra-stripe table fill
+accent = "C9A227"           # Antique gold — links, accents
+
+[palette.callouts.warning]
+border = "C76B17"           # Burnt orange
+fill = "FCEFD8"
+[palette.callouts.note]
+border = "4A6FA5"           # Slate blue
+fill = "EAEEF6"
+[palette.callouts.tip]
+border = "5A7D3F"           # Forest green
+fill = "EEF3E6"
+[palette.callouts.caution]
+border = "8B1A1A"           # Dark red
+fill = "F7E6E6"
+
+[typography]
+default_font = "Georgia"
+mono_font = "Menlo"
+
+[typography.styles.title]
+size = 96                   # 48pt — bigger hero
+bold = true
+color = "7A1F2B"
+
+[typography.styles.heading1]
+size = 36                   # 18pt — slightly larger than showcase
+bold = true
+color = "7A1F2B"
+
+[typography.styles.heading2]
+size = 30                   # 15pt
+bold = true
+color = "7A1F2B"
+
+[typography.styles.heading3]
+size = 26                   # 13pt
+bold = true
+color = "1F1F1F"
+
+[typography.styles.body]
+size = 22                   # 11pt — same body for readability parity
+color = "1F1F1F"
+
+[typography.styles.code]
+size = 18                   # 9pt mono — more compact
+color = "1F1F1F"
+font = "Menlo"
+
+[typography.styles.caption]
+size = 18
+italic = true
+color = "8A8076"
+
+[typography.styles.footer]
+size = 16
+color = "8A8076"
+
+[typography.styles.subtitle]
+size = 28
+italic = true
+color = "8A8076"
+
+[paragraph]
+body_after = 160            # More breathing room than showcase (120)
+body_line = 300             # Looser line for serif
+body_line_rule = "auto"
+heading_before = 320
+heading_after = 160
+
+[tables]
+target_width_dxa = 9360
+alt_row_fill = "F8F4EE"
+
+[tables.cell_margins]
+top = 100                   # Roomier than showcase (80)
+bottom = 100
+left = 160
+right = 160
+
+[tables.borders]
+size = 6                    # Slightly heavier (0.75pt vs 0.5pt)
+color = "E8E2D8"
+
+[tables.header]
+fill = "7A1F2B"
+text = "FFF8EC"
+bold = true
+
+[tables.body]
+text = "1F1F1F"
+bold = false
+
+[cover]
+title_size_cap = 72         # Allow up to 36pt cover titles
+hero_size = 96              # 48pt
+tagline = "Internal Memorandum"
+tagline_size = 32
+metadata_size = 18
+accent_bar_size = 24
+
+[callout_layout]
+border_width = 16           # 2pt left bar (heavier than showcase 1.5pt)
+border_space = 10
+indent_left = 160
