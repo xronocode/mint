@@ -382,7 +382,7 @@
 
     <!-- Phase 6: Pure Python Edition (Phase 0 of pure-python rollout — skeleton + feature flag) -->
 
-    <MP-PKG NAME="Mint-Python Skeleton" TYPE="UTILITY" STATUS="planned">
+    <MP-PKG NAME="Mint-Python Skeleton" TYPE="UTILITY" STATUS="done">
       <purpose>Empty parallel package skeleton for the Pure Python Edition (handover §5). Phase 0 ships only `__init__.py` files; subpackage contracts populate in Phases 1-5.</purpose>
       <path>src/mint_python/</path>
       <depends>none</depends>

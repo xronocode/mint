@@ -875,7 +875,7 @@ writeFileSync('output.docx', buffer);
 
     <!-- PHASE 6: Pure Python Edition (Phase 0 of pure-python rollout — skeleton + feature flag) -->
 
-    <MP-PKG NAME="Mint-Python Skeleton" TYPE="UTILITY" LAYER="0" ORDER="9" STATUS="planned">
+    <MP-PKG NAME="Mint-Python Skeleton" TYPE="UTILITY" LAYER="0" ORDER="9" STATUS="done">
       <contract>
         <purpose>Empty parallel package skeleton for the Pure Python Edition. Phase 0 ships only `__init__.py` files for the 8 subpackages mandated by handover §5; subpackage contracts populate in Phases 1-5.</purpose>
         <inputs>
@@ -1026,13 +1026,13 @@ writeFileSync('output.docx', buffer);
       <step-3 module="M-MCP-G2" status="done" verification="V-M-MCP-G2">Add MCP tool mint_edit (input document_path + EditPlan JSON, output EditResult); also extend src/mint/cli.py with a mint edit subcommand reading EditPlan from a JSON file</step-3>
     </Phase-5>
 
-    <Phase-6 name="Pure Python Edition — Phase 0 (skeleton + feature flag)" status="active">
+    <Phase-6 name="Pure Python Edition — Phase 0 (skeleton + feature flag)" status="done">
       <goal>Lay groundwork for the Pure Python Edition: parallel `src/mint_python/` skeleton (no engine code) and a dual-engine feature flag (MINT_ENGINE / --engine) wired through M-CONFIG and M-CLI. Default engine=python — picking it raises NotImplementedError from a single chokepoint in M-CLI._select_engine; engine=js keeps the legacy pipeline working unchanged. Phases 1-5 of the pure-python rollout populate MP-* subpackages and replace the chokepoint with a real router.</goal>
-      <step-1 module="M-CONFIG" status="planned" verification="V-M-CONFIG">Extend MintConfig with `engine: Engine` field (default Engine.PYTHON); add Engine StrEnum {JS,PYTHON}; parse MINT_ENGINE in load_config mirroring the tier/severity pattern (raises CONFIG_INVALID on unknown values).</step-1>
-      <step-2 module="M-CLI" status="planned" verification="V-M-CLI">Add top-level `--engine {python,js}` arg in build_parser (default None to distinguish "unset" from explicit "js"); in main(), if args.engine is set, write os.environ["MINT_ENGINE"] before any config() call; add private _select_engine chokepoint called once before the cmd_* dispatch dict. _select_engine MUST emit `[CLI][_select_engine][BLOCK_SELECT_ENGINE]` at INFO with the resolved engine value (Phase-6 trace contract; required by VF-011, V-MP-FLAG scenarios 9-10, and V-M-CLI scenario 13).</step-2>
-      <step-3 module="MP-PKG" status="planned" verification="V-MP-PKG">Create `src/mint_python/{__init__.py,core/__init__.py,sdk/__init__.py,execution/__init__.py,rules/__init__.py,grace/__init__.py,mcp/__init__.py,cli/__init__.py,tests/__init__.py}` using the repo's `# FILE:` / `# START_MODULE_CONTRACT` header convention. Add `__version__='0.0.0'` to top-level marker. No public interfaces.</step-3>
-      <step-4 module="(infrastructure)" status="planned" verification="V-MP-FLAG">Update pyproject.toml `[tool.hatch.build.targets.wheel].packages = ["src/mint", "src/mint_python"]`; bump src/mint/__init__.py to 0.2.0; add `# MINT_ENGINE=js` opt-in line to `.env.example`; pin `tests/integration/test_cli.py::_run` helper to pass `--engine js` so the legacy integration suite stays green under the new python-default.</step-4>
-      <step-5 module="(test surface)" status="planned" verification="V-MP-FLAG">Add `tests/unit/test_engine_flag.py`: default→python, env override→js, garbage→CONFIG_INVALID, _select_engine js/python branches, CLI overrides env (via os.environ pre-load), import smoke for all 9 mint_python entry points.</step-5>
+      <step-1 module="M-CONFIG" status="done" verification="V-M-CONFIG">Extend MintConfig with `engine: Engine` field (default Engine.PYTHON); add Engine StrEnum {JS,PYTHON}; parse MINT_ENGINE in load_config mirroring the tier/severity pattern (raises CONFIG_INVALID on unknown values).</step-1>
+      <step-2 module="M-CLI" status="done" verification="V-M-CLI">Add top-level `--engine {python,js}` arg in build_parser (default None to distinguish "unset" from explicit "js"); in main(), if args.engine is set, write os.environ["MINT_ENGINE"] before any config() call; add private _select_engine chokepoint called once before the cmd_* dispatch dict. _select_engine MUST emit `[CLI][_select_engine][BLOCK_SELECT_ENGINE]` at INFO with the resolved engine value (Phase-6 trace contract; required by VF-011, V-MP-FLAG scenarios 9-10, and V-M-CLI scenario 13).</step-2>
+      <step-3 module="MP-PKG" status="done" verification="V-MP-PKG">Create `src/mint_python/{__init__.py,core/__init__.py,sdk/__init__.py,execution/__init__.py,rules/__init__.py,grace/__init__.py,mcp/__init__.py,cli/__init__.py,tests/__init__.py}` using the repo's `# FILE:` / `# START_MODULE_CONTRACT` header convention. Add `__version__='0.0.0'` to top-level marker. No public interfaces.</step-3>
+      <step-4 module="(infrastructure)" status="done" verification="V-MP-FLAG">Update pyproject.toml `[tool.hatch.build.targets.wheel].packages = ["src/mint", "src/mint_python"]`; bump src/mint/__init__.py to 0.2.0; add `# MINT_ENGINE=js` opt-in line to `.env.example`; pin `tests/integration/test_cli.py::_run` helper to pass `--engine js` so the legacy integration suite stays green under the new python-default.</step-4>
+      <step-5 module="(test surface)" status="done" verification="V-MP-FLAG">Add `tests/unit/test_engine_flag.py`: default→python, env override→js, garbage→CONFIG_INVALID, _select_engine js/python branches, CLI overrides env (via os.environ pre-load), import smoke for all 9 mint_python entry points.</step-5>
     </Phase-6>
   </ImplementationOrder>
 

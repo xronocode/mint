@@ -230,7 +230,7 @@
       </forbidden-signals>
     </VF-010>
 
-    <VF-011 NAME="EngineDispatch" USE_CASES="UC-001,UC-002,UC-003,UC-007,UC-008" DATA_FLOW="DF-008" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-6-1">
+    <VF-011 NAME="EngineDispatch" USE_CASES="UC-001,UC-002,UC-003,UC-007,UC-008" DATA_FLOW="DF-008" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-6-1">
       <scenario>Phase-6 dual-engine flag: any `mint &lt;subcmd&gt;` invocation routes through M-CLI._select_engine. With engine=js (env or --engine), legacy DF-001..DF-007 proceed unchanged. With engine=python (default in Phase 0), _select_engine raises NotImplementedError and no cmd_* handler runs.</scenario>
       <expected-outcome>(a) `--engine js` invocations remain trace-compatible with VF-001..VF-010; (b) default and explicit `--engine python` invocations exit non-zero with NotImplementedError naming Phase 0 + remediation, before any cmd_* / BLOCK_* legacy marker fires; (c) `--engine` always wins over MINT_ENGINE because M-CLI.main writes os.environ before config().</expected-outcome>
       <invariants>
@@ -240,8 +240,8 @@
         <inv-4>An invalid MINT_ENGINE value raises CONFIG_INVALID at load_config time, naming MINT_ENGINE in the message — never silently falls back to the default.</inv-4>
       </invariants>
       <required-signals>
-        <log-marker>[Config][load][BLOCK_LOAD_CONFIG] — exists today; Phase-6 extends INFO payload to include the resolved engine value</log-marker>
-        <log-marker>[CLI][_select_engine][BLOCK_SELECT_ENGINE] — NEW in Phase-6; fires once per main() between BLOCK_LOAD_CONFIG and (on js path) BLOCK_DISPATCH; INFO payload carries cfg.engine.value; absence on a non-help, non-error invocation is a bug</log-marker>
+        <log-marker>[Config][load][BLOCK_LOAD_CONFIG] — added in Wave-6-1A (commit 2baab4a); INFO payload format `[Config][load][BLOCK_LOAD_CONFIG] tier=%s severity=%s engine=%s sandbox_timeout=%d` via mint.config logger; wrapped by `# START_BLOCK_LOAD_CONFIG`/`# END_BLOCK_LOAD_CONFIG` source markers</log-marker>
+        <log-marker>[CLI][_select_engine][BLOCK_SELECT_ENGINE] — added in Wave-6-1B (commit 73ae169) at src/mint/cli.py lines 422-426; fires once per main() between BLOCK_LOAD_CONFIG and (on js path) cmd_* dispatch; INFO payload carries cfg.engine.value via mint.cli logger; absence on a non-help, non-error invocation is a bug</log-marker>
         <conditional-marker>[CLI][main][BLOCK_DISPATCH] — fires only when _select_engine returned 'js'; absent on the python path</conditional-marker>
         <trace-sequence>BLOCK_LOAD_CONFIG -&gt; BLOCK_SELECT_ENGINE -&gt; (engine==js) BLOCK_DISPATCH -&gt; cmd_*; (engine==python) BLOCK_LOAD_CONFIG -&gt; BLOCK_SELECT_ENGINE -&gt; NotImplementedError -&gt; non-zero exit</trace-sequence>
       </required-signals>
@@ -286,28 +286,28 @@
     <V-M-CONFIG MODULE="M-CONFIG" PRIORITY="high">
       <test-files>
         <file>tests/unit/test_config.py</file>
-        <file status="planned" activates-at="Wave-6-1">tests/unit/test_engine_flag.py</file>
+        <file status="active" activated-at="Wave-6-1">tests/unit/test_engine_flag.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_config.py -x</check-1>
         <check-2>ruff check src/mint/config.py</check-2>
         <check-3>mypy src/mint/config.py</check-3>
-        <check-4 status="planned" activates-at="Wave-6-1">pytest tests/unit/test_config.py tests/unit/test_engine_flag.py -x</check-4>
+        <check-4 status="done" activated-at="Wave-6-1">pytest tests/unit/test_config.py tests/unit/test_engine_flag.py -x</check-4>
       </module-checks>
       <scenarios>
         <scenario-1 kind="success" evidence="deterministic">loadConfig reads LLM_BASE_URL + LLM_MODEL + MINT_MODEL_TIER from env → valid MintConfig</scenario-1>
         <scenario-2 kind="success" evidence="deterministic">loadConfig reads .env file when env vars absent → valid MintConfig</scenario-2>
         <scenario-3 kind="failure" evidence="deterministic">Missing LLM_BASE_URL raises CONFIG_MISSING with message containing "LLM_BASE_URL"</scenario-3>
         <scenario-4 kind="failure" evidence="deterministic">Invalid MINT_MODEL_TIER (e.g. "huge") raises CONFIG_INVALID with valid options listed</scenario-4>
-        <scenario-5 kind="success" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE unset → MintConfig.engine == Engine.PYTHON (default)</scenario-5>
-        <scenario-6 kind="success" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE="js" → MintConfig.engine == Engine.JS</scenario-6>
-        <scenario-7 kind="failure" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE="garbage" raises CONFIG_INVALID with message containing "MINT_ENGINE" and listing {python, js}</scenario-7>
+        <scenario-5 kind="success" evidence="deterministic" status="done" activated-at="Wave-6-1">(Phase-6) MINT_ENGINE unset → MintConfig.engine == Engine.PYTHON (default)</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="done" activated-at="Wave-6-1">(Phase-6) MINT_ENGINE="js" → MintConfig.engine == Engine.JS</scenario-6>
+        <scenario-7 kind="failure" evidence="deterministic" status="done" activated-at="Wave-6-1">(Phase-6) MINT_ENGINE="garbage" raises CONFIG_INVALID with message containing "MINT_ENGINE" and listing {python, js}</scenario-7>
       </scenarios>
       <forbidden-behaviors>
         <forbidden-1>Never returns None — must raise or return valid MintConfig</forbidden-1>
         <forbidden-2>Never logs API keys at INFO level</forbidden-2>
-        <forbidden-3 status="planned" activates-at="Wave-6-1">(Phase-6) MintConfig must remain frozen — engine field must not be mutable post-construction</forbidden-3>
-        <forbidden-4 status="planned" activates-at="Wave-6-1">(Phase-6) CENTRAL FIXTURE INVARIANT: any test file that reads or sets MINT_ENGINE (via os.environ, monkeypatch.setenv, dotenv, or subprocess env) MUST import the central `clean_env` autouse fixture from tests/unit/test_config.py via conftest.py / fixture import — NOT redefine its own `clean_env` locally. Local redefinition without `MINT_ENGINE` in env_keys creates silent leak between sibling tests AND silently passes V-MP-FLAG scenario-11 (which only inspects the central fixture). Enforcement command (suitable for pre-commit hook or CI step): `[ "$(grep -rl '^def clean_env' tests/unit/ 2&gt;/dev/null | wc -l | tr -d ' ')" = "1" ] &amp;&amp; grep -l '^def clean_env' tests/unit/ | grep -q '^tests/unit/test_config\.py$'` — exits 0 only when exactly one file matches AND that file is `tests/unit/test_config.py`. This invariant is the single chokepoint that prevents the swarm-flake vector identified by peer review.</forbidden-4>
+        <forbidden-3 status="done" activated-at="Wave-6-1">(Phase-6) MintConfig must remain frozen — engine field must not be mutable post-construction</forbidden-3>
+        <forbidden-4 status="done" activated-at="Wave-6-1">(Phase-6) CENTRAL FIXTURE INVARIANT: any test file that reads or sets MINT_ENGINE (via os.environ, monkeypatch.setenv, dotenv, or subprocess env) MUST import the central `clean_env` autouse fixture from tests/unit/test_config.py via conftest.py / fixture import — NOT redefine its own `clean_env` locally. Local redefinition without `MINT_ENGINE` in env_keys creates silent leak between sibling tests AND silently passes V-MP-FLAG scenario-11 (which only inspects the central fixture). Enforcement command (suitable for pre-commit hook or CI step): `[ "$(grep -rl '^def clean_env' tests/unit/ 2&gt;/dev/null | wc -l | tr -d ' ')" = "1" ] &amp;&amp; grep -l '^def clean_env' tests/unit/ | grep -q '^tests/unit/test_config\.py$'` — exits 0 only when exactly one file matches AND that file is `tests/unit/test_config.py`. This invariant is the single chokepoint that prevents the swarm-flake vector identified by peer review.</forbidden-4>
       </forbidden-behaviors>
       <autonomy-assessment>SAFE — no external deps, pure config loading, fully deterministic. (Phase-6 Wave-6-1 onward) SWARM-SAFE only when forbidden-4 is enforced — central clean_env fixture is the single point keeping MINT_ENGINE state isolated between in-process pytest tests.</autonomy-assessment>
     </V-M-CONFIG>
@@ -718,13 +718,13 @@
     <V-M-CLI MODULE="M-CLI" PRIORITY="medium">
       <test-files>
         <file>tests/integration/test_cli.py</file>
-        <file status="planned" activates-at="Wave-6-1">tests/unit/test_engine_flag.py</file>
+        <file status="active" activated-at="Wave-6-1">tests/unit/test_engine_flag.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/integration/test_cli.py -x</check-1>
         <check-2>ruff check src/mint/cli.py</check-2>
         <check-3>mypy src/mint/cli.py</check-3>
-        <check-4 status="planned" activates-at="Wave-6-1">pytest tests/integration/test_cli.py tests/unit/test_engine_flag.py -x</check-4>
+        <check-4 status="done" activated-at="Wave-6-1">pytest tests/integration/test_cli.py tests/unit/test_engine_flag.py -x</check-4>
       </module-checks>
       <scenarios>
         <scenario-1 kind="success" evidence="integration">mint validate fixture.docx --severity=lenient prints ValidationReport JSON to stdout, exit 0 on pass / non-zero on fail</scenario-1>
@@ -734,13 +734,13 @@
         <scenario-5 kind="failure" evidence="deterministic">mint create with unknown subcommand or missing required arg exits CLI_USAGE_ERROR (non-zero) and prints argparse-style usage to stderr</scenario-5>
         <scenario-6 kind="failure" evidence="deterministic">mint validate /nonexistent/path.docx exits CLI_FILE_NOT_FOUND (non-zero) with a clear error line on stderr</scenario-6>
         <scenario-7 kind="success" evidence="integration">(Phase-5) mint edit fixture.docx --plan plan.json prints EditResult JSON; output_path inside the JSON points to an existing file</scenario-7>
-        <scenario-8 kind="failure" evidence="integration" status="planned" activates-at="Wave-6-1">(Phase-6) mint validate fixture.docx (no --engine, no MINT_ENGINE) exits non-zero; stderr contains "MINT_ENGINE=python" and "Phase 0"; no output file created</scenario-8>
-        <scenario-9 kind="failure" evidence="integration" status="planned" activates-at="Wave-6-1">(Phase-6) mint --engine python validate fixture.docx — same as scenario-8</scenario-9>
-        <scenario-10 kind="success" evidence="integration" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE=js mint validate fixture.docx — succeeds (env supplies engine)</scenario-10>
-        <scenario-11 kind="success" evidence="integration" status="planned" activates-at="Wave-6-1">(Phase-6) MINT_ENGINE=python mint --engine js validate fixture.docx — succeeds (CLI overrides env via os.environ pre-load)</scenario-11>
-        <scenario-12 kind="success" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) mint --help shows top-level `--engine {python,js}` flag with help text mentioning MINT_ENGINE</scenario-12>
-        <scenario-13 kind="failure" evidence="trace" status="planned" activates-at="Wave-6-1">(Phase-6) NEGATIVE TRACE: mint validate fixture.docx (no --engine, no MINT_ENGINE) — captured stderr contains [CLI][_select_engine][BLOCK_SELECT_ENGINE] and NotImplementedError but does NOT contain any [Validate], [Create], [Sandbox], [OOXML], [Edit], or BLOCK_RUN_CHECKS / BLOCK_ORCHESTRATE / BLOCK_EXECUTE_CODE / BLOCK_OOXML_UNPACK markers. Proves the chokepoint runs BEFORE any cmd_* would have started side effects.</scenario-13>
-        <scenario-14 kind="failure" evidence="deterministic" status="planned" activates-at="Wave-6-1">(Phase-6) ARG POSITION: mint validate --engine js fixture.docx (--engine after subcommand) → CLI_USAGE_ERROR (non-zero), argparse usage to stderr. --engine is top-level only.</scenario-14>
+        <scenario-8 kind="failure" evidence="integration" status="done" activated-at="Wave-6-1">(Phase-6) mint validate fixture.docx (no --engine, no MINT_ENGINE) exits non-zero; stderr contains "MINT_ENGINE=python" and "Phase 0"; no output file created</scenario-8>
+        <scenario-9 kind="failure" evidence="integration" status="done" activated-at="Wave-6-1">(Phase-6) mint --engine python validate fixture.docx — same as scenario-8</scenario-9>
+        <scenario-10 kind="success" evidence="integration" status="done" activated-at="Wave-6-1">(Phase-6) MINT_ENGINE=js mint validate fixture.docx — succeeds (env supplies engine)</scenario-10>
+        <scenario-11 kind="success" evidence="integration" status="done" activated-at="Wave-6-1">(Phase-6) MINT_ENGINE=python mint --engine js validate fixture.docx — succeeds (CLI overrides env via os.environ pre-load)</scenario-11>
+        <scenario-12 kind="success" evidence="deterministic" status="done" activated-at="Wave-6-1">(Phase-6) mint --help shows top-level `--engine {python,js}` flag with help text mentioning MINT_ENGINE</scenario-12>
+        <scenario-13 kind="failure" evidence="trace" status="done" activated-at="Wave-6-1">(Phase-6) NEGATIVE TRACE: mint validate fixture.docx (no --engine, no MINT_ENGINE) — captured stderr contains [CLI][_select_engine][BLOCK_SELECT_ENGINE] and NotImplementedError but does NOT contain any [Validate], [Create], [Sandbox], [OOXML], [Edit], or BLOCK_RUN_CHECKS / BLOCK_ORCHESTRATE / BLOCK_EXECUTE_CODE / BLOCK_OOXML_UNPACK markers. Proves the chokepoint runs BEFORE any cmd_* would have started side effects.</scenario-13>
+        <scenario-14 kind="failure" evidence="deterministic" status="done" activated-at="Wave-6-1">(Phase-6) ARG POSITION: mint validate --engine js fixture.docx (--engine after subcommand) → CLI_USAGE_ERROR (non-zero), argparse usage to stderr. --engine is top-level only.</scenario-14>
       </scenarios>
       <required-log-markers>
         <marker-1>[CLI][cmd_*] entry log per dispatched subcommand</marker-1>
@@ -848,7 +848,7 @@
 
     <!-- ===== PHASE 6: Pure Python Edition (Phase 0) ===== -->
 
-    <V-MP-PKG MODULE="MP-PKG" PRIORITY="medium" STATUS="planned" ACTIVATES_AT="Wave-6-1">
+    <V-MP-PKG MODULE="MP-PKG" PRIORITY="medium" STATUS="done" ACTIVATED_AT="Wave-6-1">
       <test-files>
         <file>tests/unit/test_engine_flag.py</file>
       </test-files>
@@ -870,7 +870,7 @@
       <autonomy-assessment>SWARM-SAFE — empty package skeleton; idempotent file creation, no shared mutable state, no env reads. A worker creating these files cannot interfere with another worker editing src/mint/ as long as both stay within their declared write scope (worker-owns / controller-owns split in development-plan.xml ExecutionPolicy).</autonomy-assessment>
     </V-MP-PKG>
 
-    <V-MP-FLAG MODULE="M-CONFIG,M-CLI" PRIORITY="high" KIND="feature-verification" STATUS="planned" ACTIVATES_AT="Wave-6-1">
+    <V-MP-FLAG MODULE="M-CONFIG,M-CLI" PRIORITY="high" KIND="feature-verification" STATUS="done" ACTIVATED_AT="Wave-6-1">
       <note>Cross-cuts M-CONFIG (Engine enum + field + parsing) and M-CLI (--engine arg + os.environ write + _select_engine chokepoint). Hosted as a separate V-* entry so a single failure packet maps cleanly to the feature; V-M-CONFIG and V-M-CLI cross-reference it via their test-files lists.</note>
       <test-files>
         <file>tests/unit/test_engine_flag.py</file>
@@ -1085,7 +1085,7 @@
       </required-evidence>
     </Wave-5-3>
 
-    <Wave-6-1 PHASE="Phase-6" SCOPE="M-CONFIG (engine field), M-CLI (--engine, _select_engine, BLOCK_SELECT_ENGINE), MP-PKG, V-MP-FLAG" STATUS="planned">
+    <Wave-6-1 PHASE="Phase-6" SCOPE="M-CONFIG (engine field), M-CLI (--engine, _select_engine, BLOCK_SELECT_ENGINE), MP-PKG, V-MP-FLAG" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Single-wave Phase-0 surface: dual-engine flag wired through M-CONFIG and M-CLI, MP-PKG skeleton importable, all V-MP-FLAG / V-MP-PKG scenarios green, every legacy DF-001..DF-007 trace sequence still passes when invoked under --engine js. Wave is intentionally small (one wave covers the whole Phase-6) because Phase 0 is scaffolding-only.</goal>
       <commands>
         <command-1>pytest tests/unit/test_engine_flag.py -v</command-1>
@@ -1179,7 +1179,7 @@
       </required-evidence>
     </Gate-Phase-4>
 
-    <Gate-Phase-6 PHASE="Phase-6" STATUS="planned" ACTIVATES_AT="Wave-6-1 completion">
+    <Gate-Phase-6 PHASE="Phase-6" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Pure Python Edition Phase 0 lands as scaffolding only: skeleton importable, dual-engine flag wired through M-CONFIG and M-CLI, default engine=python fails closed via NotImplementedError, --engine js / MINT_ENGINE=js keeps every legacy DF-001..DF-007 flow green.</goal>
       <commands>
         <command-1>pytest tests/ -x --timeout=120</command-1>
@@ -1200,7 +1200,7 @@
   </PhaseGates>
 
   <SwarmExecutionReadiness UPDATED="2026-05-09">
-    <summary>Current executable verification is strong for deterministic OOXML, validation, edit, theme, MCP, and CLI adapter paths. Swarm execution is permitted only when workers stay inside declared module write scopes and controller-owned docs are edited serially. Phase-6 engine-dispatch verification is planned but not yet executable in the current checkout because src/mint_python, tests/unit/test_engine_flag.py, MINT_ENGINE, Engine, and M-CLI._select_engine are absent.</summary>
+    <summary>Current executable verification is strong for deterministic OOXML, validation, edit, theme, MCP, and CLI adapter paths. Swarm execution is permitted only when workers stay inside declared module write scopes and controller-owned docs are edited serially. Phase-6 engine-dispatch verification is now ACTIVE — Wave-6-1 landed 2026-05-09 across 5 commits (7ece0df, 2baab4a, 73ae169, 5cc23b9, 832912e); src/mint_python, tests/unit/test_engine_flag.py, MINT_ENGINE, Engine, BLOCK_LOAD_CONFIG, and _select_engine all exist and are tested.</summary>
     <verification-matrix>
       <target-1 MODULES="M-RULES,M-VALIDATE,M-FINGERPRINT,M-THEME,M-THEMEEXTRACT" STATUS="swarm-safe">
         <evidence>Pure or read-only deterministic tests; run module-local pytest plus ruff/mypy on touched files.</evidence>
@@ -1222,9 +1222,9 @@
         <evidence>tests/unit/test_llm.py is absent. Add deterministic httpx transport tests and confirm [LLM][call][BLOCK_CALL_MODEL] redaction before autonomous work.</evidence>
         <commands status="planned">pytest tests/unit/test_llm.py -x</commands>
       </target-5>
-      <target-6 MODULES="M-CONFIG,M-CLI,MP-PKG" STATUS="planned">
-        <evidence>Phase-6 engine-dispatch contract is documented but not implemented in source. Keep Wave-6-1 as a planned activation gate; do not run Phase-6 commands until the files and symbols exist.</evidence>
-        <commands status="planned">pytest tests/unit/test_engine_flag.py tests/integration/test_cli.py -x</commands>
+      <target-6 MODULES="M-CONFIG,M-CLI,MP-PKG" STATUS="swarm-safe" COMPLETED_AT="2026-05-09">
+        <evidence>Phase-6 engine-dispatch contract is implemented and verified end-to-end. Wave-6-1 landed under commits 7ece0df (MP-PKG), 2baab4a (M-CONFIG), 73ae169 (M-CLI), 5cc23b9 (infra), 832912e (V-MP-FLAG tests). 309 unit/integration tests + 1 skipped pass; ruff and mypy clean across the touched surface; uv build wheel includes 9 mint_python __init__.py entries.</evidence>
+        <commands>pytest tests/unit/test_engine_flag.py tests/integration/test_cli.py -x</commands>
       </target-6>
     </verification-matrix>
     <telemetry-requirements>
