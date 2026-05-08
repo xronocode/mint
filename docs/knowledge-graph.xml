@@ -417,7 +417,7 @@
       </annotations>
     </MP-STYLE>
 
-    <MP-CONTENT NAME="Pure Python Content Primitives" TYPE="CORE_LOGIC" STATUS="planned">
+    <MP-CONTENT NAME="Pure Python Content Primitives" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Inline content blocks placed inside a Section: Paragraph + Run + Image, all OOXML emitters via python-docx + pillow</purpose>
       <path>src/mint_python/core/content.py</path>
       <depends>MP-STYLE</depends>
@@ -429,7 +429,7 @@
       </annotations>
     </MP-CONTENT>
 
-    <MP-TABLE NAME="Pure Python Table" TYPE="CORE_LOGIC" STATUS="planned">
+    <MP-TABLE NAME="Pure Python Table" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Table class with §3.3 factory constructors and post-construction shaping; renders into python-docx Table</purpose>
       <path>src/mint_python/core/table.py</path>
       <depends>MP-STYLE, MP-CONTENT</depends>

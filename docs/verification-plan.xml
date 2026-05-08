@@ -1017,9 +1017,9 @@
       <autonomy-assessment>SWARM-SAFE — pure deterministic; no I/O beyond JSON file reads in tmp; no env reads; module-level state is read-only registry</autonomy-assessment>
     </V-MP-STYLE>
 
-    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-2">
+    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2">
       <test-files>
-        <file status="planned" activates-at="Wave-7-2">tests/unit/test_mp_content.py</file>
+        <file status="active" activated-at="Wave-7-2">tests/unit/test_mp_content.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_mp_content.py -x</check-1>
@@ -1045,9 +1045,9 @@
       <autonomy-assessment>SWARM-SAFE — render() target is a per-test python-docx Document instance; no shared mutable state</autonomy-assessment>
     </V-MP-CONTENT>
 
-    <V-MP-TABLE MODULE="MP-TABLE" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-2">
+    <V-MP-TABLE MODULE="MP-TABLE" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2">
       <test-files>
-        <file status="planned" activates-at="Wave-7-2">tests/unit/test_mp_table.py</file>
+        <file status="active" activated-at="Wave-7-2">tests/unit/test_mp_table.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_mp_table.py -x</check-1>
@@ -1405,7 +1405,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Wave-7-1>
 
-    <Wave-7-2 PHASE="Phase-7" SCOPE="MP-CONTENT, MP-TABLE" STATUS="planned">
+    <Wave-7-2 PHASE="Phase-7" SCOPE="MP-CONTENT, MP-TABLE" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Land Paragraph + Run + Image (MP-CONTENT) and Table with §3.3 factories (MP-TABLE) in parallel — both depend only on MP-STYLE.</goal>
       <commands>
         <command-1>pytest tests/unit/test_mp_content.py tests/unit/test_mp_table.py -x</command-1>
