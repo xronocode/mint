@@ -39,6 +39,12 @@ class LLMResponse:
     model: str
     usage: dict[str, int]
     duration_ms: int
+    # Reasoning emitted by thinking-capable models (Ollama: separate `reasoning`
+    # field on the message). Empty for non-thinking models. Filled even when
+    # `text` (content) is empty, which lets callers distinguish "model produced
+    # nothing" from "model spent the whole budget on reasoning".
+    reasoning: str = ""
+    finish_reason: str = ""
 
 
 class LLMClient:
@@ -105,22 +111,47 @@ class LLMClient:
         if not choices:
             raise LLMCallError("LLM returned no choices")
 
-        text = choices[0].get("message", {}).get("content", "")
+        message = choices[0].get("message", {}) or {}
+        text = message.get("content", "") or ""
+        # Ollama exposes reasoning on a separate field for thinking-capable
+        # models (qwen3, glm-4.7-flash, gpt-oss, gemma4, …). Surface it on
+        # LLMResponse so callers can distinguish "stuck in reasoning" from
+        # "produced nothing".
+        reasoning = message.get("reasoning", "") or ""
+        finish_reason = choices[0].get("finish_reason", "") or ""
         model = data.get("model", self._model)
         usage = data.get("usage", {})
 
-        logger.info(
-            "[LLM][call][BLOCK_CALL_MODEL] "
-            "model=%s, tokens=%s, duration=%dms",
-            model,
-            usage,
-            duration_ms,
-        )
+        if not text and reasoning and finish_reason == "length":
+            logger.warning(
+                "[LLM][call][BLOCK_CALL_MODEL] "
+                "model=%s exhausted budget INSIDE reasoning "
+                "(content_len=0, reasoning_len=%d, finish_reason=length, "
+                "tokens=%s); the prompt is too long-tailed for this "
+                "thinking-mode model",
+                model,
+                len(reasoning),
+                usage,
+            )
+        else:
+            logger.info(
+                "[LLM][call][BLOCK_CALL_MODEL] "
+                "model=%s, content_len=%d, reasoning_len=%d, "
+                "finish_reason=%s, tokens=%s, duration=%dms",
+                model,
+                len(text),
+                len(reasoning),
+                finish_reason,
+                usage,
+                duration_ms,
+            )
 
         return LLMResponse(
             text=text,
             model=model,
             usage=usage,
             duration_ms=duration_ms,
+            reasoning=reasoning,
+            finish_reason=finish_reason,
         )
     # END_BLOCK_CALL_MODEL

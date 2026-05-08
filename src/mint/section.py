@@ -102,6 +102,59 @@ class GenerateAllResult:
 
 
 # START_BLOCK_SECTION_VALIDATE
+def _validate_with_node(code: str) -> str | None:
+    """Validate section code by feeding it to `node --check` inside a wrapper
+    that mirrors the assembly context (`children:[ ... ]` array body).
+
+    Returns None on success, a short error message on failure. If `node` is
+    unavailable, returns None (graceful degradation — the assembler runs
+    its own node --check before sandbox execution as a final guard).
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path as _Path
+
+    # Wrap section code the same way assemble.py does so token-context matches.
+    wrapper = (
+        "(function _section_check(){\n"
+        "  const _arr = [\n"
+        f"    {code}\n"
+        "  ];\n"
+        "  return _arr;\n"
+        "})\n"
+    )
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", delete=False
+        ) as f:
+            f.write(wrapper)
+            tmp = f.name
+    except OSError:
+        return None
+    try:
+        result = subprocess.run(
+            ["node", "--check", tmp],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            return None
+        # Extract first error line (skip path noise)
+        stderr = (result.stderr or "").strip()
+        for line in stderr.splitlines():
+            line = line.strip()
+            if line.startswith("SyntaxError"):
+                return line
+        return stderr.splitlines()[-1] if stderr else "node --check failed"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+    finally:
+        import contextlib
+        with contextlib.suppress(OSError):
+            _Path(tmp).unlink(missing_ok=True)
+
+
 def validate_section_code(code: str) -> list[str]:
     errors: list[str] = []
 
@@ -115,60 +168,15 @@ def validate_section_code(code: str) -> list[str]:
         if re.search(pattern, code):
             errors.append(f"Forbidden pattern: {desc}")
 
-    stack: list[str] = []
-    in_string: str | None = None
-    escape_next = False
-    i = 0
-    while i < len(code):
-        ch = code[i]
-
-        if escape_next:
-            escape_next = False
-            i += 1
-            continue
-
-        if ch == "\\" and in_string:
-            escape_next = True
-            i += 1
-            continue
-
-        if in_string:
-            if ch == in_string:
-                in_string = None
-            i += 1
-            continue
-
-        if ch in ('"', "'", "`"):
-            in_string = ch
-            i += 1
-            continue
-
-        if ch == "/" and i + 1 < len(code):
-            if code[i + 1] == "/":
-                while i < len(code) and code[i] != "\n":
-                    i += 1
-                continue
-            if code[i + 1] == "*":
-                i += 2
-                while i + 1 < len(code) and not (code[i] == "*" and code[i + 1] == "/"):
-                    i += 1
-                i += 2
-                continue
-
-        if ch in "({[":
-            stack.append(ch)
-        elif ch in ")}]":
-            pairs = {"(": ")", "{": "}", "[": "]"}
-            if stack and pairs.get(stack[-1]) == ch:
-                stack.pop()
-            else:
-                errors.append(f"Unmatched closing bracket at position {i}")
-                break
-
-        i += 1
-
-    if stack and not errors:
-        errors.append(f"Unmatched opening brackets: {len(stack)} unclosed")
+    # Use node --check on the section wrapped in array-body context. This is
+    # authoritative (real JS parser) and avoids the regex-based bracket
+    # counter's false positives on JS regex literals, template literals with
+    # ${expr}, and multi-line strings. If node is unavailable the function
+    # returns None and we fall through with no extra errors — the assembler
+    # runs its own node --check before sandbox execution as a final guard.
+    node_error = _validate_with_node(code)
+    if node_error:
+        errors.append(node_error)
 
     logger.info(
         f"[{_LOG_PREFIX}][validate][BLOCK_SECTION_VALIDATE] "
@@ -200,34 +208,28 @@ def render_section_prompt(
     styles = plan_data.styles
 
     return (
-        "You are a document section code generator using docx-js.\n\n"
-        "RULES:\n"
-        "1. No import/require/fs. All docx-js classes are pre-loaded.\n"
-        "2. Return ONLY children array elements (Paragraph, Table, etc).\n"
-        "3. Font size is in HALF-POINTS: 11pt=size:22, 14pt=size:28, "
-        "16pt=size:32, 24pt=size:48. NEVER use size above 100.\n"
-        "4. Use style: 'Heading1'/'Heading2'/'Heading3' for headings. "
-        "No style for body text.\n"
-        "5. Tables: width: {size:100, type:WidthType.PERCENTAGE}. "
-        "Header row: shading {fill:'PRIMARY', type:ShadingType.CLEAR}, "
-        "white bold text. Even rows: shading fill='F9FAFB'. "
-        "Odd rows: no shading.\n"
-        "6. Shading: always type:ShadingType.CLEAR, never 'solid'.\n"
-        "7. Separate ALL elements with commas.\n"
-        "8. No LineBreak/ListParagraph/Body style — they don't exist.\n"
-        "9. No markdown fences. Raw JavaScript only.\n\n"
-        f"SECTION: [{section_spec.type}] {section_spec.title} "
-        f"(level={section_spec.level}, id={section_spec.id})\n"
-        f"Description: {section_spec.description}\n\n"
-        f"COLORS: primary={styles.colors.get('primary', '#1E40AF')} "
+        "You generate docx-js section code. Return ONLY raw JS array elements "
+        "(comma-separated new Paragraph(...), new Table(...) etc). No imports, "
+        "no fences, no prose, no trailing semicolon.\n\n"
+        "HARD RULES (failures here = invalid output):\n"
+        "- Tables: width:{size:9360,type:WidthType.DXA}, columnWidths sum=9360, "
+        "cell width:{size:N,type:WidthType.DXA}. NEVER WidthType.PERCENTAGE.\n"
+        "- Shading: {fill:'HEX',type:ShadingType.CLEAR}. NEVER type:'solid'.\n"
+        "- Headings: use style:'Heading1'|'Heading2'|'Heading3'. No inline "
+        "size/bold/color on a heading paragraph.\n"
+        "- TextRun.text MUST NOT contain \\n. New line = new Paragraph({}).\n"
+        "- Sizes are HALF-POINTS (11pt=22, 14pt=28, 16pt=32). Cap at 100.\n"
+        "- Balance every ( [ { with ) ] }. Output is invalid if unbalanced.\n\n"
+        f"SECTION [{section_spec.type}] {section_spec.title} "
+        f"(level={section_spec.level})\n"
+        f"Content: {section_spec.description}\n\n"
+        f"colors: primary={styles.colors.get('primary', '#1E40AF')} "
         f"accent={styles.colors.get('accent', '#3B82F6')} "
-        f"text={styles.colors.get('text', '#1F2937')}\n"
-        f"BODY SIZE: {styles.body_size} ({styles.body_size / 2:.0f}pt)\n"
+        f"text={styles.colors.get('text', '#1F2937')}; "
+        f"body size {styles.body_size}.\n"
         f"{numbering_block}"
         f"{siblings_block}\n"
-        "Generate rich content: at least 5 paragraphs for content sections, "
-        "full tables with 5+ rows for table sections. "
-        "Professional formatting with consistent sizes.\n"
+        "Be substantive: 5+ paragraphs for content, 5+ rows for tables.\n"
     )
 
 
@@ -236,16 +238,164 @@ def _render_retry_prompt(
     previous_error: str,
     previous_code: str,
 ) -> str:
+    # Try to extract a position hint from the error and show a focused window
+    # around it. Falls back to head + tail if no position is reported.
+    pos_match = re.search(r"position\s+(\d+)", previous_error)
+    if pos_match:
+        pos = int(pos_match.group(1))
+        window_before = max(0, pos - 400)
+        window_after = min(len(previous_code), pos + 400)
+        head = previous_code[:200]
+        focus = previous_code[window_before:window_after]
+        tail = previous_code[-200:] if len(previous_code) > 800 else ""
+        snippet = (
+            f"--- start of previous code ---\n{head}\n... ({window_before} chars omitted)\n"
+            f"--- error window around position {pos} ---\n{focus}\n"
+            f"--- end of previous code ---\n{tail}\n"
+        )
+    else:
+        head = previous_code[:1500]
+        tail = previous_code[-500:] if len(previous_code) > 2000 else ""
+        snippet = (
+            f"--- start ---\n{head}\n"
+            f"--- ... truncated ... ---\n{tail}\n"
+        )
     return (
-        "Your previous section code was rejected.\n\n"
+        "Your previous section code was rejected. Regenerate it from scratch, "
+        "do not just copy fragments back.\n\n"
         f"SECTION: [{section_spec.type}] {section_spec.title}\n"
         f"Description: {section_spec.description}\n\n"
-        f"ERROR:\n{previous_error}\n\n"
+        f"PARSER ERROR: {previous_error}\n\n"
         f"FAILED CODE (DO NOT repeat these mistakes):\n"
-        f"```javascript\n{previous_code[:2000]}\n```\n\n"
-        "Fix the error and return corrected JavaScript code. "
+        f"```javascript\n{snippet}\n```\n\n"
+        "Common fixes: remove trailing ;, balance every ( [ { with ) ] }, "
+        "no \\n in TextRun.text (use new Paragraph instead), "
+        "no WidthType.PERCENTAGE for tables.\n"
         "Return ONLY raw JavaScript, no markdown fences.\n"
     )
+
+
+def _dump_section_attempt(
+    section_id: str,
+    attempt: int,
+    code: str,
+    response: object,  # LLMResponse, not imported here to keep cycle clean
+) -> None:
+    """Dump the raw normalized model output to MINT_DEBUG_DUMP_SECTIONS dir.
+
+    Activated by setting MINT_DEBUG_DUMP_SECTIONS=<dir>; otherwise no-op.
+    Writes one file per (section_id, attempt) plus a sidecar `.meta` with
+    finish_reason, content/reasoning lengths, and first 4KB of reasoning so
+    bracket-mismatch false-positives can be reproduced and fixed offline.
+    """
+    import os as _os
+    target = _os.environ.get("MINT_DEBUG_DUMP_SECTIONS")
+    if not target:
+        return
+    from pathlib import Path as _Path
+
+    out = _Path(target)
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        safe = re.sub(r"[^a-zA-Z0-9_]", "_", section_id)
+        base = out / f"{safe}__attempt{attempt}"
+        base.with_suffix(".js").write_text(code)
+        meta = (
+            f"section_id={section_id}\n"
+            f"attempt={attempt}\n"
+            f"content_len={len(code)}\n"
+            f"finish_reason={getattr(response, 'finish_reason', '')}\n"
+            f"reasoning_len={len(getattr(response, 'reasoning', '') or '')}\n"
+            f"--- reasoning (first 4KB) ---\n"
+            f"{(getattr(response, 'reasoning', '') or '')[:4096]}\n"
+        )
+        base.with_suffix(".meta").write_text(meta)
+    except OSError as exc:
+        logger.warning(
+            f"[{_LOG_PREFIX}][generate] section dump failed: %s", exc
+        )
+
+
+def _trim_trailing_garbage(code: str) -> str:
+    """Truncate the section code at the first point where a closing bracket
+    has no matching open. gpt-oss in particular tends to emit a few extra
+    `})` / `]` after the well-formed body when finishing a long section.
+
+    Walks forward tracking string/comment state and bracket stack. The first
+    close that would underflow the stack marks the end of the well-formed
+    portion — we keep everything before it (and add the implied closes via
+    the assembler's _repair_brackets if anything was missing). String quotes
+    and JS comments are honored so closures inside text content do not trip
+    the heuristic.
+    """
+    open_to_close = {"(": ")", "[": "]", "{": "}"}
+    pairs = {")": "(", "]": "[", "}": "{"}
+    stack: list[str] = []
+    in_string: str | None = None
+    escape_next = False
+    in_line_comment = False
+    in_block_comment = False
+
+    safe_end = len(code)
+    i = 0
+    while i < len(code):
+        ch = code[i]
+
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+        if in_block_comment:
+            if ch == "*" and i + 1 < len(code) and code[i + 1] == "/":
+                in_block_comment = False
+                i += 2
+                continue
+            i += 1
+            continue
+        if escape_next:
+            escape_next = False
+            i += 1
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            i += 1
+            continue
+        if not in_string and ch == "/" and i + 1 < len(code):
+            if code[i + 1] == "/":
+                in_line_comment = True
+                i += 2
+                continue
+            if code[i + 1] == "*":
+                in_block_comment = True
+                i += 2
+                continue
+        if in_string:
+            if ch == in_string:
+                in_string = None
+            i += 1
+            continue
+        if ch in ('"', "'", "`"):
+            in_string = ch
+            i += 1
+            continue
+        if ch in open_to_close:
+            stack.append(ch)
+        elif ch in pairs:
+            expected = pairs[ch]
+            if stack and stack[-1] == expected:
+                stack.pop()
+                # Whenever the stack returns to empty we have a candidate end
+                # of well-formed body — record it so we can later truncate the
+                # garbage tail.
+                if not stack:
+                    safe_end = i + 1
+            else:
+                # Mismatched close — truncate here, drop everything from i on.
+                return code[:safe_end].rstrip()
+        i += 1
+
+    return code
 
 
 def _strip_code_fences(text: str) -> str:
@@ -254,6 +404,28 @@ def _strip_code_fences(text: str) -> str:
 
     text = re.sub(r"\)\s*\n\s*(new\s)", r"),\n\1", text)
     text = re.sub(r"\)\s*\n\s*(\/\*)", r"),\n\1", text)
+
+    # Section code is injected verbatim into the array body of `children:[ ... ]`
+    # in the assembled JS. Some models (notably gpt-oss after thinking) terminate
+    # the last expression with a trailing `;` as if it were a statement. Inside
+    # an array literal that produces invalid JS:
+    #     children:[
+    #       new Paragraph({...});   // <-- ; not allowed here
+    #     ],
+    # Strip trailing whitespace plus any number of trailing semicolons (and the
+    # whitespace between them) so the code ends cleanly on `)`, `]`, or `}`.
+    text = re.sub(r"[\s;]+$", "", text)
+
+    # gpt-oss in particular tends to emit a tail of extra closing brackets
+    # after a well-formed body (matched in real model outputs:
+    #     ... last new Paragraph({...})
+    #     ]
+    #     })
+    #     ]
+    #     })
+    #     })
+    # ). Truncate at the first close-without-matching-open.
+    text = _trim_trailing_garbage(text)
 
     return text
 
@@ -317,6 +489,9 @@ def generate_section(
         try:
             response = client.call(user_prompt, system=system_prompt)
             raw_code = _strip_code_fences(response.text)
+            _dump_section_attempt(
+                section_id, attempt + 1, raw_code, response
+            )
         except LLMCallError as e:
             last_error = str(e)
             duration_ms = int((time.monotonic() - start) * 1000)

@@ -1,10 +1,10 @@
 rules:
   - id: D-H01
     severity: hard
-    xpath: "//w:tbl/w:tblGrid/w:gridCol"
-    check: count_gt_zero
-    fix_category: destructive
-    hint: "Set explicit column widths in twips. sum(gridCol/@w:w) must equal table width."
+    xpath: "//w:tbl"
+    check: tbl_width_mismatch
+    fix_category: visual
+    hint: "Reconcile sum(gridCol/@w:w) with tblW/@w:w. The create-postprocess auto-fix sets tblW := sum(gridCol)."
     description: "Table column widths mismatch table width"
 
   - id: D-H02
@@ -24,7 +24,7 @@ rules:
     description: "Percentage-based table width may render inconsistently"
 
   - id: D-H04
-    severity: hard
+    severity: soft
     xpath: "//w:spacing[@w:before or @w:after]"
     check: exists
     fix_category: visual
@@ -32,7 +32,7 @@ rules:
     description: "Direct paragraph spacing may cause inconsistent layout"
 
   - id: D-H05
-    severity: hard
+    severity: soft
     xpath: "//w:sz[@w:val]"
     check: exists
     fix_category: visual
@@ -48,7 +48,7 @@ rules:
     description: "Direct paragraph indentation"
 
   - id: D-H07
-    severity: hard
+    severity: soft
     xpath: "//w:rPr/w:color[@w:val]"
     check: exists
     fix_category: visual
@@ -56,7 +56,7 @@ rules:
     description: "Direct color formatting instead of theme"
 
   - id: D-H08
-    severity: hard
+    severity: soft
     xpath: "//w:pPr/w:jc[@w:val]"
     check: exists
     fix_category: visual

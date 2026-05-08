@@ -220,6 +220,21 @@ def execute(
         output_dir = Path(tmpdir) / "output"
         code_file.write_text(code)
 
+        # Optional debug dump of the assembled JS for postmortem inspection.
+        # Activated by MINT_DEBUG_DUMP_JS=<path>; the file is written even on
+        # syntax-error paths so failures can be reproduced.
+        import os as _os
+        _dump_target = _os.environ.get("MINT_DEBUG_DUMP_JS")
+        if _dump_target:
+            try:
+                Path(_dump_target).write_text(code)
+            except OSError as _exc:
+                logger.warning(
+                    "[Sandbox][execute] failed to dump JS to %s: %s",
+                    _dump_target,
+                    _exc,
+                )
+
         start = time.monotonic()
         try:
             proc = subprocess.run(

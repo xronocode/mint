@@ -59,9 +59,15 @@ class TestValidateSectionCode:
         assert any("require" in e for e in errors)
 
     def test_unmatched_brackets_detected(self):
+        # Validator runs `node --check` on a wrapped section, so the exact
+        # error string is whatever node emits ("Unexpected token", "Missing )
+        # after argument list", etc.). Just assert that broken syntax produces
+        # a non-empty error list.
         code = "new Paragraph({ children: [new TextRun('hi')\n},"
         errors = validate_section_code(code)
-        assert any("bracket" in e.lower() for e in errors)
+        assert errors, (
+            f"expected at least one error for broken code, got {errors!r}"
+        )
 
     def test_valid_table_code_passes(self):
         code = (

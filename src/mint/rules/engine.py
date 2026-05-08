@@ -160,6 +160,49 @@ def evaluate(rule: Rule, tree: etree._Element | etree._ElementTree) -> Violation
                 )
         except (ValueError, TypeError):
             pass
+    elif rule.check == "tbl_width_mismatch":
+        # Walk every w:tbl. For each table whose tblW@type='dxa' value does
+        # not match sum(gridCol/@w), return one violation. The xpath for this
+        # check is ignored — we always traverse w:tbl directly so the rule is
+        # robust against odd XPath compatibility issues.
+        w_ns = NAMESPACES["w"]
+        root = tree if isinstance(tree, etree._Element) else tree.getroot()
+        for tbl in root.iter(f"{{{w_ns}}}tbl"):
+            grid = tbl.find(f"{{{w_ns}}}tblGrid")
+            if grid is None:
+                continue
+            grid_widths: list[int] = []
+            for gc in grid.findall(f"{{{w_ns}}}gridCol"):
+                w_attr = gc.get(f"{{{w_ns}}}w")
+                if w_attr and w_attr.lstrip("-").isdigit():
+                    grid_widths.append(int(w_attr))
+            if not grid_widths:
+                continue
+            tbl_pr = tbl.find(f"{{{w_ns}}}tblPr")
+            if tbl_pr is None:
+                continue
+            tbl_w = tbl_pr.find(f"{{{w_ns}}}tblW")
+            if tbl_w is None:
+                continue
+            if tbl_w.get(f"{{{w_ns}}}type", "dxa") != "dxa":
+                continue
+            declared = tbl_w.get(f"{{{w_ns}}}w", "0")
+            if not declared.lstrip("-").isdigit():
+                continue
+            if int(declared) == sum(grid_widths):
+                continue
+            return Violation(
+                rule_id=rule.id,
+                severity=rule.severity,
+                fix_category=rule.fix_category,
+                message=(
+                    rule.description
+                    or f"Table widths mismatch: tblW={declared} != "
+                    f"sum(gridCol)={sum(grid_widths)}"
+                ),
+                hint=rule.hint,
+                location=str(tbl),
+            )
     # END_BLOCK_EVALUATE_RULE
     return None
 

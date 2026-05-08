@@ -450,6 +450,70 @@ def _postprocess_docx(path: Path) -> None:
                 "[Create][postprocess] Removed %d invalid XML tags", count
             )
 
+    # Fix 6: Reconcile table widths with their gridCol sums (D-H01).
+    # Models routinely emit columnWidths that don't sum to the declared table
+    # width. Rather than redistributing column widths (which would alter the
+    # designer's intent), trust the per-column values and overwrite the table
+    # width with their sum. Also update each w:tc/w:tcW that has type="dxa" to
+    # match its column where one-to-one mapping is unambiguous.
+    doc_root = _parse_xml(doc_path)
+    if doc_root is not None:
+        table_changes = 0
+        for tbl in doc_root.iter(f"{{{w_ns}}}tbl"):
+            grid = tbl.find(f"{{{w_ns}}}tblGrid")
+            if grid is None:
+                continue
+            grid_widths: list[int] = []
+            for gc in grid.findall(f"{{{w_ns}}}gridCol"):
+                w_attr = gc.get(f"{{{w_ns}}}w")
+                if w_attr and w_attr.isdigit():
+                    grid_widths.append(int(w_attr))
+            if not grid_widths:
+                continue
+            total = sum(grid_widths)
+            tbl_pr = tbl.find(f"{{{w_ns}}}tblPr")
+            if tbl_pr is not None:
+                tbl_w = tbl_pr.find(f"{{{w_ns}}}tblW")
+                if tbl_w is not None:
+                    cur_type = tbl_w.get(f"{{{w_ns}}}type", "dxa")
+                    cur_w = tbl_w.get(f"{{{w_ns}}}w", "0")
+                    if cur_type == "dxa" and cur_w != str(total):
+                        tbl_w.set(f"{{{w_ns}}}w", str(total))
+                        table_changes += 1
+                    elif cur_type == "pct":
+                        tbl_w.set(f"{{{w_ns}}}type", "dxa")
+                        tbl_w.set(f"{{{w_ns}}}w", str(total))
+                        table_changes += 1
+            # Reconcile each row's cells with the gridCol widths when the
+            # row has the same number of cells as columns and no spans.
+            for tr in tbl.findall(f"{{{w_ns}}}tr"):
+                cells = tr.findall(f"{{{w_ns}}}tc")
+                if len(cells) != len(grid_widths):
+                    continue
+                for cell, gw in zip(cells, grid_widths, strict=False):
+                    tc_pr = cell.find(f"{{{w_ns}}}tcPr")
+                    if tc_pr is None:
+                        continue
+                    span = tc_pr.find(f"{{{w_ns}}}gridSpan")
+                    if span is not None:
+                        # Cell spans multiple columns — leave alone.
+                        continue
+                    tc_w = tc_pr.find(f"{{{w_ns}}}tcW")
+                    if tc_w is None:
+                        continue
+                    cur_type = tc_w.get(f"{{{w_ns}}}type", "dxa")
+                    cur_w = tc_w.get(f"{{{w_ns}}}w", "0")
+                    if cur_type == "dxa" and cur_w != str(gw):
+                        tc_w.set(f"{{{w_ns}}}w", str(gw))
+                        table_changes += 1
+        if table_changes > 0:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += table_changes
+            logger.info(
+                "[Create][postprocess] Reconciled %d table-width entries",
+                table_changes,
+            )
+
     if changes == 0:
         return
 
