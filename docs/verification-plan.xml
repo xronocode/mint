@@ -1,4 +1,4 @@
-<VerificationPlan VERSION="0.4.0">
+<VerificationPlan VERSION="0.5.0">
   <GlobalPolicy>
     <log-format>[Module][function][BLOCK_NAME] message</log-format>
     <deterministic-first>true</deterministic-first>
@@ -1643,6 +1643,178 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
     </open-gaps>
   </SwarmExecutionReadiness>
 
+  <SwarmFixtures UPDATED="2026-05-09" SCOPE="Phase-7 (MP-*) and forward">
+    <intent>Per-module subagent execution requires a stable, controller-owned shared-fixture surface. Workers do NOT invent fixtures; they import what is documented here. This block is the contract between the controller (who provisions fixtures) and Wave-7-* workers (who consume them).</intent>
+
+    <ownership>
+      <controller-owns>tests/unit/conftest.py and tests/unit/_mp_helpers.py — provisioned BEFORE Wave-7-1 dispatches; updated only by the controller in batched commits, never by per-module workers.</controller-owns>
+      <worker-consumes>Each Wave-7-* worker imports fixtures from conftest.py via pytest's auto-injection AND imports helpers from `tests.unit._mp_helpers` explicitly. Workers MUST NOT redefine these fixtures locally (mirrors V-M-CONFIG forbidden-4 enforcement).</worker-consumes>
+    </ownership>
+
+    <conftest-spec PATH="tests/unit/conftest.py" KIND="new-file">
+      <note>Phase-7 ships this conftest. It does NOT override `clean_env` from tests/unit/test_config.py — that fixture stays local and continues to be the single chokepoint for MINT_ENGINE / config env scrubbing per V-M-CONFIG forbidden-4. The new conftest adds MP-* specific fixtures alongside.</note>
+
+      <fixture-1 name="mp_clean_env" scope="function" autouse="true">
+        <purpose>Scrub Phase-7 specific env vars + reset module-level registry state between tests. Complementary to (NOT replacing) clean_env in tests/unit/test_config.py.</purpose>
+        <env-keys>MP_E2E_WRITE_BASELINE</env-keys>
+        <registry-reset>If mint_python.sdk has been imported, snapshot mint_python.sdk.presets at fixture entry and restore at teardown — guards against scenario where load_preset(path=...) accidentally mutates the registry (V-MP-STYLE forbidden-3 regression).</registry-reset>
+        <implementation-hint>Use `monkeypatch.delenv("MP_E2E_WRITE_BASELINE", raising=False)` and a try/finally that copies `dict(mint_python.sdk.presets)` if the module is already in sys.modules.</implementation-hint>
+      </fixture-1>
+
+      <fixture-2 name="tmp_docx_path" scope="function">
+        <purpose>Standard `tmp_path / "out.docx"` for save() targets.</purpose>
+        <implementation-hint>`return tmp_path / "out.docx"` (one-liner; tmp_path is a pytest builtin).</implementation-hint>
+      </fixture-2>
+
+      <fixture-3 name="mp_minimal_config" scope="function">
+        <purpose>A fully-populated MintConfig with engine=Engine.PYTHON, severity_mode=SeverityMode.LENIENT, and required LLM fields filled with sentinel values. Used by tests that invoke `mint.validate.validate(saved_path, config)` in-process without going through M-CLI.</purpose>
+        <returns>MintConfig instance; frozen by construction</returns>
+        <fields>llm_base_url="http://x:1", llm_model="m", model_tier=Tier.SMALL, severity_mode=SeverityMode.LENIENT, sandbox_timeout=30, engine=Engine.PYTHON, paths set to tmp_path-rooted defaults via tmp_path fixture chain</fields>
+        <implementation-hint>Build directly via `MintConfig(...)` constructor; do NOT call load_config() (that reads os.environ which the autouse mp_clean_env scrubbed).</implementation-hint>
+      </fixture-3>
+
+      <fixture-4 name="caplog_at_info" scope="function">
+        <purpose>Wrapper around pytest's caplog that pre-sets level=logging.INFO so MP-* log markers (which emit at INFO) are captured. Saves every test from repeating `caplog.set_level(logging.INFO)`.</purpose>
+        <implementation-hint>Yield caplog after `caplog.set_level(logging.INFO)`.</implementation-hint>
+      </fixture-4>
+
+      <fixture-5 name="marker_counter" scope="function">
+        <purpose>Returns a callable: `count(caplog) -&gt; collections.Counter` mapping BLOCK_NAME → count. Encapsulates the caplog → marker-name extraction so tests assert against a Counter rather than parsing log strings inline.</purpose>
+        <implementation-hint>`from tests.unit._mp_helpers import extract_marker; return lambda cl: Counter(filter(None, (extract_marker(r.getMessage()) for r in cl.records)))`</implementation-hint>
+      </fixture-5>
+
+      <fixture-6 name="golden_doc_builder" scope="function">
+        <purpose>Returns the `build_golden_document(out_path)` callable from `_mp_helpers`. Wave-7-5 e2e test uses this; earlier waves do not.</purpose>
+        <implementation-hint>`from tests.unit._mp_helpers import build_golden_document; return build_golden_document`</implementation-hint>
+      </fixture-6>
+
+      <fixture-7 name="schema_violation_factory" scope="function">
+        <purpose>Returns a callable that produces minimally-broken preset JSON dicts targeting specific field paths. Used by V-MP-STYLE scenario-6 (parametrized schema-violation cases). Keeps the test body short and the violation catalog explicit.</purpose>
+        <api>factory(violation_kind: str) -&gt; dict where violation_kind ∈ {"missing-color-palette-primary", "bad-hex-format", "size-pt-as-string", "alignment-out-of-enum", "dangling-palette-token", "version-mismatch-major"}</api>
+        <implementation-hint>Internal dict template per violation_kind; raises ValueError on unknown kind.</implementation-hint>
+      </fixture-7>
+    </conftest-spec>
+
+    <helpers-spec PATH="tests/unit/_mp_helpers.py" KIND="new-file">
+      <note>Pure functions; NO pytest fixtures live here. The leading underscore signals "test infrastructure" — pytest will not collect this as a test file.</note>
+
+      <helper-1 name="build_golden_document">
+        <signature>build_golden_document(out_path: Path) -&gt; Path</signature>
+        <purpose>Single source of truth for the VF-013 golden document construction (see VF-013 golden-document-spec). Builds via mint_python.sdk; calls Document.save(out_path); returns out_path.</purpose>
+        <reproducibility>This function is the ONLY way Phase-7+ code constructs the golden doc for verification. Inlining the doc-construction in test bodies is forbidden — VF-013 reproducibility invariant.</reproducibility>
+        <body-hint>Mirrors VF-013 golden-document-spec/body-spec exactly: alga_corporate preset, cover (Q2 Memo / Phase-7 acceptance fixture), 2 sections (Summary + Details) with paragraph + table content, add_toc(max_level=2), save.</body-hint>
+      </helper-1>
+
+      <helper-2 name="extract_marker">
+        <signature>extract_marker(msg: str) -&gt; str | None</signature>
+        <purpose>Parse a log line of the form `[Module][function][BLOCK_NAME] payload` and return BLOCK_NAME, or None if the line doesn't match. Used by marker_counter and assert_marker_sequence helpers.</purpose>
+        <implementation-hint>Regex `r"^\[[^\]]+\]\[[^\]]+\]\[(BLOCK_[A-Z_]+)\]"` with re.match.</implementation-hint>
+      </helper-2>
+
+      <helper-3 name="assert_marker_sequence">
+        <signature>assert_marker_sequence(caplog: pytest.LogCaptureFixture, expected: list[str], strict: bool = True) -&gt; None</signature>
+        <purpose>Assert that the given BLOCK_NAME sequence appears in caplog records in order. strict=True (default) requires the captured marker subsequence to MATCH expected exactly (no other markers interleaved among them); strict=False allows extras between expected items but still asserts ordering.</purpose>
+        <error-shape>On failure, AssertionError message MUST list expected, actual, and the divergence index — so failures are localizable without re-running.</error-shape>
+        <usage-hint>Used by VF-013 e2e harness for the trace-sequence assertion: `assert_marker_sequence(caplog, ["BLOCK_LOAD_PRESET", "BLOCK_RENDER_TABLE", "BLOCK_RENDER_TABLE", "BLOCK_SAVE_DOCX"], strict=False)` — strict=False because BLOCK_RENDER_CONTENT events interleave naturally.</usage-hint>
+      </helper-3>
+
+      <helper-4 name="assert_no_legacy_markers">
+        <signature>assert_no_legacy_markers(caplog: pytest.LogCaptureFixture) -&gt; None</signature>
+        <purpose>Assert that NO log records carry markers from the legacy js engine surface. Used by VF-013 forbidden-5 ("no [Sandbox]/[Validate]/[Edit]/etc. markers from the golden-doc construction path").</purpose>
+        <forbidden-marker-prefixes>["[Sandbox]", "[Validate]", "[Edit]", "[OOXML]", "[Create]", "[Plan]", "[Section]"] + ["BLOCK_RUN_CHECKS", "BLOCK_ORCHESTRATE", "BLOCK_EXECUTE_CODE", "BLOCK_OOXML_UNPACK"]</forbidden-marker-prefixes>
+        <exception-policy>Tests that EXPLICITLY invoke M-VALIDATE on a saved file (e.g., the e2e harness step that calls `mint.validate.validate(...)`) MUST partition caplog: capture markers up-to-and-including BLOCK_SAVE_DOCX with this helper, then start a fresh caplog scope for the M-VALIDATE invocation. The helper does NOT auto-segment.</exception-policy>
+      </helper-4>
+
+      <helper-5 name="load_audit_baseline">
+        <signature>load_audit_baseline() -&gt; dict</signature>
+        <purpose>Load `tests/fixtures/mp_e2e_baseline.json` and return as dict. Raises FileNotFoundError with a clear "set MP_E2E_WRITE_BASELINE=1 on the first run" hint if the baseline is missing.</purpose>
+        <baseline-write-protocol>If `os.environ.get("MP_E2E_WRITE_BASELINE") == "1"`, callers may write the baseline back via `write_audit_baseline(data)`. Both helpers gate on the env var; concurrent xdist workers cannot race-overwrite.</baseline-write-protocol>
+      </helper-5>
+
+      <helper-6 name="write_audit_baseline">
+        <signature>write_audit_baseline(data: dict) -&gt; None</signature>
+        <purpose>Write `tests/fixtures/mp_e2e_baseline.json` ONLY when MP_E2E_WRITE_BASELINE=1. Otherwise raises RuntimeError with the rotation protocol from V-MP-DOCUMENT/baseline-update-protocol.</purpose>
+      </helper-6>
+    </helpers-spec>
+
+    <fixture-dependency-matrix>
+      <V-MP-STYLE depends="mp_clean_env, schema_violation_factory, caplog_at_info, marker_counter">
+        <usage>schema_violation_factory drives scenario-6 parametrized case set; caplog_at_info + marker_counter prove BLOCK_LOAD_PRESET fires once per load.</usage>
+      </V-MP-STYLE>
+      <V-MP-CONTENT depends="mp_clean_env, caplog_at_info, marker_counter">
+        <usage>marker_counter asserts BLOCK_RENDER_CONTENT per .render() call. tmp_path used directly for image fixtures (no dedicated fixture needed; pytest's tmp_path suffices).</usage>
+      </V-MP-CONTENT>
+      <V-MP-TABLE depends="mp_clean_env, caplog_at_info, marker_counter">
+        <usage>marker_counter asserts BLOCK_RENDER_TABLE counts; deterministic factory tests do not need fixtures beyond the autouse mp_clean_env.</usage>
+      </V-MP-TABLE>
+      <V-MP-SECTION depends="mp_clean_env, caplog_at_info">
+        <usage>caplog_at_info captures BLOCK_PHASE_GUARD on add_chart stub.</usage>
+      </V-MP-SECTION>
+      <V-MP-DOCUMENT depends="mp_clean_env, tmp_docx_path, caplog_at_info, marker_counter">
+        <usage>tmp_docx_path mandatory per forbidden-3 (no stable repo paths). marker_counter asserts BLOCK_SAVE_DOCX count = 1.</usage>
+      </V-MP-DOCUMENT>
+      <V-MP-SDK depends="mp_clean_env">
+        <usage>Re-export tests need only the autouse fixture; no caplog needed (SDK has no log markers).</usage>
+      </V-MP-SDK>
+      <VF-013 depends="mp_clean_env, tmp_docx_path, mp_minimal_config, caplog_at_info, marker_counter, golden_doc_builder, plus _mp_helpers.{assert_marker_sequence, assert_no_legacy_markers, load_audit_baseline, write_audit_baseline}">
+        <usage>Heaviest fixture consumer: builds golden doc via builder, validates with mp_minimal_config, asserts trace via assert_marker_sequence, guards against legacy-engine markers via assert_no_legacy_markers, pins/rotates baseline via load/write helpers gated by MP_E2E_WRITE_BASELINE.</usage>
+      </VF-013>
+    </fixture-dependency-matrix>
+  </SwarmFixtures>
+
+  <SubagentExecutionPackets KIND="template" SCOPE="Phase-7 Wave-7-* per-module dispatch">
+    <intent>Each Wave-7-* worker is a fresh, isolated subagent. The controller hands it a packet that is self-contained — the worker does NOT re-read the full GRACE artifacts. This template defines what a per-module packet MUST contain so the worker can implement, verify, and commit without context-switching.</intent>
+
+    <packet-template>
+      <field-1 name="module-id">Exact MP-* identifier (e.g. MP-STYLE).</field-1>
+      <field-2 name="wave">Wave label (e.g. Wave-7-1).</field-2>
+      <field-3 name="profile">balanced | safe | fast (default balanced; matches development-plan.xml ExecutionPolicy).</field-3>
+      <field-4 name="write-scope">List of file paths the worker MAY edit. Anything else is OFF-LIMITS — including docs/*.xml, pyproject.toml, .env.example, sibling MP-* sources, tests/unit/conftest.py, tests/unit/_mp_helpers.py.</field-4>
+      <field-5 name="module-contract-excerpt">Verbatim copy of the MP-*/contract block from development-plan.xml — purpose, inputs/outputs/errors, interface annotations.</field-5>
+      <field-6 name="graph-entry-excerpt">Verbatim copy of the MP-* node from knowledge-graph.xml.</field-6>
+      <field-7 name="dependency-summaries">For each module in `&lt;depends&gt;`, a 2-line summary of its public interface (what's safe to import, what raises, log markers it owns). Workers do NOT re-read the dependency's source.</field-7>
+      <field-8 name="verification-excerpt">Verbatim copy of the V-MP-* entry from verification-plan.xml — scenarios, log markers, forbidden behaviors, fixture-dependencies.</field-8>
+      <field-9 name="fixture-inventory">List of fixtures from SwarmFixtures/conftest-spec the worker MAY consume, with usage notes from fixture-dependency-matrix. Workers MUST NOT redefine these.</field-9>
+      <field-10 name="helper-inventory">List of helper functions from SwarmFixtures/helpers-spec the worker MAY import.</field-10>
+      <field-11 name="trace-marker-spec">Required log marker format (verbatim from technology.xml log-format). For each marker the module emits, the exact string template + payload fields.</field-11>
+      <field-12 name="module-local-commands">Commands from V-MP-*/module-checks. Worker runs ALL of these before reporting done.</field-12>
+      <field-13 name="wave-integration-checks">What runs after merge (controller, not worker, runs these — worker is informed so its tests don't duplicate scope).</field-13>
+      <field-14 name="expected-graph-delta">List of fields the worker MAY claim a delta on (typically just a STATUS flip from planned to done). Workers MUST NOT propose adding new MP-* nodes or new annotations beyond what's pre-listed.</field-14>
+      <field-15 name="expected-verification-delta">Which V-MP-* scenarios the worker is expected to flip to status="done" after green tests.</field-15>
+      <field-16 name="commit-format">Exact commit message template per development-plan.xml ExecutionPolicy + the per-wave swarm-policy.</field-16>
+      <field-17 name="result-packet-shape">What the worker reports back: changed files, verification commands run + outcomes, graph-delta proposal, verification-delta proposal, commit hash, integration assumptions/surprises.</field-17>
+    </packet-template>
+
+    <subagent-isolation-policy>
+      <rule-1>Each MP-* module gets a FRESH subagent (no reuse across modules). Workers must not retain state from prior module work.</rule-1>
+      <rule-2>Subagent type defaults to `general-purpose` for implementation; `Explore` for read-only research before a complex Wave (e.g. before Wave-7-4 to map python-docx APIs); `Plan` for architecture deltas — but architectural changes MUST route through $grace-plan, not through a worker subagent.</rule-2>
+      <rule-3>Per-module subagents are the ONLY sanctioned source of MP-* source-file edits during a wave. Controller code edits (e.g. status flips in docs/*.xml, conftest.py provisioning) are done in the parent context, not via subagents.</rule-3>
+      <rule-4>Wave-7-2 dispatches TWO subagents in parallel (MP-CONTENT + MP-TABLE). They MUST NOT cross-import each other's in-progress source — the dependency graph says Section consumes both, but Content and Table are siblings. Their tests MAY both import from MP-STYLE (already shipped in Wave-7-1).</rule-4>
+      <rule-5>If a worker discovers it needs a new fixture or helper not in SwarmFixtures, it MUST stop and report — the controller updates SwarmFixtures + provisions the fixture in conftest.py before re-dispatching. Workers NEVER add fixtures locally to test files.</rule-5>
+    </subagent-isolation-policy>
+
+    <pre-wave-7-1-controller-checklist>
+      <item-1>Provision tests/unit/conftest.py with the 7 fixtures defined in SwarmFixtures/conftest-spec. Each fixture body is small (1-5 lines); all bodies live in conftest.py.</item-1>
+      <item-2>Provision tests/unit/_mp_helpers.py with the 6 helpers defined in SwarmFixtures/helpers-spec. Note: helper-1 (build_golden_document) DEPENDS on mint_python.sdk being importable — its body uses lazy import and raises a clear error if mint_python is not yet populated. Implementation only completes after Wave-7-5; Wave-7-1..7-4 workers receive a stub that raises NotImplementedError naming the activating wave.</item-2>
+      <item-3>Run `uv run pytest tests/unit/ -x --collect-only` to verify the new conftest does not break existing test collection.</item-3>
+      <item-4>Commit: `grace(meta): provision tests/unit/conftest.py + _mp_helpers.py for Phase-7 worker fixtures`. Single commit BEFORE dispatching Wave-7-1 worker A.</item-4>
+    </pre-wave-7-1-controller-checklist>
+
+    <packet-example MODULE="MP-STYLE" WAVE="Wave-7-1">
+      <field-1>MP-STYLE</field-1>
+      <field-2>Wave-7-1</field-2>
+      <field-3>balanced</field-3>
+      <field-4>src/mint_python/core/style.py, src/mint_python/core/presets/alga_corporate.json, src/mint_python/core/presets/minimal.json, src/mint_python/core/presets/compact.json, tests/unit/test_mp_style.py — and ONLY these. docs/style-preset-schema.md is already shipped (controller-owned).</field-4>
+      <field-9>mp_clean_env (autouse), schema_violation_factory, caplog_at_info, marker_counter — import via pytest auto-injection from tests/unit/conftest.py. Do NOT redefine.</field-9>
+      <field-10>extract_marker (used internally by marker_counter; rarely needed directly).</field-10>
+      <field-11>[MP-Style][load_preset][BLOCK_LOAD_PRESET] message format: `"[MP-Style][load_preset][BLOCK_LOAD_PRESET] preset=%s source=%s"` at INFO; payload: preset name + source token ("registry"|"file"). Wrap source emission in `# START_BLOCK_LOAD_PRESET` / `# END_BLOCK_LOAD_PRESET` comments.</field-11>
+      <field-12>pytest tests/unit/test_mp_style.py -x; ruff check src/mint_python/core/style.py src/mint_python/core/presets; mypy src/mint_python/core/style.py</field-12>
+      <field-14>knowledge-graph.xml MP-STYLE STATUS planned→done (controller flips post-wave).</field-14>
+      <field-15>V-MP-STYLE scenarios 1-13 status planned→done; check-1..3 status planned→done.</field-15>
+      <field-16>`grace(MP-STYLE): land Style + Pt + ColorPalette + load_preset for Phase-7\n\n... (per development-plan.xml ExecutionPolicy commit format)`</field-16>
+    </packet-example>
+  </SubagentExecutionPackets>
+
   <FailurePackets>
     <packet-template>
       <expected-fields>scenario, expected-evidence, observed-evidence, first-divergent-block, next-action</expected-fields>
@@ -1702,6 +1874,27 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <observed-evidence>Hash differs by one byte; xml_sources lists word/styles.xml as diverging</observed-evidence>
       <first-divergent-block>Recent change to MP-STYLE typography defaults rotated the heading1 color from "#0F4C81" to "#0F4D81" (one-char drift); the change was not intentional</first-divergent-block>
       <next-action>If the change is unintentional: revert MP-STYLE color, re-run VF-013, hash returns to baseline. If intentional: bump baseline by setting MP_E2E_WRITE_BASELINE=1, re-run, commit the new baseline JSON IN THE SAME PR with rationale per V-MP-DOCUMENT baseline-update-protocol step-3.</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>SwarmFixtures rule-5: worker added a local fixture</scenario>
+      <expected-evidence>Worker E packet result lists fixtures consumed via pytest auto-injection from tests/unit/conftest.py (mp_clean_env, caplog_at_info, marker_counter); no @pytest.fixture definitions in tests/unit/test_mp_*.py</expected-evidence>
+      <observed-evidence>tests/unit/test_mp_table.py defines its own `@pytest.fixture def fresh_palette(...)` because the worker considered the conftest fixture set incomplete</observed-evidence>
+      <first-divergent-block>SubagentExecutionPackets/subagent-isolation-policy/rule-5 violation — worker should have stopped and reported the fixture gap, NOT inlined a local fixture</first-divergent-block>
+      <next-action>Revert the local fixture in test_mp_table.py; controller adds the missing fixture to tests/unit/conftest.py + updates SwarmFixtures/fixture-dependency-matrix to record the dependency; re-dispatch the worker with the updated packet</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>VF-013 baseline write race in xdist</scenario>
+      <expected-evidence>tests/fixtures/mp_e2e_baseline.json is read-only during normal test runs; write_audit_baseline() raises RuntimeError unless MP_E2E_WRITE_BASELINE=1</expected-evidence>
+      <observed-evidence>Two xdist workers race-wrote tests/fixtures/mp_e2e_baseline.json with conflicting content; CI shows non-deterministic baseline drift</observed-evidence>
+      <first-divergent-block>SwarmFixtures/helpers-spec/helper-6 (write_audit_baseline) — env gate not enforced, OR test code bypassed the helper and wrote the file directly via `open(..., "w")`</first-divergent-block>
+      <next-action>Verify write_audit_baseline checks `os.environ.get("MP_E2E_WRITE_BASELINE") != "1"` and raises BEFORE opening the file; grep the test code for any direct json.dump to mp_e2e_baseline.json that bypasses the helper; if a worker wrote directly, the worker violated rule-5 — same remediation as the previous packet</next-action>
+    </packet-example>
+    <packet-example>
+      <scenario>Wave-7-2 parallel-worker shared-state leak</scenario>
+      <expected-evidence>MP-CONTENT and MP-TABLE workers run in parallel under pytest-xdist; tests/unit/test_mp_content.py and tests/unit/test_mp_table.py do not share mutable module-level state; SwarmExecutionReadiness target-7 / wave-dependencies hold</expected-evidence>
+      <observed-evidence>test_mp_table.py imports from src/mint_python/core/content.py (not yet shipped at MP-CONTENT worker's checkpoint); collection-time ImportError aborts the whole xdist session</observed-evidence>
+      <first-divergent-block>tests/unit/test_mp_table.py top-level import — should depend ONLY on MP-STYLE (already shipped Wave-7-1) and stdlib + python-docx; cross-MP-* imports are forbidden in Wave-7-2 by SubagentExecutionPackets/subagent-isolation-policy/rule-4</first-divergent-block>
+      <next-action>Remove the cross-MP-* import from test_mp_table.py; if Table.render genuinely needs Paragraph (which lives in MP-CONTENT), the test should mock Paragraph as a Protocol stub OR Wave-7-2 dispatch order changes (MP-CONTENT first, MP-TABLE in Wave-7-2-second). Update Wave-7-2 swarm-policy to reflect actual dispatch.</next-action>
     </packet-example>
     <packet-example>
       <scenario>V-MP-STYLE forbidden-3: registry mutation</scenario>
