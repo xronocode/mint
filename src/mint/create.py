@@ -655,18 +655,18 @@ def _postprocess_docx(path: Path) -> None:
             text = "".join((t.text or "") for t in p.iter(f"{{{w_ns}}}t"))
             if not text.strip():
                 continue
-            ppr = p.find(f"{{{w_ns}}}pPr")
-            if ppr is None:
-                ppr = etree.SubElement(p, f"{{{w_ns}}}pPr")
-                p.insert(0, ppr)
-            existing = ppr.find(f"{{{w_ns}}}spacing")
+            spacing_ppr = p.find(f"{{{w_ns}}}pPr")
+            if spacing_ppr is None:
+                spacing_ppr = etree.SubElement(p, f"{{{w_ns}}}pPr")
+                p.insert(0, spacing_ppr)
+            existing = spacing_ppr.find(f"{{{w_ns}}}spacing")
             if existing is not None:
                 continue
-            pstyle = ppr.find(f"{{{w_ns}}}pStyle")
+            pstyle = spacing_ppr.find(f"{{{w_ns}}}pStyle")
             style_id = (
                 pstyle.get(f"{{{w_ns}}}val", "") if pstyle is not None else ""
             )
-            spacing_el = etree.SubElement(ppr, f"{{{w_ns}}}spacing")
+            spacing_el = etree.SubElement(spacing_ppr, f"{{{w_ns}}}spacing")
             if style_id.startswith("Heading"):
                 spacing_el.set(f"{{{w_ns}}}before", "240")
                 spacing_el.set(f"{{{w_ns}}}after", "120")
@@ -711,29 +711,29 @@ def _postprocess_docx(path: Path) -> None:
             if kind == "important":
                 kind = "warning"
             border_color, fill = callout_styles[kind]
-            ppr = p.find(f"{{{w_ns}}}pPr")
-            if ppr is None:
-                ppr = etree.SubElement(p, f"{{{w_ns}}}pPr")
-                p.insert(0, ppr)
+            callout_ppr = p.find(f"{{{w_ns}}}pPr")
+            if callout_ppr is None:
+                callout_ppr = etree.SubElement(p, f"{{{w_ns}}}pPr")
+                p.insert(0, callout_ppr)
             # skip if already styled as a callout
-            if ppr.find(f"{{{w_ns}}}pBdr") is not None:
+            if callout_ppr.find(f"{{{w_ns}}}pBdr") is not None:
                 continue
-            pbdr = etree.SubElement(ppr, f"{{{w_ns}}}pBdr")
+            pbdr = etree.SubElement(callout_ppr, f"{{{w_ns}}}pBdr")
             left = etree.SubElement(pbdr, f"{{{w_ns}}}left")
             left.set(f"{{{w_ns}}}val", "single")
             left.set(f"{{{w_ns}}}sz", "12")
             left.set(f"{{{w_ns}}}space", "8")
             left.set(f"{{{w_ns}}}color", border_color)
-            shd = ppr.find(f"{{{w_ns}}}shd")
-            if shd is None:
-                shd = etree.SubElement(ppr, f"{{{w_ns}}}shd")
-            shd.set(f"{{{w_ns}}}val", "clear")
-            shd.set(f"{{{w_ns}}}color", "auto")
-            shd.set(f"{{{w_ns}}}fill", fill)
-            ind = ppr.find(f"{{{w_ns}}}ind")
-            if ind is None:
-                ind = etree.SubElement(ppr, f"{{{w_ns}}}ind")
-                ind.set(f"{{{w_ns}}}left", "120")
+            shd_target = callout_ppr.find(f"{{{w_ns}}}shd")
+            if shd_target is None:
+                shd_target = etree.SubElement(callout_ppr, f"{{{w_ns}}}shd")
+            shd_target.set(f"{{{w_ns}}}val", "clear")
+            shd_target.set(f"{{{w_ns}}}color", "auto")
+            shd_target.set(f"{{{w_ns}}}fill", fill)
+            ind_existing = callout_ppr.find(f"{{{w_ns}}}ind")
+            if ind_existing is None:
+                ind_new = etree.SubElement(callout_ppr, f"{{{w_ns}}}ind")
+                ind_new.set(f"{{{w_ns}}}left", "120")
             callout_changes += 1
         if callout_changes:
             entries[doc_path] = _serialize_xml(doc_root)
@@ -758,12 +758,12 @@ def _postprocess_docx(path: Path) -> None:
             for r in rows[1:]:
                 for cell in r.findall(f"{{{w_ns}}}tc"):
                     tcpr = cell.find(f"{{{w_ns}}}tcPr")
-                    shd = (
+                    shd_check = (
                         tcpr.find(f"{{{w_ns}}}shd") if tcpr is not None else None
                     )
                     fill = (
-                        shd.get(f"{{{w_ns}}}fill", "")
-                        if shd is not None
+                        shd_check.get(f"{{{w_ns}}}fill", "")
+                        if shd_check is not None
                         else ""
                     )
                     if fill and fill not in ("auto", "FFFFFF"):
