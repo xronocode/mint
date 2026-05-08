@@ -1,0 +1,125 @@
+# MINT theme: showcase_v1
+# Extracted from docs/docx_showcase.docx (Anthropic Claude reference).
+# This is the DEFAULT theme. Hex colors are uppercase, no '#'.
+# Sizes: typography in half-points (22 = 11pt), borders in quarter-points
+# (4 = 0.5pt), DXA = twentieths of a point (9360 ≈ content width on US Letter).
+
+[meta]
+name = "showcase_v1"
+description = "Reference design system extracted from docs/docx_showcase.docx"
+version = 1
+
+[palette]
+primary = "1B3A5C"          # Dark navy — table headers, accent bar, h1
+primary_text_on = "FFFFFF"  # Text drawn on top of `primary`
+body = "333333"             # Default body text
+muted = "6B7280"            # Subtitles, page footer
+border = "DDDDDD"           # Table & callout thin borders
+alt_row = "F3F4F6"          # Zebra-stripe table fill
+accent = "2E75B6"           # Secondary blue — info callouts, links
+
+[palette.callouts.warning]
+border = "E8A838"           # Amber — warnings / antipatterns
+fill = "FFF8E1"
+
+[palette.callouts.note]
+border = "2E75B6"           # Blue — neutral information
+fill = "EBF5FB"
+
+[palette.callouts.tip]
+border = "2E8B57"           # Green — best practices
+fill = "E8F5E9"
+
+[palette.callouts.caution]
+border = "C0392B"           # Red — strict don'ts
+fill = "FDECEA"
+
+[typography]
+default_font = "Calibri"
+mono_font = "Consolas"
+
+[typography.styles.title]
+size = 80                   # 40pt — cover hero
+bold = true
+color = "1B3A5C"
+
+[typography.styles.heading1]
+size = 32                   # 16pt
+bold = true
+color = "1B3A5C"
+
+[typography.styles.heading2]
+size = 28                   # 14pt
+bold = true
+color = "1B3A5C"
+
+[typography.styles.heading3]
+size = 24                   # 12pt
+bold = true
+color = "333333"
+
+[typography.styles.body]
+size = 22                   # 11pt
+color = "333333"
+
+[typography.styles.code]
+size = 20                   # 10pt
+color = "333333"
+font = "Consolas"
+
+[typography.styles.caption]
+size = 18                   # 9pt
+italic = true
+color = "6B7280"
+
+[typography.styles.footer]
+size = 16                   # 8pt
+color = "6B7280"
+
+[typography.styles.subtitle]
+size = 28                   # 14pt
+italic = true
+color = "6B7280"
+
+[paragraph]
+body_after = 120
+body_line = 276
+body_line_rule = "auto"
+heading_before = 240
+heading_after = 120
+
+[tables]
+target_width_dxa = 9360
+alt_row_fill = "F3F4F6"
+
+[tables.cell_margins]
+top = 80
+bottom = 80
+left = 120
+right = 120
+
+[tables.borders]
+size = 4                    # 0.5pt
+color = "DDDDDD"
+
+[tables.header]
+fill = "1B3A5C"
+text = "FFFFFF"
+bold = true
+
+[tables.body]
+text = "333333"
+bold = false
+
+[cover]
+title_size_cap = 56         # 28pt — cap for runaway model titles
+hero_size = 80              # 40pt — assembler-built hero
+tagline = "Technical Report"
+tagline_size = 28
+metadata_size = 18
+accent_bar_size = 18        # quarter-points
+
+[callout_layout]
+border_width = 12           # 1.5pt left bar
+border_space = 8
+indent_left = 120

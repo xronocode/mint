@@ -18,7 +18,11 @@
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.2.0 - Added modular generation mode (plan→section→assemble)
+#   LAST_CHANGE: v0.2.1 - Wave G: aggressive table normalize (full 9360 width,
+#                dark-navy header + white bold text, 80/120 cell margins,
+#                thin grey borders) and keepNext on headings to prevent
+#                orphan tables on next page. Aligns output with the
+#                docs/docx_showcase.docx reference design system.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -44,6 +48,7 @@ from mint.sandbox import SandboxResult
 from mint.sandbox import execute as sandbox_execute
 from mint.skills import SkillRef, SkillRegistry
 from mint.templates import TemplateEngine
+from mint.theme import ThemeTokens, load_theme
 from mint.validate import ValidationReport, run_checks
 
 logger = logging.getLogger(__name__)
@@ -312,7 +317,9 @@ def _evaluate_and_refine(
     return refined
 
 
-def _postprocess_docx(path: Path) -> None:
+def _postprocess_docx(
+    path: Path, theme: ThemeTokens | None = None
+) -> None:
     if path.suffix.lower() != ".docx":
         return
 
@@ -321,9 +328,13 @@ def _postprocess_docx(path: Path) -> None:
 
     from lxml import etree
 
+    if theme is None:
+        theme = load_theme()
+
     w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     ns = {"w": w_ns}
     changes = 0
+    body_size = theme.typography.style("body").size
 
     try:
         with zipfile.ZipFile(path, "r") as zin:
@@ -427,7 +438,7 @@ def _postprocess_docx(path: Path) -> None:
                     sz_el.set(f"{{{w_ns}}}val", str(int_val // 100))
                     changes += 1
                 elif int_val == 1:
-                    sz_el.set(f"{{{w_ns}}}val", "22")
+                    sz_el.set(f"{{{w_ns}}}val", str(body_size))
                     changes += 1
         for sz_cs_el in doc_root.iter(f"{{{w_ns}}}szCs"):
             val = sz_cs_el.get(f"{{{w_ns}}}val")
@@ -440,6 +451,38 @@ def _postprocess_docx(path: Path) -> None:
         doc_dirty = changes > 0
         if doc_dirty:
             entries[doc_path] = _serialize_xml(doc_root)
+
+    # Fix 4b: Strip problematic Unicode characters that don't render in
+    # common readers. Models sometimes emit U+2011 (non-breaking hyphen),
+    # U+00AD (soft hyphen), U+200B (zero-width space), U+200C/D (joiners),
+    # U+FEFF (BOM). soffice/Pages render these as black squares.
+    raw_doc = entries.get(doc_path, b"")
+    if raw_doc:
+        problem_chars = {
+            "\u2011": "-",  # non-breaking hyphen
+            "\u00ad": "",   # soft hyphen
+            "\u200b": "",   # zero-width space
+            "\u200c": "",   # zero-width non-joiner
+            "\u200d": "",   # zero-width joiner
+            "\ufeff": "",   # byte-order mark
+            "\u2028": " ",  # line separator
+            "\u2029": " ",  # paragraph separator
+        }
+        decoded = raw_doc.decode("utf-8", errors="replace")
+        replaced = decoded
+        unicode_changes = 0
+        for bad, good in problem_chars.items():
+            count_in = replaced.count(bad)
+            if count_in:
+                replaced = replaced.replace(bad, good)
+                unicode_changes += count_in
+        if unicode_changes:
+            entries[doc_path] = replaced.encode("utf-8")
+            changes += unicode_changes
+            logger.info(
+                "[Create][postprocess] Replaced %d problematic unicode chars",
+                unicode_changes,
+            )
 
     # Fix 5: Strip invalid XML tags from malformed LLM output (raw bytes)
     raw_doc = entries.get(doc_path, b"")
@@ -570,15 +613,17 @@ def _postprocess_docx(path: Path) -> None:
                 break
         if first_h1 is not None:
             cover_changes = 0
+            cap = theme.cover.title_size_cap
+            cap_str = str(cap)
             for sz in first_h1.iter(f"{{{w_ns}}}sz"):
                 v = sz.get(f"{{{w_ns}}}val")
-                if v and v.isdigit() and int(v) > 56:
-                    sz.set(f"{{{w_ns}}}val", "56")
+                if v and v.isdigit() and int(v) > cap:
+                    sz.set(f"{{{w_ns}}}val", cap_str)
                     cover_changes += 1
             for sz in first_h1.iter(f"{{{w_ns}}}szCs"):
                 v = sz.get(f"{{{w_ns}}}val")
-                if v and v.isdigit() and int(v) > 56:
-                    sz.set(f"{{{w_ns}}}val", "56")
+                if v and v.isdigit() and int(v) > cap:
+                    sz.set(f"{{{w_ns}}}val", cap_str)
                     cover_changes += 1
             if cover_changes > 0:
                 doc_dirty = True
@@ -587,6 +632,41 @@ def _postprocess_docx(path: Path) -> None:
                     "[Create][postprocess] Capped %d cover-title sizes to 28pt",
                     cover_changes,
                 )
+
+        # Wave G2: cap oversized body run sizes. Cover-title gets a
+        # special cap to 56 (28pt) above; for all OTHER paragraphs, any
+        # run with sz > 24 (12pt) is capped to 22 (11pt). This catches
+        # model-emitted code blocks at sz=36 (18pt) which look gigantic.
+        # Headings rely on pStyle (no run-level sz), so they're unaffected.
+        body_size_changes = 0
+        body_cap = body_size + 2
+        body_size_str = str(body_size)
+        first_p_with_text = None
+        for p in doc_root.iter(f"{{{w_ns}}}p"):
+            text = "".join((t.text or "") for t in p.iter(f"{{{w_ns}}}t"))
+            if text.strip():
+                first_p_with_text = p
+                break
+        for p in doc_root.iter(f"{{{w_ns}}}p"):
+            if p is first_p_with_text:
+                continue
+            for sz in p.iter(f"{{{w_ns}}}sz"):
+                v = sz.get(f"{{{w_ns}}}val")
+                if v and v.isdigit() and int(v) > body_cap:
+                    sz.set(f"{{{w_ns}}}val", body_size_str)
+                    body_size_changes += 1
+            for sz in p.iter(f"{{{w_ns}}}szCs"):
+                v = sz.get(f"{{{w_ns}}}val")
+                if v and v.isdigit() and int(v) > body_cap:
+                    sz.set(f"{{{w_ns}}}val", body_size_str)
+                    body_size_changes += 1
+        if body_size_changes > 0:
+            doc_dirty = True
+            changes += body_size_changes
+            logger.info(
+                "[Create][postprocess] Capped %d oversized body runs to 11pt",
+                body_size_changes,
+            )
 
         table_changes = 0
         for tbl in doc_root.iter(f"{{{w_ns}}}tbl"):
@@ -668,12 +748,22 @@ def _postprocess_docx(path: Path) -> None:
             )
             spacing_el = etree.SubElement(spacing_ppr, f"{{{w_ns}}}spacing")
             if style_id.startswith("Heading"):
-                spacing_el.set(f"{{{w_ns}}}before", "240")
-                spacing_el.set(f"{{{w_ns}}}after", "120")
+                spacing_el.set(
+                    f"{{{w_ns}}}before", str(theme.paragraph.heading_before)
+                )
+                spacing_el.set(
+                    f"{{{w_ns}}}after", str(theme.paragraph.heading_after)
+                )
             else:
-                spacing_el.set(f"{{{w_ns}}}after", "120")
-                spacing_el.set(f"{{{w_ns}}}line", "276")
-                spacing_el.set(f"{{{w_ns}}}lineRule", "auto")
+                spacing_el.set(
+                    f"{{{w_ns}}}after", str(theme.paragraph.body_after)
+                )
+                spacing_el.set(
+                    f"{{{w_ns}}}line", str(theme.paragraph.body_line)
+                )
+                spacing_el.set(
+                    f"{{{w_ns}}}lineRule", theme.paragraph.body_line_rule
+                )
             spacing_added += 1
         if spacing_added:
             entries[doc_path] = _serialize_xml(doc_root)
@@ -683,15 +773,49 @@ def _postprocess_docx(path: Path) -> None:
                 spacing_added,
             )
 
+    # Fix 7c (Wave G): keepNext on heading paragraphs that immediately
+    # precede a table or another paragraph. Prevents orphan tables on
+    # the next page when a heading lands at the bottom margin.
+    doc_root = _parse_xml(doc_path)
+    if doc_root is not None:
+        keepnext_added = 0
+        body = doc_root.find(f"{{{w_ns}}}body")
+        if body is not None:
+            children = list(body)
+            for idx, el in enumerate(children):
+                if el.tag != f"{{{w_ns}}}p":
+                    continue
+                head_ppr = el.find(f"{{{w_ns}}}pPr")
+                if head_ppr is None:
+                    continue
+                pstyle = head_ppr.find(f"{{{w_ns}}}pStyle")
+                style_id = (
+                    pstyle.get(f"{{{w_ns}}}val", "") if pstyle is not None else ""
+                )
+                if not style_id.startswith("Heading"):
+                    continue
+                if idx + 1 >= len(children):
+                    continue
+                if head_ppr.find(f"{{{w_ns}}}keepNext") is None:
+                    etree.SubElement(head_ppr, f"{{{w_ns}}}keepNext")
+                    keepnext_added += 1
+                if head_ppr.find(f"{{{w_ns}}}keepLines") is None:
+                    etree.SubElement(head_ppr, f"{{{w_ns}}}keepLines")
+        if keepnext_added:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += keepnext_added
+            logger.info(
+                "[Create][postprocess] Added keepNext on %d headings",
+                keepnext_added,
+            )
+
     # Fix 7b (Wave C): convert "Warning:", "Note:", "Tip:", "Caution:"
     # prefixed paragraphs into distinct-coloured callout blocks. Gives the
     # doc varied semantic emphasis (info / warning / tip) without requiring
     # the model to write the right border+shading by hand.
     callout_styles = {
-        "warning": ("E8A838", "FFF8E1"),  # amber
-        "note": ("2E75B6", "EBF5FB"),     # blue
-        "tip": ("2E8B57", "E8F5E9"),      # green
-        "caution": ("C0392B", "FDECEA"),  # red
+        kind: (palette.border, palette.fill)
+        for kind, palette in theme.palette.callouts.items()
     }
     callout_pat = re.compile(
         r"^\s*(Warning|Note|Tip|Caution|Important)\s*[:—-]",
@@ -721,8 +845,8 @@ def _postprocess_docx(path: Path) -> None:
             pbdr = etree.SubElement(callout_ppr, f"{{{w_ns}}}pBdr")
             left = etree.SubElement(pbdr, f"{{{w_ns}}}left")
             left.set(f"{{{w_ns}}}val", "single")
-            left.set(f"{{{w_ns}}}sz", "12")
-            left.set(f"{{{w_ns}}}space", "8")
+            left.set(f"{{{w_ns}}}sz", str(theme.callout_layout.border_width))
+            left.set(f"{{{w_ns}}}space", str(theme.callout_layout.border_space))
             left.set(f"{{{w_ns}}}color", border_color)
             shd_target = callout_ppr.find(f"{{{w_ns}}}shd")
             if shd_target is None:
@@ -733,7 +857,9 @@ def _postprocess_docx(path: Path) -> None:
             ind_existing = callout_ppr.find(f"{{{w_ns}}}ind")
             if ind_existing is None:
                 ind_new = etree.SubElement(callout_ppr, f"{{{w_ns}}}ind")
-                ind_new.set(f"{{{w_ns}}}left", "120")
+                ind_new.set(
+                    f"{{{w_ns}}}left", str(theme.callout_layout.indent_left)
+                )
             callout_changes += 1
         if callout_changes:
             entries[doc_path] = _serialize_xml(doc_root)
@@ -743,13 +869,171 @@ def _postprocess_docx(path: Path) -> None:
                 callout_changes,
             )
 
+    # Fix 8a (Wave G): aggressive table-style normalization to match the
+    # docs/docx_showcase.docx reference design system. Applied on every table
+    # regardless of what the model emitted.
+    #
+    # Per-table:
+    #   - tblW = 9360 DXA (full content width)
+    #   - tblBorders = thin grey (single, sz 4, color DDDDDD)
+    #   - tblCellMar default = top/bottom 80, left/right 120
+    #   - gridCol widths redistributed to sum to 9360
+    # Per row:
+    #   - First row (header): tblHeader marker
+    # Per cell:
+    #   - tcW from grid
+    #   - tcMar = top/bottom 80, left/right 120
+    #   - Header cells: shading fill 1B3A5C, runs colored FFFFFF + bold
+    #   - Body cells: runs colored 333333
+    primary_dark = theme.tables.header.fill or theme.palette.primary
+    primary_text = theme.tables.header.text
+    body_text = theme.tables.body.text
+    border_grey = theme.tables.borders.color
+    border_size_str = str(theme.tables.borders.size)
+    cell_mar = theme.tables.cell_margins
+    target_width = theme.tables.target_width_dxa
+    doc_root = _parse_xml(doc_path)
+    if doc_root is not None:
+        table_norm_changes = 0
+        for tbl in doc_root.iter(f"{{{w_ns}}}tbl"):
+            tbl_pr = tbl.find(f"{{{w_ns}}}tblPr")
+            if tbl_pr is None:
+                tbl_pr = etree.Element(f"{{{w_ns}}}tblPr")
+                tbl.insert(0, tbl_pr)
+
+            tbl_w = tbl_pr.find(f"{{{w_ns}}}tblW")
+            if tbl_w is None:
+                tbl_w = etree.SubElement(tbl_pr, f"{{{w_ns}}}tblW")
+            tbl_w.set(f"{{{w_ns}}}w", str(target_width))
+            tbl_w.set(f"{{{w_ns}}}type", "dxa")
+
+            existing_borders = tbl_pr.find(f"{{{w_ns}}}tblBorders")
+            if existing_borders is not None:
+                tbl_pr.remove(existing_borders)
+            tbl_borders = etree.SubElement(tbl_pr, f"{{{w_ns}}}tblBorders")
+            for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+                el = etree.SubElement(tbl_borders, f"{{{w_ns}}}{side}")
+                el.set(f"{{{w_ns}}}val", "single")
+                el.set(f"{{{w_ns}}}sz", border_size_str)
+                el.set(f"{{{w_ns}}}color", border_grey)
+
+            existing_cellmar = tbl_pr.find(f"{{{w_ns}}}tblCellMar")
+            if existing_cellmar is not None:
+                tbl_pr.remove(existing_cellmar)
+            tbl_cell_mar = etree.SubElement(tbl_pr, f"{{{w_ns}}}tblCellMar")
+            cell_mar_pairs = (
+                ("top", str(cell_mar.top)),
+                ("left", str(cell_mar.left)),
+                ("bottom", str(cell_mar.bottom)),
+                ("right", str(cell_mar.right)),
+            )
+            for side, val in cell_mar_pairs:
+                mar_side = etree.SubElement(tbl_cell_mar, f"{{{w_ns}}}{side}")
+                mar_side.set(f"{{{w_ns}}}w", val)
+                mar_side.set(f"{{{w_ns}}}type", "dxa")
+
+            tbl_grid = tbl.find(f"{{{w_ns}}}tblGrid")
+            grid_widths = []
+            if tbl_grid is not None:
+                grid_cols = tbl_grid.findall(f"{{{w_ns}}}gridCol")
+                widths: list[int] = []
+                for gc in grid_cols:
+                    w_attr = gc.get(f"{{{w_ns}}}w", "0") or "0"
+                    try:
+                        widths.append(int(w_attr))
+                    except ValueError:
+                        widths.append(0)
+                if widths and sum(widths) != target_width:
+                    if sum(widths) <= 0:
+                        n = len(widths)
+                        each = target_width // n
+                        widths = [each] * (n - 1) + [target_width - each * (n - 1)]
+                    else:
+                        old_total = sum(widths)
+                        scaled = [int(w * target_width / old_total) for w in widths]
+                        scaled[-1] += target_width - sum(scaled)
+                        widths = scaled
+                    for gc, w in zip(grid_cols, widths, strict=False):
+                        gc.set(f"{{{w_ns}}}w", str(w))
+                grid_widths = widths
+
+            rows = tbl.findall(f"{{{w_ns}}}tr")
+            if not rows:
+                table_norm_changes += 1
+                continue
+            for ri, row in enumerate(rows):
+                is_header = ri == 0
+                if is_header:
+                    row_tr_pr = row.find(f"{{{w_ns}}}trPr")
+                    if row_tr_pr is None:
+                        row_tr_pr = etree.Element(f"{{{w_ns}}}trPr")
+                        row.insert(0, row_tr_pr)
+                    if row_tr_pr.find(f"{{{w_ns}}}tblHeader") is None:
+                        etree.SubElement(row_tr_pr, f"{{{w_ns}}}tblHeader")
+                cells = row.findall(f"{{{w_ns}}}tc")
+                for ci, cell in enumerate(cells):
+                    cell_tcpr = cell.find(f"{{{w_ns}}}tcPr")
+                    if cell_tcpr is None:
+                        cell_tcpr = etree.Element(f"{{{w_ns}}}tcPr")
+                        cell.insert(0, cell_tcpr)
+                    if ci < len(grid_widths):
+                        tc_w = cell_tcpr.find(f"{{{w_ns}}}tcW")
+                        if tc_w is None:
+                            tc_w = etree.SubElement(cell_tcpr, f"{{{w_ns}}}tcW")
+                        tc_w.set(f"{{{w_ns}}}w", str(grid_widths[ci]))
+                        tc_w.set(f"{{{w_ns}}}type", "dxa")
+                    existing_tcmar = cell_tcpr.find(f"{{{w_ns}}}tcMar")
+                    if existing_tcmar is not None:
+                        cell_tcpr.remove(existing_tcmar)
+                    cell_mar_el = etree.SubElement(
+                        cell_tcpr, f"{{{w_ns}}}tcMar"
+                    )
+                    for side, val in cell_mar_pairs:
+                        mar_side = etree.SubElement(
+                            cell_mar_el, f"{{{w_ns}}}{side}"
+                        )
+                        mar_side.set(f"{{{w_ns}}}w", val)
+                        mar_side.set(f"{{{w_ns}}}type", "dxa")
+                    if is_header:
+                        cell_shd = cell_tcpr.find(f"{{{w_ns}}}shd")
+                        if cell_shd is None:
+                            cell_shd = etree.SubElement(cell_tcpr, f"{{{w_ns}}}shd")
+                        cell_shd.set(f"{{{w_ns}}}val", "clear")
+                        cell_shd.set(f"{{{w_ns}}}color", "auto")
+                        cell_shd.set(f"{{{w_ns}}}fill", primary_dark)
+                    for run in cell.iter(f"{{{w_ns}}}r"):
+                        rpr = run.find(f"{{{w_ns}}}rPr")
+                        if rpr is None:
+                            rpr = etree.Element(f"{{{w_ns}}}rPr")
+                            run.insert(0, rpr)
+                        existing_col = rpr.find(f"{{{w_ns}}}color")
+                        if existing_col is not None:
+                            rpr.remove(existing_col)
+                        col_el = etree.SubElement(rpr, f"{{{w_ns}}}color")
+                        if is_header:
+                            col_el.set(f"{{{w_ns}}}val", primary_text)
+                            if theme.tables.header.bold and rpr.find(
+                                f"{{{w_ns}}}b"
+                            ) is None:
+                                etree.SubElement(rpr, f"{{{w_ns}}}b")
+                        else:
+                            col_el.set(f"{{{w_ns}}}val", body_text)
+            table_norm_changes += 1
+        if table_norm_changes:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += table_norm_changes
+            logger.info(
+                "[Create][postprocess] Table normalize: %d tables",
+                table_norm_changes,
+            )
+
     # Fix 8 (Wave E): alt-row coloring on tables that don't already have it.
     # Every other body row (skipping header) gets a light fill so tables
     # are easier to scan.
     doc_root = _parse_xml(doc_path)
     if doc_root is not None:
         alt_changes = 0
-        alt_fill = "F3F4F6"  # neutral light grey
+        alt_fill = theme.tables.alt_row_fill
         for tbl in doc_root.iter(f"{{{w_ns}}}tbl"):
             rows = tbl.findall(f"{{{w_ns}}}tr")
             if len(rows) < 3:

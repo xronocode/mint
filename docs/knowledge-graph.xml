@@ -215,6 +215,40 @@
       </annotations>
     </M-GRACE>
 
+    <!-- Phase 5: Theme System (M-THEME) -->
+
+    <M-THEME NAME="Theme Tokens" TYPE="CORE_LOGIC" STATUS="done" VERSION="0.1.0">
+      <purpose>Single source of truth for visual design tokens. Parses theme files (TOML) shipped under mint/themes/ into a typed ThemeTokens dataclass that M-CREATE postprocess and M-ASSEMBLE templates consume. Default theme = "showcase_v1" extracted from docs/docx_showcase.docx.</purpose>
+      <path>src/mint/theme.py</path>
+      <depends>M-PATHS</depends>
+      <verification-ref>V-M-THEME</verification-ref>
+      <annotations>
+        <fn-load_theme PURPOSE="Load named theme from mint/themes/&lt;name&gt;.toml; default = showcase_v1" />
+        <fn-parse_theme PURPOSE="Build ThemeTokens dataclass from a TOML-loaded dict; raises KeyError on missing required fields" />
+        <type-ThemeTokens PURPOSE="frozen dataclass: name, description, version, palette, typography, paragraph, tables, cover, callout_layout, raw" />
+        <type-Palette PURPOSE="frozen dataclass: primary, primary_text_on, body, muted, border, alt_row, accent, callouts" />
+        <type-Typography PURPOSE="frozen dataclass: default_font, mono_font, styles map; .style(name) accessor" />
+        <type-StyleSpec PURPOSE="frozen dataclass: size (half-points), color, bold, italic, font" />
+        <type-Tables PURPOSE="frozen dataclass: target_width_dxa, cell_margins, borders, header, body, alt_row_fill" />
+        <type-Cover PURPOSE="frozen dataclass: title_size_cap, hero_size, tagline, tagline_size, metadata_size, accent_bar_size" />
+        <type-CalloutLayout PURPOSE="frozen dataclass: border_width, border_space, indent_left" />
+        <export-load_theme PURPOSE="Theme loader entry point" />
+        <export-DEFAULT_THEME_NAME PURPOSE="String constant 'showcase_v1'" />
+      </annotations>
+    </M-THEME>
+
+    <M-THEMEEXTRACT NAME="Theme Extractor" TYPE="CORE_LOGIC" STATUS="done" VERSION="0.1.0">
+      <purpose>Extract a MINT theme TOML file from a reference DOCX. Reads styles.xml + the first table (header shading, run colors, cell margins) and produces a theme that visually matches the source document. Powers user-registered themes.</purpose>
+      <path>src/mint/theme_extract.py</path>
+      <depends>M-THEME, M-PATHS</depends>
+      <verification-ref>V-M-THEMEEXTRACT</verification-ref>
+      <annotations>
+        <fn-extract_theme PURPOSE="Read DOCX → tokens dict (palette/typography/tables/cover/callouts/paragraph)" />
+        <fn-write_theme_toml PURPOSE="Serialize tokens dict to a TOML file" />
+        <fn-register_user_theme PURPOSE="High-level: extract + write under mint/themes/&lt;name&gt;.toml" />
+      </annotations>
+    </M-THEMEEXTRACT>
+
     <!-- Phase 4: Modular Generation (G6) -->
 
     <M-PLAN NAME="Document Planner" TYPE="CORE_LOGIC" STATUS="done">

@@ -509,6 +509,53 @@
 
     <!-- ===== PHASE 4: Modular Generation (G6) ===== -->
 
+    <V-M-THEME MODULE="M-THEME" PRIORITY="high">
+      <test-files><file>tests/unit/test_theme.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_theme.py -x</check-1>
+        <check-2>ruff check src/mint/theme.py</check-2>
+        <check-3>mypy src/mint/theme.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">load_theme() returns ThemeTokens with name="showcase_v1"</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">load_theme().palette.primary == "1B3A5C" (matches docs/docx_showcase.docx reference)</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">load_theme().tables.target_width_dxa == 9360 and cell_margins are 80/120 (reference)</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">load_theme().palette.callouts contains warning, note, tip, caution kinds</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic">typography.style("body").size == 22 (11pt body)</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">load_theme("does_not_exist") raises FileNotFoundError</scenario-6>
+        <scenario-7 kind="failure" evidence="deterministic">parse_theme(missing required field) raises KeyError</scenario-7>
+      </scenarios>
+      <required-log-markers/>
+      <forbidden-behaviors>
+        <forbidden-1>Must not silently fall back to defaults when a theme key is missing — fail loudly via KeyError</forbidden-1>
+        <forbidden-2>ThemeTokens dataclasses must be frozen (immutable) so postprocess can't mutate the design system at runtime</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>FULL — pure parser + dataclass; no I/O beyond reading bundled TOML</autonomy-assessment>
+    </V-M-THEME>
+
+    <V-M-THEMEEXTRACT MODULE="M-THEMEEXTRACT" PRIORITY="medium">
+      <test-files><file>tests/unit/test_theme_extract.py</file></test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_theme_extract.py -x</check-1>
+        <check-2>ruff check src/mint/theme_extract.py</check-2>
+        <check-3>mypy src/mint/theme_extract.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">extract_theme(docs/docx_showcase.docx) returns tokens with palette.primary == "1B3A5C"</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">extracted tables.cell_margins == {top:80, bottom:80, left:120, right:120}</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">write_theme_toml + tomllib.load → parse_theme round-trips successfully</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">register_user_theme writes mint/themes/&lt;name&gt;.toml that load_theme can read</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic">register_user_theme(name='../../etc/passwd') raises ValueError (path-traversal guard)</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">extract_theme(missing path) raises FileNotFoundError</scenario-6>
+      </scenarios>
+      <required-log-markers/>
+      <forbidden-behaviors>
+        <forbidden-1>Must never accept theme names containing path separators or special characters — only [A-Za-z0-9_-]</forbidden-1>
+        <forbidden-2>Must never silently fall back when source DOCX is missing styles.xml or document.xml — raise ValueError</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>FULL — pure offline analysis, no LLM, no network</autonomy-assessment>
+    </V-M-THEMEEXTRACT>
+
     <V-M-PLAN MODULE="M-PLAN" PRIORITY="high">
       <test-files><file>tests/unit/test_plan.py</file></test-files>
       <module-checks>

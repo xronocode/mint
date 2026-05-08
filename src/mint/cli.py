@@ -224,6 +224,88 @@ def cmd_edit(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_theme(args: argparse.Namespace) -> None:
+    from mint.paths import THEMES_DIR
+    from mint.theme import load_theme
+    from mint.theme_extract import register_user_theme
+
+    action = args.theme_action
+
+    if action == "list":
+        if not THEMES_DIR.exists():
+            print(json.dumps({"themes": []}))
+            return
+        names = sorted(p.stem for p in THEMES_DIR.glob("*.toml"))
+        themes = []
+        for name in names:
+            try:
+                t = load_theme(name)
+                themes.append(
+                    {
+                        "name": t.name,
+                        "description": t.description,
+                        "version": t.version,
+                    }
+                )
+            except Exception as exc:
+                themes.append({"name": name, "error": str(exc)})
+        print(json.dumps({"themes": themes}, indent=2))
+        return
+
+    if action == "show":
+        theme = load_theme(args.name)
+        print(
+            json.dumps(
+                {
+                    "name": theme.name,
+                    "description": theme.description,
+                    "version": theme.version,
+                    "palette": {
+                        "primary": theme.palette.primary,
+                        "body": theme.palette.body,
+                        "muted": theme.palette.muted,
+                        "border": theme.palette.border,
+                        "alt_row": theme.palette.alt_row,
+                        "accent": theme.palette.accent,
+                    },
+                    "tables": {
+                        "target_width_dxa": theme.tables.target_width_dxa,
+                        "header_fill": theme.tables.header.fill,
+                        "header_text": theme.tables.header.text,
+                        "body_text": theme.tables.body.text,
+                    },
+                    "typography": {
+                        k: {"size": s.size, "color": s.color}
+                        for k, s in theme.typography.styles.items()
+                    },
+                },
+                indent=2,
+            )
+        )
+        return
+
+    if action == "extract":
+        path = register_user_theme(
+            Path(args.document),
+            name=args.name,
+            description=args.description,
+        )
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "name": args.name,
+                    "path": str(path),
+                    "loadable_via": f"load_theme('{args.name}')",
+                },
+                indent=2,
+            )
+        )
+        return
+
+    raise SystemExit(f"unknown theme action: {action!r}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mint",
@@ -288,6 +370,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output path (default: <stem>.edited<ext> next to input)",
     )
 
+    # theme
+    th = sub.add_parser("theme", help="Manage MINT design themes")
+    th_sub = th.add_subparsers(dest="theme_action", required=True)
+    th_sub.add_parser(
+        "list", help="List installed themes (mint/themes/*.toml)"
+    )
+    th_show = th_sub.add_parser("show", help="Print theme tokens as JSON")
+    th_show.add_argument("name", help="Theme name (e.g. showcase_v1)")
+    th_extract = th_sub.add_parser(
+        "extract", help="Extract theme from a reference DOCX"
+    )
+    th_extract.add_argument("document", help="Path to reference DOCX")
+    th_extract.add_argument(
+        "name",
+        help="Theme name to register (alphanumeric/underscore/hyphen only)",
+    )
+    th_extract.add_argument(
+        "--description",
+        default=None,
+        help="Optional description; defaults to 'extracted from <file>'",
+    )
+
     return parser
 
 
@@ -302,6 +406,7 @@ def main() -> None:
         "create": cmd_create,
         "extract": cmd_extract,
         "edit": cmd_edit,
+        "theme": cmd_theme,
     }
     commands[args.command](args)
 

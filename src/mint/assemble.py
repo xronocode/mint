@@ -23,7 +23,11 @@
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 - Initial implementation: JS template + sandbox execution
+#   LAST_CHANGE: v0.1.1 - Migrate hardcoded color/size literals (cover hero,
+#                header, footer, TOC, fallback) to ThemeTokens. assemble(),
+#                render_assembly_template(), build_styles_config() now
+#                accept a theme: ThemeTokens | None and default to
+#                load_theme(). Plan-level styles still override.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -44,6 +48,7 @@ from mint.plan import (
     SectionSpec,
     StylesConfig,
 )
+from mint.theme import ThemeTokens, load_theme
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +81,17 @@ class AssemblyResult:
     error: str | None = None
 
 
-def build_styles_config(styles: StylesConfig) -> str:
+def build_styles_config(
+    styles: StylesConfig, theme: ThemeTokens | None = None
+) -> str:
+    if theme is None:
+        theme = load_theme()
     heading_styles = ""
+    primary_default = "#" + theme.palette.primary
     for level in range(1, 7):
         size_key = f"h{level}"
         size = styles.heading_sizes.get(size_key, 24)
-        color = styles.colors.get("primary", "#1E40AF")
+        color = styles.colors.get("primary", primary_default)
         if level <= 3:
             heading_styles += (
                 f"{{\n"
@@ -326,11 +336,14 @@ def render_assembly_template(
     plan_data: DocumentPlan,
     sections_code: dict[str, str],
     sections_placeholder: set[str] | None = None,
+    theme: ThemeTokens | None = None,
 ) -> str:
     if sections_placeholder is None:
         sections_placeholder = set()
+    if theme is None:
+        theme = load_theme()
 
-    styles_js = build_styles_config(plan_data.styles)
+    styles_js = build_styles_config(plan_data.styles, theme)
     valid_numbering = [nc for nc in plan_data.numbering if nc.reference.strip()]
     numbering_js = build_numbering_config(valid_numbering)
     header_js, footer_js = build_headers_footers(plan_data.header_footer)
@@ -344,20 +357,26 @@ def render_assembly_template(
         plan_data.sections[0] if plan_data.sections else None,
     )
     doc_title = cover_spec.title if cover_spec else "MINT Document"
-    primary = plan_data.styles.colors.get("primary", "#1B3A5C").lstrip("#")
-    muted = plan_data.styles.colors.get("muted", "#6B7280").lstrip("#")
+    primary = plan_data.styles.colors.get(
+        "primary", "#" + theme.palette.primary
+    ).lstrip("#")
+    muted = plan_data.styles.colors.get(
+        "muted", "#" + theme.palette.muted
+    ).lstrip("#")
+    footer_size = theme.typography.style("footer").size
+    header_text_size = theme.typography.style("caption").size
 
     header_js = (
         "new Header({ children: [new Paragraph({\n"
+        "  tabStops: [{ type: TabStopType.RIGHT, position: 9000 }],\n"
         "  border: { bottom: { style: BorderStyle.SINGLE, size: 6, "
         f"color: '{primary}', space: 4 }} }},\n"
         "  children: [\n"
         f"    new TextRun({{ text: {json.dumps(doc_title)}, "
-        f"bold: true, size: 18, color: '{primary}' }}),\n"
-        "    new TextRun({ children: [new PositionalTab({ "
-        "alignment: PositionalTabAlignment.RIGHT })] }),\n"
+        f"bold: true, size: {header_text_size}, color: '{primary}' }}),\n"
+        "    new TextRun({ text: '\\t' }),\n"
         f"    new TextRun({{ text: 'MINT-generated report', "
-        f"italics: true, size: 16, color: '{muted}' }}),\n"
+        f"italics: true, size: {footer_size}, color: '{muted}' }}),\n"
         "  ],\n"
         "})] })"
     )
@@ -365,12 +384,14 @@ def render_assembly_template(
         "new Footer({ children: [new Paragraph({\n"
         "  alignment: AlignmentType.CENTER,\n"
         "  children: [\n"
-        f"    new TextRun({{ text: 'Page ', size: 16, color: '{muted}' }}),\n"
-        "    new TextRun({ children: [PageNumber.CURRENT], size: 16, "
-        f"color: '{muted}' }}),\n"
-        f"    new TextRun({{ text: ' of ', size: 16, color: '{muted}' }}),\n"
-        "    new TextRun({ children: [PageNumber.TOTAL_PAGES], size: 16, "
-        f"color: '{muted}' }}),\n"
+        f"    new TextRun({{ text: 'Page ', "
+        f"size: {footer_size}, color: '{muted}' }}),\n"
+        f"    new TextRun({{ children: [PageNumber.CURRENT], "
+        f"size: {footer_size}, color: '{muted}' }}),\n"
+        f"    new TextRun({{ text: ' of ', "
+        f"size: {footer_size}, color: '{muted}' }}),\n"
+        f"    new TextRun({{ children: [PageNumber.TOTAL_PAGES], "
+        f"size: {footer_size}, color: '{muted}' }}),\n"
         "  ],\n"
         "})] })"
     )
@@ -380,24 +401,19 @@ def render_assembly_template(
         if spec.type == "cover":
             # Wave B: replace model-generated cover with a fixed assembler
             # layout. The model's text is unreliable for cover (long
-            # paragraphs, weird sizes, missing decoration). We synthesize a
-            # vertically-balanced layout from the plan's title + a one-line
-            # tagline derived from spec.description (truncated to 200 chars).
+            # paragraphs, weird sizes, missing decoration). All visual
+            # parameters come from the active theme — no hardcoded literals.
             primary_color = plan_data.styles.colors.get(
-                "primary", "#1B3A5C"
+                "primary", "#" + theme.palette.primary
             ).lstrip("#")
             accent_color = plan_data.styles.colors.get(
-                "accent", "#2E75B6"
+                "accent", "#" + theme.palette.accent
             ).lstrip("#")
             muted_color = plan_data.styles.colors.get(
-                "muted", "#6B7280"
+                "muted", "#" + theme.palette.muted
             ).lstrip("#")
             cover_title = spec.title.replace("'", "\\'")
-            # spec.description from M-PLAN often contains formatting
-            # instructions ("Title in 72pt bold, color #1B3A5C, centered.
-            # Subtitle '...'") which leaks visually as cover text. Use a
-            # generic short subtitle instead so the cover is clean.
-            tagline = "Technical Report"
+            tagline = theme.cover.tagline
 
             code = (
                 # Top spacer to vertically center the title block
@@ -408,13 +424,15 @@ def render_assembly_template(
                 "  spacing: { after: 240 },\n"
                 "  children: [new TextRun({\n"
                 f"    text: '{cover_title}',\n"
-                f"    bold: true, size: 80, color: '{primary_color}'\n"
+                f"    bold: true, size: {theme.cover.hero_size}, "
+                f"color: '{primary_color}'\n"
                 "  })],\n"
                 "}),\n"
                 # Decorative bar
                 "new Paragraph({\n"
                 "  alignment: AlignmentType.CENTER,\n"
-                "  border: { bottom: { style: BorderStyle.SINGLE, size: 18, "
+                "  border: { bottom: { style: BorderStyle.SINGLE, "
+                f"size: {theme.cover.accent_bar_size}, "
                 f"color: '{accent_color}', space: 1 }} }},\n"
                 "  spacing: { after: 360 },\n"
                 "  children: [],\n"
@@ -425,7 +443,8 @@ def render_assembly_template(
                 "  spacing: { after: 7200 },\n"
                 "  children: [new TextRun({\n"
                 f"    text: '{tagline}',\n"
-                f"    italics: true, size: 28, color: '{muted_color}'\n"
+                f"    italics: true, size: {theme.cover.tagline_size}, "
+                f"color: '{muted_color}'\n"
                 "  })],\n"
                 "}),\n"
                 # Bottom metadata footer
@@ -433,7 +452,8 @@ def render_assembly_template(
                 "  alignment: AlignmentType.CENTER,\n"
                 "  children: [new TextRun({\n"
                 "    text: 'Generated by MINT  •  Local LLM Pipeline',\n"
-                f"    size: 18, color: '{muted_color}'\n"
+                f"    size: {theme.cover.metadata_size}, "
+                f"color: '{muted_color}'\n"
                 "  })],\n"
                 "})"
             )
@@ -446,14 +466,19 @@ def render_assembly_template(
             # open. Postprocess (_postprocess_docx) walks the produced XML and
             # injects real H1/H2 entries below this placeholder once it knows
             # the section structure.
+            toc_h_size = theme.typography.style("heading1").size
+            toc_h_color = theme.typography.style("heading1").color
+            toc_caption = theme.typography.style("caption")
             code = (
                 "new Paragraph({ children: ["
-                "new TextRun({ text: 'Table of Contents', "
-                "bold: true, size: 32, color: '1B3A5C' })] }),\n"
+                f"new TextRun({{ text: 'Table of Contents', "
+                f"bold: true, size: {toc_h_size}, "
+                f"color: '{toc_h_color}' }})] }}),\n"
                 "new Paragraph({ spacing: { after: 120 }, children: ["
                 "new TextRun({ text: '(refresh to populate — entries shown "
                 "below are auto-generated from headings)', "
-                "italics: true, color: '888888', size: 18 })] }),\n"
+                f"italics: true, color: '{toc_caption.color}', "
+                f"size: {toc_caption.size} }})] }}),\n"
                 "new TableOfContents('Table of Contents', { "
                 "hyperlink: true, headingStyleRange: '1-3' })"
             )
@@ -487,11 +512,12 @@ def render_assembly_template(
             f"        }},\n"
             f"      }},\n"
             f"      children: [\n"
-            f"        new Paragraph({{ children: [new TextRun({{ text: '{spec.title}', "
-            f"bold: true, size: 28 }})] }}),\n"
+            f"        new Paragraph({{ children: [new TextRun({{ "
+            f"text: '{spec.title}', "
+            f"bold: true, size: {theme.typography.style('heading2').size} }})] }}),\n"
             f"        new Paragraph({{ children: [new TextRun({{ "
             f"text: 'Section failed: ' + __e_{safe_id}.message, "
-            f"italics: true, color: '999999' }})] }}),\n"
+            f"italics: true, color: '{theme.palette.muted}' }})] }}),\n"
             f"      ],\n"
             f"    }};\n"
             f"  }}\n"
@@ -524,6 +550,7 @@ def render_assembly_template(
 def assemble(
     plan_data: DocumentPlan,
     sections_code: dict[str, Any],
+    theme: ThemeTokens | None = None,
 ) -> AssemblyResult:
     from mint.sandbox import SandboxResult
     from mint.sandbox import execute as sandbox_execute
@@ -563,8 +590,13 @@ def assemble(
             duration_ms=int((time.monotonic() - start) * 1000),
         )
 
+    if theme is None:
+        theme = load_theme()
+
     try:
-        js_code = render_assembly_template(plan_data, code_map, placeholder_ids)
+        js_code = render_assembly_template(
+            plan_data, code_map, placeholder_ids, theme=theme
+        )
     except Exception as e:
         raise AssemblyTemplateError(f"Template rendering failed: {e}") from e
 

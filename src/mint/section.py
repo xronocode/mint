@@ -25,7 +25,11 @@
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 - Initial implementation: per-section code generation + retry
+#   LAST_CHANGE: v0.1.1 - render_section_prompt now takes theme: ThemeTokens
+#                and embeds size tokens (body/code/caption/heading) and
+#                primary/muted hex into the LLM prompt. Reduces postprocess
+#                whack-a-mole because the model is told the right sizes
+#                up-front instead of inventing sz=36 for code.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ import time
 from dataclasses import dataclass, field
 
 from mint.plan import DocumentPlan, SectionSpec
+from mint.theme import ThemeTokens, load_theme
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +217,11 @@ def render_section_prompt(
     plan_data: DocumentPlan,
     section_spec: SectionSpec,
     siblings: list[SiblingRef] | None = None,
+    theme: ThemeTokens | None = None,
 ) -> str:
+    if theme is None:
+        theme = load_theme()
+
     siblings_block = ""
     if siblings:
         siblings_block = "\nAlready generated sections (for context/coherence):\n"
@@ -226,27 +235,41 @@ def render_section_prompt(
             numbering_block += f"  - {nc.reference}\n"
 
     styles = plan_data.styles
+    body_sz = theme.typography.style("body").size
+    code_sz = theme.typography.style("code").size
+    caption_sz = theme.typography.style("caption").size
+    h2_sz = theme.typography.style("heading2").size
+    h3_sz = theme.typography.style("heading3").size
+    primary = "#" + theme.palette.primary
+    body_text = "#" + theme.palette.body
+    muted = "#" + theme.palette.muted
+    table_w = theme.tables.target_width_dxa
 
     return (
         "You generate docx-js section code. Return ONLY raw JS array elements "
         "(comma-separated new Paragraph(...), new Table(...) etc). No imports, "
         "no fences, no prose, no trailing semicolon.\n\n"
         "HARD RULES (failures here = invalid output):\n"
-        "- Tables: width:{size:9360,type:WidthType.DXA}, columnWidths sum=9360, "
+        f"- Tables: width:{{size:{table_w},type:WidthType.DXA}}, "
+        f"columnWidths sum={table_w}, "
         "cell width:{size:N,type:WidthType.DXA}. NEVER WidthType.PERCENTAGE.\n"
         "- Shading: {fill:'HEX',type:ShadingType.CLEAR}. NEVER type:'solid'.\n"
         "- Headings: use style:'Heading1'|'Heading2'|'Heading3'. No inline "
         "size/bold/color on a heading paragraph.\n"
         "- TextRun.text MUST NOT contain \\n. New line = new Paragraph({}).\n"
-        "- Sizes are HALF-POINTS (11pt=22, 14pt=28, 16pt=32). Cap at 100.\n"
+        f"- Sizes are HALF-POINTS. Use these tokens, NOT bigger:\n"
+        f"    body text: size={body_sz}    code/JSON/CLI block: size={code_sz}\n"
+        f"    inline heading-2: size={h2_sz}   heading-3: size={h3_sz}\n"
+        f"    caption / figure label: size={caption_sz}\n"
+        "  NEVER emit size>34 in a body paragraph (covers and titles are "
+        "handled by the assembler — don't hand-roll them).\n"
         "- Balance every ( [ { with ) ] }. Output is invalid if unbalanced.\n\n"
         f"SECTION [{section_spec.type}] {section_spec.title} "
         f"(level={section_spec.level})\n"
         f"Content: {section_spec.description}\n\n"
-        f"colors: primary={styles.colors.get('primary', '#1E40AF')} "
-        f"accent={styles.colors.get('accent', '#3B82F6')} "
-        f"text={styles.colors.get('text', '#1F2937')}; "
-        f"body size {styles.body_size}.\n"
+        f"theme palette: primary={primary} text={body_text} muted={muted}; "
+        f"plan overrides primary={styles.colors.get('primary', primary)} "
+        f"accent={styles.colors.get('accent', '#' + theme.palette.accent)}.\n"
         f"{numbering_block}"
         f"{siblings_block}\n"
         "Be substantive: 5+ paragraphs for content, 5+ rows for tables.\n"
@@ -477,6 +500,7 @@ def generate_section(
     llm_api_key: str = "",
     llm_model: str = "qwen3.6:35b",
     max_retries: int = MAX_SECTION_RETRIES,
+    theme: ThemeTokens | None = None,
 ) -> SectionCode:
     from mint.llm import LLMCallError, LLMClient
 
@@ -504,7 +528,9 @@ def generate_section(
         model=llm_model,
     )
 
-    system_prompt = render_section_prompt(plan_data, section_spec, siblings)
+    system_prompt = render_section_prompt(
+        plan_data, section_spec, siblings, theme=theme
+    )
     last_error: str = ""
     last_code: str = ""
 
@@ -638,6 +664,7 @@ def generate_all(
     llm_fallback_model: str | None = None,
     max_retries: int = MAX_SECTION_RETRIES,
     max_total_retries: int = MAX_TOTAL_RETRIES,
+    theme: ThemeTokens | None = None,
 ) -> GenerateAllResult:
     fb_info = f", fallback={llm_fallback_model}" if llm_fallback_model else ""
     logger.info(
@@ -662,6 +689,7 @@ def generate_all(
             llm_api_key=llm_api_key,
             llm_model=llm_model,
             max_retries=max_retries,
+            theme=theme,
         )
         results[section_spec.id] = sc
 
@@ -680,6 +708,7 @@ def generate_all(
                 llm_api_key=llm_api_key,
                 llm_model=llm_fallback_model,
                 max_retries=max_retries,
+                theme=theme,
             )
             fallback_results[section_spec.id] = fb
 
