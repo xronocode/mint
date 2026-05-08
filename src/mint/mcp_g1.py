@@ -21,10 +21,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from fastmcp import FastMCP
 
+from mint._security import safe_doc
 from mint.config import SeverityMode
 from mint.fingerprint import compute as fp_compute
 from mint.fix import fix as fix_document
@@ -32,14 +32,6 @@ from mint.paths import RULES_DIR
 from mint.validate import ValidationReport, run_checks
 
 mcp = FastMCP("MINT-G1", instructions="MINT G1 tools: validate, fix, fingerprint")
-ALLOWED_BASE = Path.cwd().resolve()
-
-
-def _safe_doc(raw: str) -> Path:
-    resolved = Path(raw).resolve()
-    if ".." in Path(raw).parts:
-        raise ValueError(f"Path traversal detected in '{raw}'")
-    return resolved
 
 
 def _report_to_dict(report: ValidationReport) -> dict[str, object]:
@@ -75,7 +67,7 @@ def mint_validate(
     """
     mode = SeverityMode(severity_mode)
     report = run_checks(
-        _safe_doc(document_path), mode, rules_dir=RULES_DIR
+        safe_doc(document_path), mode, rules_dir=RULES_DIR
     )
     return json.dumps(_report_to_dict(report), indent=2)
 
@@ -89,7 +81,7 @@ def mint_fix(document_path: str) -> str:
     Args:
         document_path: Path to DOCX or PPTX file
     """
-    result = fix_document(_safe_doc(document_path), rules_dir=RULES_DIR)
+    result = fix_document(safe_doc(document_path), rules_dir=RULES_DIR)
     return json.dumps(
         {
             "fixed_path": str(result.fixed_path) if result.fixed_path else None,
@@ -112,7 +104,7 @@ def mint_fingerprint(document_path: str) -> str:
     Args:
         document_path: Path to DOCX or PPTX file
     """
-    result = fp_compute(_safe_doc(document_path))
+    result = fp_compute(safe_doc(document_path))
     return json.dumps(
         {
             "hash": result.hash,

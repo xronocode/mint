@@ -137,10 +137,10 @@ def create(
         result = _create_modular_mode(request, rules_dir)
     elif tier == Tier.SMALL:
         result = _create_template_mode(
-            request, skill, templates_dir, rules_dir
+            request, skill, skill_registry, templates_dir, rules_dir
         )
     else:
-        result = _create_code_mode(request, skill, rules_dir)
+        result = _create_code_mode(request, skill, skill_registry, rules_dir)
 
     result.duration_ms = int((time.monotonic() - start) * 1000)
     logger.info(
@@ -154,7 +154,9 @@ def create(
 # END_BLOCK_ORCHESTRATE
 
 
-def _call_model(request: CreateRequest, skill: SkillRef) -> str:
+def _call_model(
+    request: CreateRequest, skill: SkillRef, skill_registry: SkillRegistry
+) -> str:
     from mint.llm import LLMCallError, LLMClient
 
     base_url = request.llm_base_url
@@ -164,8 +166,7 @@ def _call_model(request: CreateRequest, skill: SkillRef) -> str:
             "Set model_response_override or configure LLM endpoint."
         )
 
-    registry = SkillRegistry(_DEFAULT_SKILLS_DIR)
-    skill_prompt = registry.render_prompt(skill, request.design_tokens)
+    skill_prompt = skill_registry.render_prompt(skill, request.design_tokens)
 
     code_or_json = (
         "JavaScript code using docx-js"
@@ -391,9 +392,10 @@ def _postprocess_docx(path: Path) -> None:
                     ct_root.remove(override)
             entries[ct_path] = _serialize_xml(ct_root)
 
-    # Fix 3: Add tblLayout fixed + tblLook to all tables in document.xml
+    # Fix 3 + Fix 4: Table layout + font sizes (single parse of document.xml)
     doc_path = "word/document.xml"
     doc_root = _parse_xml(doc_path)
+    doc_dirty = False
     if doc_root is not None:
         for tbl in doc_root.iter(f"{{{w_ns}}}tbl"):
             tbl_pr = tbl.find(f"{{{w_ns}}}tblPr")
@@ -417,12 +419,6 @@ def _postprocess_docx(path: Path) -> None:
                 look_el.set(f"{{{w_ns}}}noVBand", "1")
                 changes += 1
 
-        if changes > 0:
-            entries[doc_path] = _serialize_xml(doc_root)
-
-    # Fix 4: Normalize font sizes (LLM sometimes uses 2200 instead of 22)
-    doc_root = _parse_xml(doc_path)
-    if doc_root is not None:
         for sz_el in doc_root.iter(f"{{{w_ns}}}sz"):
             val = sz_el.get(f"{{{w_ns}}}val")
             if val and val.isdigit():
@@ -440,10 +436,12 @@ def _postprocess_docx(path: Path) -> None:
                 if int_val > 200:
                     sz_cs_el.set(f"{{{w_ns}}}val", str(int_val // 100))
                     changes += 1
-        if changes > 0:
+
+        doc_dirty = changes > 0
+        if doc_dirty:
             entries[doc_path] = _serialize_xml(doc_root)
 
-    # Fix 5: Strip invalid XML tags from malformed LLM output
+    # Fix 5: Strip invalid XML tags from malformed LLM output (raw bytes)
     raw_doc = entries.get(doc_path, b"")
     if raw_doc:
         import re as _re
@@ -459,15 +457,14 @@ def _postprocess_docx(path: Path) -> None:
                 "[Create][postprocess] Removed %d invalid XML tags", count
             )
 
-    # Fix 5b: TOC quality — when document.xml has a TOC field but no static
-    # entries, generate them from H1/H2 paragraphs so the page is not blank
-    # before Word's manual field-refresh. Also flag updateFields=true in
-    # settings.xml so a refresh prompt appears on open.
-    raw_doc = entries.get(doc_path, b"")
-    if raw_doc and b"TOC" in raw_doc:
-        doc_root = _parse_xml(doc_path)
-        if doc_root is not None:
-            # Inject updateFields hint into settings.xml (helps Word refresh field on open)
+    # Fix 5b + 5c + 6: TOC, cover-title cap, table widths (single re-parse)
+    doc_root = _parse_xml(doc_path)
+    doc_dirty = False
+    if doc_root is not None:
+        raw_doc = entries.get(doc_path, b"")
+        has_toc = raw_doc and b"TOC" in raw_doc
+
+        if has_toc:
             settings_path = "word/settings.xml"
             settings_root = _parse_xml(settings_path)
             if settings_root is not None:
@@ -480,9 +477,6 @@ def _postprocess_docx(path: Path) -> None:
                     entries[settings_path] = _serialize_xml(settings_root)
                     changes += 1
 
-            # Find the TOC field-character region and inject static entries
-            # right after the begin → instrText → separate run.
-            # Locate the paragraph containing fldCharType="begin" with TOC instr.
             toc_separate_p = None
             for p in doc_root.iter(f"{{{w_ns}}}p"):
                 instr = p.find(f".//{{{w_ns}}}instrText")
@@ -490,7 +484,6 @@ def _postprocess_docx(path: Path) -> None:
                     toc_separate_p = p
                     break
             if toc_separate_p is not None:
-                # Collect H1 and H2 entries from document.xml AFTER the TOC paragraph
                 tocs: list[tuple[int, str]] = []
                 seen_toc = False
                 for p in doc_root.iter(f"{{{w_ns}}}p"):
@@ -531,18 +524,8 @@ def _postprocess_docx(path: Path) -> None:
                             parent.insert(idx, new_p)
                             idx += 1
                             changes += 1
-                        entries[doc_path] = _serialize_xml(doc_root)
+                        doc_dirty = True
 
-    # Fix 5c: Cap cover-page title size. Empirical VLM feedback: a 72-half-
-    # point (36pt) title still reads as "too large" on US Letter — the title
-    # eats the whole top half of the page and looks unbalanced. Cap the FIRST
-    # H1 to 56 half-points (28pt). This still reads as a clear hero title
-    # without dominating the page.
-    doc_root = _parse_xml(doc_path)
-    if doc_root is not None:
-        # Find the first paragraph that has any visible text — that's the
-        # title regardless of whether the model used pStyle=Heading1 or
-        # raw `size: N` on the run.
         first_h1 = None
         for p in doc_root.iter(f"{{{w_ns}}}p"):
             text = "".join((t.text or "") for t in p.iter(f"{{{w_ns}}}t"))
@@ -554,7 +537,7 @@ def _postprocess_docx(path: Path) -> None:
             for sz in first_h1.iter(f"{{{w_ns}}}sz"):
                 v = sz.get(f"{{{w_ns}}}val")
                 if v and v.isdigit() and int(v) > 56:
-                    sz.set(f"{{{w_ns}}}val", "56")  # 28pt cap
+                    sz.set(f"{{{w_ns}}}val", "56")
                     cover_changes += 1
             for sz in first_h1.iter(f"{{{w_ns}}}szCs"):
                 v = sz.get(f"{{{w_ns}}}val")
@@ -562,21 +545,13 @@ def _postprocess_docx(path: Path) -> None:
                     sz.set(f"{{{w_ns}}}val", "56")
                     cover_changes += 1
             if cover_changes > 0:
-                entries[doc_path] = _serialize_xml(doc_root)
+                doc_dirty = True
                 changes += cover_changes
                 logger.info(
                     "[Create][postprocess] Capped %d cover-title sizes to 28pt",
                     cover_changes,
                 )
 
-    # Fix 6: Reconcile table widths with their gridCol sums (D-H01).
-    # Models routinely emit columnWidths that don't sum to the declared table
-    # width. Rather than redistributing column widths (which would alter the
-    # designer's intent), trust the per-column values and overwrite the table
-    # width with their sum. Also update each w:tc/w:tcW that has type="dxa" to
-    # match its column where one-to-one mapping is unambiguous.
-    doc_root = _parse_xml(doc_path)
-    if doc_root is not None:
         table_changes = 0
         for tbl in doc_root.iter(f"{{{w_ns}}}tbl"):
             grid = tbl.find(f"{{{w_ns}}}tblGrid")
@@ -603,8 +578,6 @@ def _postprocess_docx(path: Path) -> None:
                         tbl_w.set(f"{{{w_ns}}}type", "dxa")
                         tbl_w.set(f"{{{w_ns}}}w", str(total))
                         table_changes += 1
-            # Reconcile each row's cells with the gridCol widths when the
-            # row has the same number of cells as columns and no spans.
             for tr in tbl.findall(f"{{{w_ns}}}tr"):
                 cells = tr.findall(f"{{{w_ns}}}tc")
                 if len(cells) != len(grid_widths):
@@ -615,7 +588,6 @@ def _postprocess_docx(path: Path) -> None:
                         continue
                     span = tc_pr.find(f"{{{w_ns}}}gridSpan")
                     if span is not None:
-                        # Cell spans multiple columns — leave alone.
                         continue
                     tc_w = tc_pr.find(f"{{{w_ns}}}tcW")
                     if tc_w is None:
@@ -626,12 +598,15 @@ def _postprocess_docx(path: Path) -> None:
                         tc_w.set(f"{{{w_ns}}}w", str(gw))
                         table_changes += 1
         if table_changes > 0:
-            entries[doc_path] = _serialize_xml(doc_root)
+            doc_dirty = True
             changes += table_changes
             logger.info(
                 "[Create][postprocess] Reconciled %d table-width entries",
                 table_changes,
             )
+
+        if doc_dirty:
+            entries[doc_path] = _serialize_xml(doc_root)
 
     if changes == 0:
         return
@@ -752,12 +727,13 @@ def _create_modular_mode(
 def _create_code_mode(
     request: CreateRequest,
     skill: SkillRef,
+    skill_registry: SkillRegistry,
     rules_dir: Path,
 ) -> CreateResult:
     code = request.model_response_override
     if code is None:
         try:
-            code = _call_model(request, skill)
+            code = _call_model(request, skill, skill_registry)
         except ModelCallFailedError as e:
             return CreateResult(
                 error=str(e),
@@ -825,6 +801,7 @@ def _create_code_mode(
 def _create_template_mode(
     request: CreateRequest,
     skill: SkillRef,
+    skill_registry: SkillRegistry,
     templates_dir: Path | None,
     rules_dir: Path,
 ) -> CreateResult:
@@ -833,7 +810,7 @@ def _create_template_mode(
     content_text = request.model_response_override
     if content_text is None:
         try:
-            content_text = _call_model(request, skill)
+            content_text = _call_model(request, skill, skill_registry)
         except ModelCallFailedError as e:
             return CreateResult(
                 error=str(e),

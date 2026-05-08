@@ -155,7 +155,7 @@ def _validate_with_node(code: str) -> str | None:
             _Path(tmp).unlink(missing_ok=True)
 
 
-def validate_section_code(code: str) -> list[str]:
+def validate_section_code(code: str, section_type: str | None = None) -> list[str]:
     errors: list[str] = []
 
     import_patterns = [
@@ -167,6 +167,26 @@ def validate_section_code(code: str) -> list[str]:
     for pattern, desc in import_patterns:
         if re.search(pattern, code):
             errors.append(f"Forbidden pattern: {desc}")
+
+    # Min-content gate: only for SUBSTANTIVE section types (content, table,
+    # heading, list, callout, code, images). Cover pages, TOC, and appendix
+    # entries are intentionally short by design — gating them triggers wasted
+    # retry cascades (the model can't honestly produce 600 chars for a cover).
+    sparse_exempt = {"cover", "toc", "table_of_contents", "appendix"}
+    if section_type and section_type.lower() not in sparse_exempt:
+        paragraph_count = len(re.findall(r"\bnew\s+Paragraph\s*\(", code))
+        table_count = len(re.findall(r"\bnew\s+Table\s*\(", code))
+        elements_total = paragraph_count + table_count
+        # Stricter floor: a real content section needs ≥5 elements OR ≥1000
+        # chars of substantive code. The earlier ≥3-elements gate let through
+        # sections like "heading + 2 thin paragraphs" that VLM scored as
+        # "page mostly empty after heading".
+        if elements_total < 5 and len(code) < 1000:
+            errors.append(
+                f"Section too sparse: only {paragraph_count} paragraph(s) and "
+                f"{table_count} table(s) in {len(code)} chars. Expected ≥5 "
+                f"elements or ≥1000 chars of substantive content."
+            )
 
     # Use node --check on the section wrapped in array-body context. This is
     # authoritative (real JS parser) and avoids the regex-based bracket
@@ -405,6 +425,23 @@ def _strip_code_fences(text: str) -> str:
     text = re.sub(r"\)\s*\n\s*(new\s)", r"),\n\1", text)
     text = re.sub(r"\)\s*\n\s*(\/\*)", r"),\n\1", text)
 
+    # Common model API confusions — auto-rewrite before injection. These
+    # are docx-js prop / global names the LLM frequently invents:
+    #   tableRows: [...]              →  rows: [...]   (Table prop)
+    #   tableProperties: {...}        →  (drop wrapper, props were already on Table)
+    #   tableCellProperties:           →  (drop wrapper)
+    #   BorderType.X                  →  BorderStyle.X  (real docx-js global)
+    #   AlignmentType.JUSTIFY → AlignmentType.JUSTIFIED is sometimes confused; keep as-is.
+    text = re.sub(r"\btableRows\s*:", "rows:", text)
+    text = re.sub(r"\btableProperties\s*:\s*\{[^}]*\},?\s*", "", text)
+    text = re.sub(r"\btableCellProperties\s*:\s*", "", text)
+    # docx-js global name fixups
+    text = re.sub(r"\bBorderType\b", "BorderStyle", text)
+    text = re.sub(r"\bBorderStyles\b", "BorderStyle", text)
+    text = re.sub(r"\bAlignment\.", "AlignmentType.", text)
+    text = re.sub(r"\bShadingType\.SOLID\b", "ShadingType.CLEAR", text)
+    text = re.sub(r"\bnew\s+LineBreak\s*\(\s*\)", "new TextRun({ break: 1 })", text)
+
     # Section code is injected verbatim into the array body of `children:[ ... ]`
     # in the assembled JS. Some models (notably gpt-oss after thinking) terminate
     # the last expression with a trailing `;` as if it were a statement. Inside
@@ -522,7 +559,7 @@ def generate_section(
             )
             continue
 
-        code_errors = validate_section_code(raw_code)
+        code_errors = validate_section_code(raw_code, section_spec.type)
         duration_ms = int((time.monotonic() - start) * 1000)
 
         if not code_errors:

@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from mint._security import compute_file_hash
+
 logger = logging.getLogger(__name__)
 
 GRACE_NS = "urn:mint:grace:2026:manifest"
@@ -79,7 +81,7 @@ def bootstrap(
     except Exception as e:
         raise GRACEInjectionError(f"Structure analysis failed: {e}") from e
 
-    fingerprint = _compute_file_hash(document_path)
+    fingerprint = compute_file_hash(document_path)
 
     part_id = str(uuid.uuid4())
     part_name = f"grace/manifest_{part_id}.xml"
@@ -133,14 +135,6 @@ def _analyze_structure(path: Path) -> dict[str, Any]:
         structure["parts"] = len(names)
         structure["has_custom_xml"] = any(n.startswith("customXml/") for n in names)
     return structure
-
-
-def _compute_file_hash(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _build_manifest_xml(manifest: GRACEManifest) -> str:

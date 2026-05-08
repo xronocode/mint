@@ -40,7 +40,7 @@ rules:
     description: "Direct font size formatting"
 
   - id: D-H06
-    severity: hard
+    severity: soft
     xpath: "//w:ind[@w:left > 0 or @w:right > 0]"
     check: exists
     fix_category: visual

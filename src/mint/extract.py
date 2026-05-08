@@ -106,7 +106,7 @@ def parse_theme(doc_format: str, zf: zipfile.ZipFile) -> dict[str, Any]:
 
     if styles_path:
         try:
-            zf.read(styles_path).decode("utf-8")
+            zf.getinfo(styles_path)
             xml_sources.append(styles_path)
         except KeyError:
             pass

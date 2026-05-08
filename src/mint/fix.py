@@ -25,7 +25,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import io
 import logging
 import shutil
@@ -33,6 +32,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from mint._security import compute_file_hash
 from mint.config import SeverityMode
 from mint.rules import FixCategory, Violation
 from mint.validate import run_checks
@@ -88,14 +88,6 @@ def create_backup(document_path: Path) -> Path:
         raise BackupFailedError(f"Failed to create backup: {exc}") from exc
     # END_BLOCK_CREATE_BACKUP
     return backup_path
-
-
-def _compute_file_hash(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def _apply_simple_fix(document_path: Path, violation: Violation) -> bool:
@@ -155,7 +147,7 @@ def apply_fixes(
         )
 
     backup_path = create_backup(document_path)
-    original_hash = _compute_file_hash(document_path)
+    original_hash = compute_file_hash(document_path)
 
     applied: list[str] = []
     fixable = [
@@ -182,7 +174,7 @@ def apply_fixes(
         if not remaining_fixable:
             break
 
-        new_hash = _compute_file_hash(document_path)
+        new_hash = compute_file_hash(document_path)
         if iteration > 0 and new_hash == original_hash:
             raise CascadeDetectedError(
                 f"Fix cascade detected after {iteration + 1} iterations"
@@ -190,7 +182,7 @@ def apply_fixes(
 
     final_report = run_checks(document_path, SeverityMode.AUDIT, rules_dir=rules_dir)
 
-    new_hash = _compute_file_hash(document_path)
+    new_hash = compute_file_hash(document_path)
     diff_desc = "file modified" if new_hash != original_hash else "no changes"
 
     logger.info(

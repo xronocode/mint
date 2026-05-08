@@ -44,7 +44,14 @@ def _make_plan():
 
 class TestValidateSectionCode:
     def test_valid_paragraph_code_passes(self):
-        code = "new Paragraph({ children: [new TextRun('Hello')] }),"
+        # The min-content gate (≥3 elements OR ≥600 chars) means a single
+        # Paragraph in a tiny snippet is intentionally rejected. Test passes
+        # 3 paragraphs to clear the gate.
+        code = (
+            "new Paragraph({ children: [new TextRun('Hello')] }),\n"
+            "new Paragraph({ children: [new TextRun('World')] }),\n"
+            "new Paragraph({ children: [new TextRun('Done')] })"
+        )
         errors = validate_section_code(code)
         assert errors == []
 
@@ -70,11 +77,21 @@ class TestValidateSectionCode:
         )
 
     def test_valid_table_code_passes(self):
+        # ≥600-char branch of the min-content gate.
         code = (
             "new Table({\n"
             "  rows: [\n"
             "    new TableRow({ children: [\n"
-            "      new TableCell({ children: [new Paragraph('cell')] }),\n"
+            "      new TableCell({ children: [new Paragraph('Pad-A')] }),\n"
+            "      new TableCell({ children: [new Paragraph('Pad-B')] }),\n"
+            "      new TableCell({ children: [new Paragraph('Pad-C')] }),\n"
+            "      new TableCell({ children: [new Paragraph('Pad-D')] }),\n"
+            "    ]}),\n"
+            "    new TableRow({ children: [\n"
+            "      new TableCell({ children: [new Paragraph('cell-1-1')] }),\n"
+            "      new TableCell({ children: [new Paragraph('cell-1-2')] }),\n"
+            "      new TableCell({ children: [new Paragraph('cell-1-3')] }),\n"
+            "      new TableCell({ children: [new Paragraph('cell-1-4')] }),\n"
             "    ]}),\n"
             "  ],\n"
             "}),"
