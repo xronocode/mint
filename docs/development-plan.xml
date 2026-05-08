@@ -1007,7 +1007,7 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-TABLE</verification-ref>
     </MP-TABLE>
 
-    <MP-SECTION NAME="Pure Python Section (fluent)" TYPE="CORE_LOGIC" LAYER="2" ORDER="13" STATUS="planned">
+    <MP-SECTION NAME="Pure Python Section (fluent)" TYPE="CORE_LOGIC" LAYER="2" ORDER="13" STATUS="done">
       <contract>
         <purpose>Section fluent surface per handover §3.2: `Section("Title", level=1).add_paragraph(text).add_table(table).add_image(image)`. Phase-1 stubs `add_chart` with NotImplementedError naming Phase 2.</purpose>
         <inputs>
@@ -1276,7 +1276,7 @@ writeFileSync('output.docx', buffer);
       <step-1 module="MP-STYLE" status="done" verification="V-MP-STYLE">Style frozen dataclass + Pt(value) helper + ColorPalette resolver + load_preset(name|path) returning Style namespace. Built-in registry: 'alga_corporate', 'minimal', 'compact'. JSON schema for presets documented under docs/style-preset-schema.md. Emits [MP-Style][load_preset][BLOCK_LOAD_PRESET].</step-1>
       <step-2 module="MP-CONTENT" status="done" verification="V-MP-CONTENT">Paragraph.add_run(text, style=None) fluent; Run as styled fragment; Image.from_path / Image.from_bytes embedding via python-docx + pillow. Each renders into a python-docx Document. Emits [MP-Content][render][BLOCK_RENDER_CONTENT] when serialized.</step-2>
       <step-3 module="MP-TABLE" status="done" verification="V-MP-TABLE">Table model + factories per §3.3 (from_list, from_markdown, from_list_of_dicts, financial, comparison) + apply_style + set_column_widths + autofit. Renders into python-docx Table via .render(parent_doc). Emits [MP-Table][render][BLOCK_RENDER_TABLE].</step-3>
-      <step-4 module="MP-SECTION" status="planned" verification="V-MP-SECTION">Section(title, level).add_paragraph/.add_table/.add_image fluent chain. add_chart raises NotImplementedError naming Phase 2 (matplotlib chart impl). Emits [MP-Section][add_chart][BLOCK_PHASE_GUARD] in the stub path.</step-4>
+      <step-4 module="MP-SECTION" status="done" verification="V-MP-SECTION">Section(title, level).add_paragraph/.add_table/.add_image fluent chain. add_chart raises NotImplementedError naming Phase 2 (matplotlib chart impl). Emits [MP-Section][add_chart][BLOCK_PHASE_GUARD] in the stub path.</step-4>
       <step-5 module="MP-DOCUMENT" status="planned" verification="V-MP-DOCUMENT">Document facade with full §3.1 API surface; save() implemented via python-docx + lxml direct-write for cover/header/footer; stubs (inject_grace/validate/fix/to_pdf) all emit BLOCK_PHASE_GUARD then raise NotImplementedError naming target phase. Emits [MP-Document][save][BLOCK_SAVE_DOCX] with section_count, table_count, output_path.</step-5>
       <step-6 module="MP-SDK" status="planned" verification="V-MP-SDK">src/mint_python/sdk/__init__.py re-exports Document, Section, Table, Style, Image, TOC, Pt, ColorPalette + presets registry. with_style_from(path) loader. NO public exports beyond what handover §3 names.</step-6>
       <step-7 module="(infrastructure)" status="planned" verification="V-MP-SDK">Update docs/technology.xml: add python-docx ≥1.1, pillow ≥10.x to dependencies. Update pyproject.toml [project].dependencies and uv.lock. Document in docs/style-preset-schema.md the JSON schema agreed in step-1.</step-7>

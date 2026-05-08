@@ -1075,9 +1075,9 @@
       <autonomy-assessment>SWARM-SAFE — pure construction + render onto per-test Document; no shared state</autonomy-assessment>
     </V-MP-TABLE>
 
-    <V-MP-SECTION MODULE="MP-SECTION" PRIORITY="medium" STATUS="planned" ACTIVATES_AT="Wave-7-3">
+    <V-MP-SECTION MODULE="MP-SECTION" PRIORITY="medium" STATUS="done" ACTIVATED_AT="Wave-7-3">
       <test-files>
-        <file status="planned" activates-at="Wave-7-3">tests/unit/test_mp_section.py</file>
+        <file status="active" activated-at="Wave-7-3">tests/unit/test_mp_section.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_mp_section.py -x</check-1>
@@ -1424,7 +1424,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Wave-7-2>
 
-    <Wave-7-3 PHASE="Phase-7" SCOPE="MP-SECTION" STATUS="planned">
+    <Wave-7-3 PHASE="Phase-7" SCOPE="MP-SECTION" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Land Section fluent surface + add_chart stub raising NotImplementedError naming Phase 2.</goal>
       <commands>
         <command-1>pytest tests/unit/test_mp_section.py -x</command-1>

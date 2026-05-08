@@ -445,7 +445,7 @@
       </annotations>
     </MP-TABLE>
 
-    <MP-SECTION NAME="Pure Python Section (fluent)" TYPE="CORE_LOGIC" STATUS="planned">
+    <MP-SECTION NAME="Pure Python Section (fluent)" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Fluent Section per handover §3.2; Phase-1 stubs add_chart with NotImplementedError naming Phase 2</purpose>
       <path>src/mint_python/core/section.py</path>
       <depends>MP-CONTENT, MP-TABLE</depends>
