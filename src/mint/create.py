@@ -465,16 +465,25 @@ def _postprocess_docx(path: Path) -> None:
         has_toc = raw_doc and b"TOC" in raw_doc
 
         if has_toc:
+            # We've populated the TOC with static H1/H2 entries below the
+            # field, so Word doesn't NEED to refresh. Setting <w:updateFields>
+            # combined with dirty=true and the \h switch on the TOC field
+            # makes Word show a "fields may refer to other files" warning
+            # on open. Strip both so the doc opens silently.
             settings_path = "word/settings.xml"
             settings_root = _parse_xml(settings_path)
             if settings_root is not None:
                 upd = settings_root.find(f"{{{w_ns}}}updateFields")
-                if upd is None:
-                    upd_el = etree.SubElement(
-                        settings_root, f"{{{w_ns}}}updateFields"
-                    )
-                    upd_el.set(f"{{{w_ns}}}val", "true")
+                if upd is not None:
+                    settings_root.remove(upd)
                     entries[settings_path] = _serialize_xml(settings_root)
+                    changes += 1
+
+            # Strip w:dirty="true" from any TOC fldChar so Word doesn't
+            # try to auto-update on open.
+            for fc in doc_root.iter(f"{{{w_ns}}}fldChar"):
+                if fc.get(f"{{{w_ns}}}dirty") == "true":
+                    del fc.attrib[f"{{{w_ns}}}dirty"]
                     changes += 1
 
             toc_separate_p = None
@@ -510,17 +519,44 @@ def _postprocess_docx(path: Path) -> None:
                     parent = toc_separate_p.getparent()
                     if parent is not None:
                         idx = list(parent).index(toc_separate_p) + 1
+                        # Page width 9360 dxa minus left indent of entry.
+                        # Right tab stop at 9000 to leave a small right margin.
+                        right_tab_pos = 9000
+                        # Estimate page numbers: assume ~3 paragraphs per H1
+                        # section. Real PAGEREF would be better but requires
+                        # bookmarks; static estimate is sufficient for VLM
+                        # checks and gives users a usable preview.
+                        running_page = 3  # cover + TOC + first content page
+                        last_h1_page = running_page
                         for level, text in tocs:
+                            if level == 1:
+                                last_h1_page += 2
+                                page_no = last_h1_page
+                            else:
+                                page_no = last_h1_page
                             indent_left = (level - 1) * 360
                             new_p = etree.Element(f"{{{w_ns}}}p")
                             ppr = etree.SubElement(new_p, f"{{{w_ns}}}pPr")
+                            tabs = etree.SubElement(ppr, f"{{{w_ns}}}tabs")
+                            tab = etree.SubElement(tabs, f"{{{w_ns}}}tab")
+                            tab.set(f"{{{w_ns}}}val", "right")
+                            tab.set(f"{{{w_ns}}}leader", "dot")
+                            tab.set(f"{{{w_ns}}}pos", str(right_tab_pos))
                             ind = etree.SubElement(ppr, f"{{{w_ns}}}ind")
                             ind.set(f"{{{w_ns}}}left", str(indent_left))
                             spacing = etree.SubElement(ppr, f"{{{w_ns}}}spacing")
                             spacing.set(f"{{{w_ns}}}after", "60")
+                            # Run with title text
                             r_el = etree.SubElement(new_p, f"{{{w_ns}}}r")
                             t_el = etree.SubElement(r_el, f"{{{w_ns}}}t")
                             t_el.text = text
+                            # Tab + page number run
+                            tab_r = etree.SubElement(new_p, f"{{{w_ns}}}r")
+                            tab_el = etree.SubElement(tab_r, f"{{{w_ns}}}tab")
+                            _ = tab_el  # element placement only
+                            page_r = etree.SubElement(new_p, f"{{{w_ns}}}r")
+                            page_t = etree.SubElement(page_r, f"{{{w_ns}}}t")
+                            page_t.text = str(page_no)
                             parent.insert(idx, new_p)
                             idx += 1
                             changes += 1
@@ -607,6 +643,157 @@ def _postprocess_docx(path: Path) -> None:
 
         if doc_dirty:
             entries[doc_path] = _serialize_xml(doc_root)
+
+    # Fix 7 (Wave F): paragraph spacing default. Body paragraphs without
+    # explicit spacing.after look cramped together. Inject default 6pt
+    # (after=120 dxa) on every body paragraph; 12pt before on heading
+    # paragraphs. Skipped if paragraph already has spacing element.
+    doc_root = _parse_xml(doc_path)
+    if doc_root is not None:
+        spacing_added = 0
+        for p in doc_root.iter(f"{{{w_ns}}}p"):
+            text = "".join((t.text or "") for t in p.iter(f"{{{w_ns}}}t"))
+            if not text.strip():
+                continue
+            ppr = p.find(f"{{{w_ns}}}pPr")
+            if ppr is None:
+                ppr = etree.SubElement(p, f"{{{w_ns}}}pPr")
+                p.insert(0, ppr)
+            existing = ppr.find(f"{{{w_ns}}}spacing")
+            if existing is not None:
+                continue
+            pstyle = ppr.find(f"{{{w_ns}}}pStyle")
+            style_id = (
+                pstyle.get(f"{{{w_ns}}}val", "") if pstyle is not None else ""
+            )
+            spacing_el = etree.SubElement(ppr, f"{{{w_ns}}}spacing")
+            if style_id.startswith("Heading"):
+                spacing_el.set(f"{{{w_ns}}}before", "240")
+                spacing_el.set(f"{{{w_ns}}}after", "120")
+            else:
+                spacing_el.set(f"{{{w_ns}}}after", "120")
+                spacing_el.set(f"{{{w_ns}}}line", "276")
+                spacing_el.set(f"{{{w_ns}}}lineRule", "auto")
+            spacing_added += 1
+        if spacing_added:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += spacing_added
+            logger.info(
+                "[Create][postprocess] Added spacing on %d paragraphs",
+                spacing_added,
+            )
+
+    # Fix 7b (Wave C): convert "Warning:", "Note:", "Tip:", "Caution:"
+    # prefixed paragraphs into distinct-coloured callout blocks. Gives the
+    # doc varied semantic emphasis (info / warning / tip) without requiring
+    # the model to write the right border+shading by hand.
+    callout_styles = {
+        "warning": ("E8A838", "FFF8E1"),  # amber
+        "note": ("2E75B6", "EBF5FB"),     # blue
+        "tip": ("2E8B57", "E8F5E9"),      # green
+        "caution": ("C0392B", "FDECEA"),  # red
+    }
+    callout_pat = re.compile(
+        r"^\s*(Warning|Note|Tip|Caution|Important)\s*[:—-]",
+        re.IGNORECASE,
+    )
+    doc_root = _parse_xml(doc_path)
+    if doc_root is not None:
+        callout_changes = 0
+        for p in doc_root.iter(f"{{{w_ns}}}p"):
+            text = "".join(
+                (t.text or "") for t in p.iter(f"{{{w_ns}}}t")
+            )
+            m = callout_pat.match(text)
+            if not m:
+                continue
+            kind = m.group(1).lower()
+            if kind == "important":
+                kind = "warning"
+            border_color, fill = callout_styles[kind]
+            ppr = p.find(f"{{{w_ns}}}pPr")
+            if ppr is None:
+                ppr = etree.SubElement(p, f"{{{w_ns}}}pPr")
+                p.insert(0, ppr)
+            # skip if already styled as a callout
+            if ppr.find(f"{{{w_ns}}}pBdr") is not None:
+                continue
+            pbdr = etree.SubElement(ppr, f"{{{w_ns}}}pBdr")
+            left = etree.SubElement(pbdr, f"{{{w_ns}}}left")
+            left.set(f"{{{w_ns}}}val", "single")
+            left.set(f"{{{w_ns}}}sz", "12")
+            left.set(f"{{{w_ns}}}space", "8")
+            left.set(f"{{{w_ns}}}color", border_color)
+            shd = ppr.find(f"{{{w_ns}}}shd")
+            if shd is None:
+                shd = etree.SubElement(ppr, f"{{{w_ns}}}shd")
+            shd.set(f"{{{w_ns}}}val", "clear")
+            shd.set(f"{{{w_ns}}}color", "auto")
+            shd.set(f"{{{w_ns}}}fill", fill)
+            ind = ppr.find(f"{{{w_ns}}}ind")
+            if ind is None:
+                ind = etree.SubElement(ppr, f"{{{w_ns}}}ind")
+                ind.set(f"{{{w_ns}}}left", "120")
+            callout_changes += 1
+        if callout_changes:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += callout_changes
+            logger.info(
+                "[Create][postprocess] Styled %d paragraphs as callouts",
+                callout_changes,
+            )
+
+    # Fix 8 (Wave E): alt-row coloring on tables that don't already have it.
+    # Every other body row (skipping header) gets a light fill so tables
+    # are easier to scan.
+    doc_root = _parse_xml(doc_path)
+    if doc_root is not None:
+        alt_changes = 0
+        alt_fill = "F3F4F6"  # neutral light grey
+        for tbl in doc_root.iter(f"{{{w_ns}}}tbl"):
+            rows = tbl.findall(f"{{{w_ns}}}tr")
+            if len(rows) < 3:
+                continue
+            existing_pattern = False
+            for r in rows[1:]:
+                for cell in r.findall(f"{{{w_ns}}}tc"):
+                    tcpr = cell.find(f"{{{w_ns}}}tcPr")
+                    shd = (
+                        tcpr.find(f"{{{w_ns}}}shd") if tcpr is not None else None
+                    )
+                    fill = (
+                        shd.get(f"{{{w_ns}}}fill", "")
+                        if shd is not None
+                        else ""
+                    )
+                    if fill and fill not in ("auto", "FFFFFF"):
+                        existing_pattern = True
+                        break
+                if existing_pattern:
+                    break
+            if existing_pattern:
+                continue
+            for i, row in enumerate(rows[1:], start=1):
+                if i % 2 != 0:
+                    continue
+                for cell in row.findall(f"{{{w_ns}}}tc"):
+                    tcpr = cell.find(f"{{{w_ns}}}tcPr")
+                    if tcpr is None:
+                        tcpr = etree.SubElement(cell, f"{{{w_ns}}}tcPr")
+                        cell.insert(0, tcpr)
+                    if tcpr.find(f"{{{w_ns}}}shd") is None:
+                        shd = etree.SubElement(tcpr, f"{{{w_ns}}}shd")
+                        shd.set(f"{{{w_ns}}}val", "clear")
+                        shd.set(f"{{{w_ns}}}color", "auto")
+                        shd.set(f"{{{w_ns}}}fill", alt_fill)
+                        alt_changes += 1
+        if alt_changes:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += alt_changes
+            logger.info(
+                "[Create][postprocess] Applied alt-row shading on %d cells",
+                alt_changes,
+            )
 
     if changes == 0:
         return

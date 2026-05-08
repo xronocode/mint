@@ -148,11 +148,17 @@ class TestPostprocessEmptyComments:
         docx_bytes = _make_minimal_docx(with_comments=False)
         p = tmp_path / "test.docx"
         p.write_bytes(docx_bytes)
-        original_size = p.stat().st_size
 
         _postprocess_docx(p)
 
-        assert p.stat().st_size == original_size
+        # Postprocess applies always-on quality fixes (paragraph spacing,
+        # alt-row coloring on tables). Size is no longer guaranteed to be
+        # preserved. The contract for this branch is: no comments.xml
+        # references should exist in the result regardless.
+        with zipfile.ZipFile(p, "r") as z:
+            assert "word/comments.xml" not in z.namelist()
+            rels = z.read("word/_rels/document.xml.rels").decode()
+            assert "comments.xml" not in rels
 
 
 class TestPostprocessTableLayout:
@@ -189,11 +195,15 @@ class TestPostprocessTableLayout:
         docx_bytes = _make_minimal_docx(with_table=False)
         p = tmp_path / "test.docx"
         p.write_bytes(docx_bytes)
-        original_size = p.stat().st_size
 
         _postprocess_docx(p)
 
-        assert p.stat().st_size == original_size
+        # Postprocess applies always-on quality fixes; the table-specific
+        # branch must remain a no-op when there's no table — verify the
+        # output still has no <w:tbl> element.
+        with zipfile.ZipFile(p, "r") as z:
+            doc = etree.fromstring(z.read("word/document.xml"))
+        assert doc.find(f".//{{{W}}}tbl") is None
 
 
 class TestPostprocessDuplicateStyles:
@@ -216,11 +226,19 @@ class TestPostprocessDuplicateStyles:
         docx_bytes = _make_minimal_docx()
         p = tmp_path / "test.docx"
         p.write_bytes(docx_bytes)
-        original_size = p.stat().st_size
 
         _postprocess_docx(p)
 
-        assert p.stat().st_size == original_size
+        # Size invariance no longer holds because postprocess applies
+        # paragraph-spacing defaults as a quality fix. Verify the styles.xml
+        # has no duplicates instead.
+        with zipfile.ZipFile(p, "r") as z:
+            styles = etree.fromstring(z.read("word/styles.xml"))
+        ids = [
+            s.get(f"{{{W}}}styleId")
+            for s in styles.findall(f"{{{W}}}style")
+        ]
+        assert len(ids) == len(set(ids))
 
 
 class TestPostprocessNotDocx:
