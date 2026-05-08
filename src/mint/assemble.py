@@ -271,6 +271,13 @@ def build_section_wrapper(
         f"}}"
     )
 
+    # CRITICAL: only the cover gets a default (nextPage) section break.
+    # Every other section is continuous so content flows on the same page
+    # when it fits — otherwise each conceptual section forces its own
+    # page and the document looks like loose pages stitched together.
+    if spec.type != "cover":
+        props_parts.append("type: SectionType.CONTINUOUS")
+
     props_js = ",\n  ".join(props_parts)
 
     toc_note = ""

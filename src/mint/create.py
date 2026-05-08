@@ -840,6 +840,48 @@ def _postprocess_docx(
                 spacing_added,
             )
 
+    # Wave I: collapse forced section breaks. Each docx-js Section in
+    # M-ASSEMBLE becomes a <w:sectPr> with default type (nextPage), forcing
+    # a page break between every conceptual section. The result feels like
+    # 10 disjoint pages instead of one flowing document. We rewrite all
+    # mid-document sectPr to type="continuous" so content flows on the
+    # same page when it fits — page breaks happen only on actual overflow.
+    #
+    # Exceptions:
+    #   - The FIRST sectPr ends the cover section: leave as nextPage so the
+    #     cover sits on its own page.
+    #   - The FINAL sectPr (top-level body child) governs the overall
+    #     document — leave alone (it's the doc-final config).
+    doc_root = _parse_xml(doc_path)
+    if doc_root is not None:
+        sect_prs = doc_root.findall(f".//{{{w_ns}}}sectPr")
+        body_for_sect = doc_root.find(f"{{{w_ns}}}body")
+        # final sectPr is the one that's a direct child of <w:body>
+        final_sect_pr = None
+        for sp in sect_prs:
+            if sp.getparent() is body_for_sect:
+                final_sect_pr = sp
+        sect_changes = 0
+        for idx, sp in enumerate(sect_prs):
+            if sp is final_sect_pr:
+                continue
+            if idx == 0:
+                continue  # cover end-of-section keeps nextPage
+            type_el = sp.find(f"{{{w_ns}}}type")
+            if type_el is None:
+                type_el = etree.Element(f"{{{w_ns}}}type")
+                sp.insert(0, type_el)
+            if type_el.get(f"{{{w_ns}}}val") != "continuous":
+                type_el.set(f"{{{w_ns}}}val", "continuous")
+                sect_changes += 1
+        if sect_changes:
+            entries[doc_path] = _serialize_xml(doc_root)
+            changes += sect_changes
+            logger.info(
+                "[Create][postprocess] Wave I: %d sectPr → continuous",
+                sect_changes,
+            )
+
     # Fix 7c (Wave G): keepNext on heading paragraphs that immediately
     # precede a table or another paragraph. Prevents orphan tables on
     # the next page when a heading lands at the bottom margin.
