@@ -16,18 +16,26 @@
 #   cmd_create - generate document
 #   cmd_extract - extract design tokens
 #   cmd_edit - apply EditPlan JSON to existing DOCX (Phase-5)
+#   _select_engine - Phase-6 dual-engine dispatch chokepoint
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.2.0 - Added cmd_edit for Phase-5 edit pipeline
+#   LAST_CHANGE: v0.3.0 - Phase-6: added top-level --engine flag + _select_engine
+#                chokepoint with BLOCK_SELECT_ENGINE marker
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import sys
 from pathlib import Path
+
+from mint.config import Engine, MintConfig, config
+
+logger = logging.getLogger("mint.cli")
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
@@ -311,6 +319,16 @@ def build_parser() -> argparse.ArgumentParser:
         prog="mint",
         description="MINT Runtime — Model-Independent Normalization Toolkit",
     )
+    parser.add_argument(
+        "--engine",
+        choices=["python", "js"],
+        default=None,
+        help=(
+            "Execution engine override (env: MINT_ENGINE; default: python). "
+            "In Phase-6 (Phase 0) only --engine js is implemented; "
+            "--engine python raises NotImplementedError."
+        ),
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     # serve
@@ -395,9 +413,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _select_engine(cfg: MintConfig) -> str:
+    """Phase-6 dual-engine dispatch chokepoint.
+
+    Returns 'js' on Engine.JS; raises NotImplementedError on Engine.PYTHON
+    until handover Phases 1-5 populate src/mint_python/.
+    """
+    # START_BLOCK_SELECT_ENGINE
+    logger.info(
+        "[CLI][_select_engine][BLOCK_SELECT_ENGINE] engine=%s", cfg.engine.value
+    )
+    # END_BLOCK_SELECT_ENGINE
+    if cfg.engine == Engine.PYTHON:
+        raise NotImplementedError(
+            "MINT_ENGINE=python is not implemented yet (Phase 0 skeleton). "
+            "Use MINT_ENGINE=js or pass --engine js."
+        )
+    return cfg.engine.value
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if getattr(args, "engine", None) is not None:
+        os.environ["MINT_ENGINE"] = args.engine
+    cfg = config()
+    _select_engine(cfg)
     commands = {
         "serve": cmd_serve,
         "validate": cmd_validate,
