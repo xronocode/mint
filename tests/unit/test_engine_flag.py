@@ -288,7 +288,12 @@ def test_v_mp_flag_9_cli_override_precedence_trace(
     joined = "\n".join(messages)
     assert "BLOCK_LOAD_CONFIG" in joined
     assert "BLOCK_SELECT_ENGINE" in joined
-    # Both markers must show engine=js
+    # BLOCK_DISPATCH is the positive js-path signal (VF-011 trace-sequence:
+    # BLOCK_LOAD_CONFIG -> BLOCK_SELECT_ENGINE -> BLOCK_DISPATCH -> cmd_*).
+    assert "BLOCK_DISPATCH" in joined, (
+        "BLOCK_DISPATCH must fire on the js path between _select_engine and cmd_*"
+    )
+    # Both engine markers must show engine=js
     load_msgs = [m for m in messages if "BLOCK_LOAD_CONFIG" in m]
     sel_msgs = [m for m in messages if "BLOCK_SELECT_ENGINE" in m]
     assert load_msgs and all("engine=js" in m for m in load_msgs), load_msgs

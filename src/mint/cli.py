@@ -17,6 +17,8 @@
 #   cmd_extract - extract design tokens
 #   cmd_edit - apply EditPlan JSON to existing DOCX (Phase-5)
 #   _select_engine - Phase-6 dual-engine dispatch chokepoint
+#   BLOCK_DISPATCH - js-path positive signal: fires after _select_engine returns 'js',
+#                    before cmd_* lookup; absent on python path (NotImplementedError raises first)
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
@@ -439,6 +441,9 @@ def main() -> None:
         os.environ["MINT_ENGINE"] = args.engine
     cfg = config()
     _select_engine(cfg)
+    # START_BLOCK_DISPATCH
+    logger.info("[CLI][main][BLOCK_DISPATCH] command=%s", args.command)
+    # END_BLOCK_DISPATCH
     commands = {
         "serve": cmd_serve,
         "validate": cmd_validate,

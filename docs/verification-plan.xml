@@ -242,7 +242,7 @@
       <required-signals>
         <log-marker>[Config][load][BLOCK_LOAD_CONFIG] — added in Wave-6-1A (commit 2baab4a); INFO payload format `[Config][load][BLOCK_LOAD_CONFIG] tier=%s severity=%s engine=%s sandbox_timeout=%d` via mint.config logger; wrapped by `# START_BLOCK_LOAD_CONFIG`/`# END_BLOCK_LOAD_CONFIG` source markers</log-marker>
         <log-marker>[CLI][_select_engine][BLOCK_SELECT_ENGINE] — added in Wave-6-1B (commit 73ae169) at src/mint/cli.py lines 422-426; fires once per main() between BLOCK_LOAD_CONFIG and (on js path) cmd_* dispatch; INFO payload carries cfg.engine.value via mint.cli logger; absence on a non-help, non-error invocation is a bug</log-marker>
-        <conditional-marker>[CLI][main][BLOCK_DISPATCH] — fires only when _select_engine returned 'js'; absent on the python path</conditional-marker>
+        <log-marker>[CLI][main][BLOCK_DISPATCH] — added in cleanup commit at src/mint/cli.py main(); fires after _select_engine returns 'js' and before cmd_* dispatch; absent on python path because NotImplementedError raises first; INFO payload carries args.command</log-marker>
         <trace-sequence>BLOCK_LOAD_CONFIG -&gt; BLOCK_SELECT_ENGINE -&gt; (engine==js) BLOCK_DISPATCH -&gt; cmd_*; (engine==python) BLOCK_LOAD_CONFIG -&gt; BLOCK_SELECT_ENGINE -&gt; NotImplementedError -&gt; non-zero exit</trace-sequence>
       </required-signals>
       <forbidden-signals>
