@@ -25,7 +25,27 @@ from __future__ import annotations
 
 import hashlib
 import tempfile
+import zipfile
 from pathlib import Path
+
+
+def _docx_content_hash(path: Path) -> str:
+    """Hash the .docx package contents, ignoring zip-wrapper mtimes.
+
+    python-docx writes per-entry mtimes from time.localtime() at save
+    time; the zip DOS-timestamp resolution is 2 seconds, so two saves
+    that straddle a 2-second boundary produce different raw-byte hashes
+    even when the document is byte-identical inside. Hashing the entries
+    directly skips that wrapper churn.
+    """
+    digest = hashlib.sha256()
+    with zipfile.ZipFile(path) as z:
+        for name in sorted(z.namelist()):
+            digest.update(name.encode("utf-8"))
+            digest.update(b"\x00")
+            digest.update(z.read(name))
+            digest.update(b"\x01")
+    return digest.hexdigest()
 
 import pytest
 
@@ -104,13 +124,13 @@ def test_validate_does_not_mutate(tmp_path: Path) -> None:
 
     out1 = tmp_path / "out1.docx"
     doc.save(out1)
-    h1 = hashlib.sha256(out1.read_bytes()).hexdigest()
+    h1 = _docx_content_hash(out1)
 
     doc.validate()
 
     out2 = tmp_path / "out2.docx"
     doc.save(out2)
-    h2 = hashlib.sha256(out2.read_bytes()).hexdigest()
+    h2 = _docx_content_hash(out2)
 
     assert h1 == h2
 
