@@ -1,5 +1,5 @@
 # FILE: src/mint_python/core/content.py
-# VERSION: 0.3.0
+# VERSION: 0.4.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Inline content building blocks for the Pure Python Edition: Run
 #     (frozen data carrier with optional per-run formatting overrides + link
@@ -38,15 +38,16 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.3.0 — Paragraph gains tab_stops field. TabStop dataclass
-#     plus TabAlignment / TabLeader enums shipped. Render passes tab stops
-#     to python-docx paragraph_format.tab_stops. Literal '\\t' in run text
-#     is auto-converted to <w:tab/> by python-docx — callers compose
-#     "Item\\tPage 5" with a TabStop right-aligned at the desired position.
-#   PRIOR: v0.2.0 — Run gains link (external URL or "#anchor") and
-#     bookmark (anchor name) fields.
-#   PRIOR: v0.1.0 — Run gains per-run formatting overrides
-#     (bold, italic, underline, color, font_size_pt).
+#   LAST_CHANGE: v0.4.0 — Run gains footnote field. First footnoted run in
+#     a Document bootstraps a /word/footnotes.xml package part with the
+#     standard separator + continuationSeparator entries; subsequent
+#     footnotes append <w:footnote w:id="N"> entries to that part. The
+#     run gets a <w:footnoteReference w:id="N"/> element appended to its
+#     <w:r>. python-docx has no first-class footnote API in 1.2.x — we
+#     drop down through docx.opc.part.Part + a manual relationship.
+#   PRIOR: v0.3.0 — Paragraph gains tab_stops field.
+#   PRIOR: v0.2.0 — Run gains link / bookmark fields.
+#   PRIOR: v0.1.0 — Run gains per-run formatting overrides.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -61,11 +62,15 @@ from typing import Any
 
 from docx.document import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT, WD_TAB_LEADER
+from docx.opc.constants import CONTENT_TYPE as _CT
 from docx.opc.constants import RELATIONSHIP_TYPE as _RT
+from docx.opc.packuri import PackURI as _PackURI
+from docx.opc.part import Part as _OpcPart
 from docx.oxml import OxmlElement as _OxmlElement
 from docx.oxml.ns import qn as _qn
 from docx.shared import Inches, RGBColor
 from docx.shared import Pt as DocxPt
+from lxml import etree as _etree
 from PIL import Image as PilImage
 from PIL import UnidentifiedImageError
 
@@ -186,6 +191,7 @@ class Run:
     font_size_pt: float | None = None
     link: str | None = None
     bookmark: str | None = None
+    footnote: str | None = None
 
     def __post_init__(self) -> None:
         if self.color is not None:
@@ -198,6 +204,10 @@ class Run:
             _validate_run_link(self.link)
         if self.bookmark is not None:
             _validate_run_bookmark(self.bookmark)
+        if self.footnote is not None and not self.footnote.strip():
+            raise ValueError(
+                "Run.footnote must be non-empty text; got empty/whitespace"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +326,7 @@ class Paragraph:
         font_size_pt: float | None = None,
         link: str | None = None,
         bookmark: str | None = None,
+        footnote: str | None = None,
     ) -> Paragraph:
         """Append a Run; ``style=None`` inherits paragraph style at render.
 
@@ -340,6 +351,7 @@ class Paragraph:
                 font_size_pt=font_size_pt,
                 link=link,
                 bookmark=bookmark,
+                footnote=footnote,
             )
         )
         return self
@@ -396,6 +408,8 @@ class Paragraph:
                 next_bookmark_id = self._wrap_run_anchors(
                     docx_paragraph, docx_run, run, next_bookmark_id
                 )
+            if run.footnote is not None:
+                self._append_footnote_reference(parent_doc, docx_run, run.footnote)
 
         return docx_paragraph
 
@@ -416,6 +430,91 @@ class Paragraph:
             if cur > max_id:
                 max_id = cur
         return max_id + 1
+
+    @staticmethod
+    def _ensure_footnotes_part(parent_doc: DocxDocument) -> _OpcPart:
+        """Return the document's /word/footnotes.xml part, creating it on first use.
+
+        OOXML conformant footnotes need:
+          1. A package part with content type WML_FOOTNOTES at /word/footnotes.xml.
+          2. A relationship from the main document part with type FOOTNOTES.
+          3. A <w:footnotes> root containing <w:footnote w:type="separator"
+             w:id="-1"/> and <w:footnote w:type="continuationSeparator" w:id="0"/>
+             entries — Word/LibreOffice expect these exact ids/types.
+
+        Subsequent footnote references reuse the existing part.
+        """
+        doc_part = parent_doc.part
+        for rel in doc_part.rels.values():
+            if rel.reltype == _RT.FOOTNOTES:
+                target: _OpcPart = rel.target_part
+                return target
+
+        # Bootstrap: build the skeleton XML, register a new package part.
+        nsmap = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        root = _etree.Element(_qn("w:footnotes"), nsmap=nsmap)
+        for kind, fid in (("separator", -1), ("continuationSeparator", 0)):
+            footnote = _etree.SubElement(root, _qn("w:footnote"))
+            footnote.set(_qn("w:type"), kind)
+            footnote.set(_qn("w:id"), str(fid))
+            p = _etree.SubElement(footnote, _qn("w:p"))
+            r = _etree.SubElement(p, _qn("w:r"))
+            _etree.SubElement(r, _qn(f"w:{kind}"))
+
+        blob = _etree.tostring(
+            root, xml_declaration=True, standalone=True, encoding="UTF-8"
+        )
+        partname = _PackURI("/word/footnotes.xml")
+        new_part = _OpcPart(
+            partname, _CT.WML_FOOTNOTES, blob, doc_part.package
+        )
+        doc_part.relate_to(new_part, _RT.FOOTNOTES)
+        return new_part
+
+    @staticmethod
+    def _append_footnote_reference(
+        parent_doc: DocxDocument, docx_run: Any, footnote_text: str
+    ) -> None:
+        """Append a w:footnoteReference to the run + a w:footnote entry to the part.
+
+        Allocates the next positive footnote id by scanning the footnotes part
+        for the current max @w:id (excluding the separator/continuation entries
+        which use -1 and 0).
+        """
+        part = Paragraph._ensure_footnotes_part(parent_doc)
+        root = _etree.fromstring(part.blob)
+
+        max_id = 0
+        for fn in root.iter(_qn("w:footnote")):
+            try:
+                cur = int(fn.get(_qn("w:id"), "0"))
+            except ValueError:  # pragma: no cover — non-int id is OOXML-illegal
+                continue
+            if cur > max_id:
+                max_id = cur
+        new_id = max_id + 1
+
+        # Build the footnote body: one paragraph with one run carrying the text.
+        footnote = _etree.SubElement(root, _qn("w:footnote"))
+        footnote.set(_qn("w:id"), str(new_id))
+        body_p = _etree.SubElement(footnote, _qn("w:p"))
+        body_r = _etree.SubElement(body_p, _qn("w:r"))
+        ref_marker = _etree.SubElement(body_r, _qn("w:footnoteRef"))
+        # Actual footnote text follows the reference marker.
+        body_r2 = _etree.SubElement(body_p, _qn("w:r"))
+        text_el = _etree.SubElement(body_r2, _qn("w:t"))
+        text_el.set(_qn("xml:space"), "preserve")
+        text_el.text = " " + footnote_text  # leading space after marker
+        del ref_marker  # silence unused-var lint while keeping the SubElement
+
+        part._blob = _etree.tostring(
+            root, xml_declaration=True, standalone=True, encoding="UTF-8"
+        )
+
+        # Inject reference into the calling run.
+        ref = _OxmlElement("w:footnoteReference")
+        ref.set(_qn("w:id"), str(new_id))
+        docx_run._r.append(ref)
 
     @staticmethod
     def _wrap_run_anchors(

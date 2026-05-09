@@ -936,7 +936,7 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-STYLE</verification-ref>
     </MP-STYLE>
 
-    <MP-CONTENT NAME="Pure Python Content Primitives (Paragraph / Run / Image / TabStop)" TYPE="CORE_LOGIC" LAYER="1" ORDER="11" STATUS="done" VERSION="0.3.0">
+    <MP-CONTENT NAME="Pure Python Content Primitives (Paragraph / Run / Image / TabStop)" TYPE="CORE_LOGIC" LAYER="1" ORDER="11" STATUS="done" VERSION="0.4.0">
       <contract>
         <purpose>Inline content building blocks placed inside a Section: styled text Paragraph (composed of Run instances with optional per-run formatting overrides + link/bookmark anchors) and Image embedded via python-docx + pillow. Direct emitters of `&lt;w:p&gt;`, `&lt;w:r&gt;`, `&lt;w:hyperlink&gt;`, `&lt;w:bookmarkStart/End&gt;`, `&lt;w:drawing&gt;` OOXML.</purpose>
         <inputs>
@@ -959,6 +959,7 @@ writeFileSync('output.docx', buffer);
           <error code="RUN_LINK_INVALID" />
           <error code="RUN_BOOKMARK_INVALID" />
           <error code="TAB_STOP_POSITION_INVALID" />
+          <error code="RUN_FOOTNOTE_EMPTY" />
         </errors>
       </contract>
       <interface>

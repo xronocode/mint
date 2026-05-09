@@ -1118,7 +1118,7 @@
       <autonomy-assessment>SWARM-SAFE — pure deterministic; no I/O beyond JSON file reads in tmp; no env reads; module-level state is read-only registry</autonomy-assessment>
     </V-MP-STYLE>
 
-    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2" VERSION="0.3.0">
+    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2" VERSION="0.4.0">
       <test-files>
         <file status="active" activated-at="Wave-7-2">tests/unit/test_mp_content.py</file>
       </test-files>
@@ -1153,6 +1153,9 @@
         <scenario-24 kind="success" evidence="deterministic">Multiple TabStop entries are applied in order; paragraph_format.tab_stops yields len == N</scenario-24>
         <scenario-25 kind="failure" evidence="deterministic">TabStop(position_inches=0) and TabStop(position_inches=-1.5) raise ValueError mentioning '> 0'</scenario-25>
         <scenario-26 kind="success" evidence="deterministic">Paragraph with default empty tab_stops list does not allocate any python-docx tab_stops collection entries</scenario-26>
+        <scenario-27 kind="success" evidence="deterministic">First Run with footnote='text' bootstraps a /word/footnotes.xml package part with the canonical separator (id=-1) + continuationSeparator (id=0) entries; the user footnote lives at id=1 with the supplied body text</scenario-27>
+        <scenario-28 kind="success" evidence="deterministic">N consecutive footnoted runs share one footnotes part; user footnote ids increment 1, 2, ..., N; matching number of w:footnoteReference elements appear in the document body, each pointing to a distinct id</scenario-28>
+        <scenario-29 kind="failure" evidence="deterministic">Run(text, footnote='') and Run(text, footnote='   ') raise ValueError mentioning 'non-empty'</scenario-29>
       </scenarios>
       <required-log-markers>
         <marker-1>[MP-Content][render][BLOCK_RENDER_CONTENT] — fires per Paragraph or Image .render() call</marker-1>

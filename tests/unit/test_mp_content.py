@@ -670,3 +670,85 @@ def test_scenario_26_no_tab_stops_means_no_collection_entries() -> None:
     Paragraph("plain").render(doc)
     stops = list(doc.paragraphs[-1].paragraph_format.tab_stops)
     assert stops == []
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-27: first footnoted run bootstraps the footnotes part
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_27_first_footnote_bootstraps_part() -> None:
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.oxml.ns import qn
+    from lxml import etree
+
+    doc = Document()
+    Paragraph().add_run("text", footnote="explanatory note").render(doc)
+
+    # A FOOTNOTES relationship now exists from the document part.
+    rels = [r for r in doc.part.rels.values() if r.reltype == RT.FOOTNOTES]
+    assert len(rels) == 1
+    fn_part = rels[0].target_part
+
+    # The part XML contains the standard separator + continuationSeparator
+    # entries plus our user footnote at id=1.
+    root = etree.fromstring(fn_part.blob)
+    footnotes = root.findall(qn("w:footnote"))
+    ids_and_types = {
+        (fn.get(qn("w:id")), fn.get(qn("w:type")))
+        for fn in footnotes
+    }
+    assert ("-1", "separator") in ids_and_types
+    assert ("0", "continuationSeparator") in ids_and_types
+    assert ("1", None) in ids_and_types  # user footnote, no @w:type
+
+    # The user footnote body carries the literal text.
+    user_fn = next(f for f in footnotes if f.get(qn("w:id")) == "1")
+    text_els = user_fn.findall(f".//{qn('w:t')}")
+    assert any("explanatory note" in (t.text or "") for t in text_els)
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-28: subsequent footnotes reuse the part + increment id
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_28_multiple_footnotes_increment_id() -> None:
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+    from docx.oxml.ns import qn
+    from lxml import etree
+
+    doc = Document()
+    Paragraph().add_run("a", footnote="first").render(doc)
+    Paragraph().add_run("b", footnote="second").render(doc)
+    Paragraph().add_run("c", footnote="third").render(doc)
+
+    rels = [r for r in doc.part.rels.values() if r.reltype == RT.FOOTNOTES]
+    # Exactly one part — bootstrap is once-only.
+    assert len(rels) == 1
+
+    root = etree.fromstring(rels[0].target_part.blob)
+    user_ids = sorted(
+        int(fn.get(qn("w:id")))
+        for fn in root.findall(qn("w:footnote"))
+        if fn.get(qn("w:type")) is None
+    )
+    assert user_ids == [1, 2, 3]
+
+    # Each paragraph now contains a w:footnoteReference.
+    refs = doc.element.body.findall(f".//{qn('w:footnoteReference')}")
+    assert len(refs) == 3
+    ref_ids = sorted(int(r.get(qn("w:id"))) for r in refs)
+    assert ref_ids == [1, 2, 3]
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-29: empty / whitespace footnote text rejected
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_29_empty_footnote_text_rejected() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        Run("x", footnote="")
+    with pytest.raises(ValueError, match="non-empty"):
+        Run("x", footnote="   ")

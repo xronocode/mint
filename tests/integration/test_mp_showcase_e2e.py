@@ -14,10 +14,9 @@ Generates the richest document the Pure Python Edition SDK can produce,
 then validates it against MP-VALIDATE on lenient mode.
 
 Gaps (not yet supported):
-  a) Footnotes                                              — needs OOXML part
-  b) Multi-column, per-section headers/footers, page breaks — no section API
-  c) Callout boxes (info/warning/code block)                — no component
-  d) Landscape orientation, custom margins                  — no page API
+  a) Multi-column, per-section headers/footers, page breaks — no section API
+  b) Callout boxes (info/warning/code block)                — no component
+  c) Landscape orientation, custom margins                  — no page API
 """
 from __future__ import annotations
 
@@ -125,6 +124,23 @@ def build_showcase_document(tmp_dir: Path) -> Document:
                 ),
             ],
         )
+    )
+    # Footnotes demo (added in MP-CONTENT v0.4.0).
+    sec.add_paragraph(
+        Paragraph("Footnotes demo: this sentence carries a footnote")
+        .add_run(
+            "*",
+            footnote=(
+                "Footnotes are emitted via a /word/footnotes.xml package "
+                "part bootstrapped on first use. python-docx 1.2 has no "
+                "first-class API; we drop down to docx.opc.part.Part."
+            ),
+        )
+        .add_run(
+            " and another one",
+            footnote="Subsequent footnotes share the same part with incrementing ids.",
+        )
+        .add_run(".")
     )
     doc.add_section(sec)
 
@@ -338,13 +354,12 @@ def build_showcase_document(tmp_dir: Path) -> Document:
         .add_run(":")
     )
     gaps = [
-        "a) Footnotes — Document-level footnote container needs a custom OOXML part injection (deferred)",
-        "b) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
-        "c) Callout components (info, warning, code block) — no component library",
-        "d) Landscape orientation, custom page margins — page-level properties not exposed",
-        "e) Watermarks, text boxes, WordArt — artistic elements deferred",
-        "f) Track changes, comments, document protection — collaboration features deferred",
-        "g) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
+        "a) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
+        "b) Callout components (info, warning, code block) — no component library",
+        "c) Landscape orientation, custom page margins — page-level properties not exposed",
+        "d) Watermarks, text boxes, WordArt — artistic elements deferred",
+        "e) Track changes, comments, document protection — collaboration features deferred",
+        "f) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
     ]
     for gap in gaps:
         gap_section.add_paragraph(gap)
@@ -417,9 +432,11 @@ class TestShowcaseE2E:
         doc = build_showcase_document(tmp_path)
         last_section = doc._sections[-1]
         assert "Known Gaps" in last_section.title
-        # Should have at least 8 gap items (per-run + lists shipped, removed
-        # from the gaps list as a side effect; threshold drops accordingly).
-        assert len(last_section._blocks) >= 8
+        # Threshold tracks shipped scope: each closed gap reduces the list
+        # by one. After per-run, lists, merged cells, hyperlinks/bookmarks,
+        # tab stops, and footnotes all shipped, the floor is 6 gaps + 1
+        # intro = 7 blocks.
+        assert len(last_section._blocks) >= 7
 
 
 # Run this manually to write the baseline:
