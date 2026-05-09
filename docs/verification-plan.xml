@@ -1141,8 +1141,8 @@
         <scenario-2 kind="success" evidence="deterministic">Section.render(doc) emits a w:p with heading style matching level (Heading 1, Heading 2, ...) followed by the content blocks in order</scenario-2>
         <scenario-3 kind="success" evidence="deterministic">add_paragraph accepts both str (shorthand) and Paragraph instance</scenario-3>
         <scenario-4 kind="failure" evidence="deterministic">Section('X', level=10) raises SECTION_LEVEL_OUT_OF_RANGE (valid: 1..6)</scenario-4>
-        <scenario-5 kind="failure" evidence="deterministic">Section('X').add_chart(any) raises NotImplementedError; message contains "Phase 2" and "matplotlib"</scenario-5>
-        <scenario-6 kind="success" evidence="trace">Section.add_chart emits [MP-Section][add_chart][BLOCK_PHASE_GUARD] with method='add_chart' and target_phase='Phase 2' BEFORE raising</scenario-6>
+        <scenario-5 kind="success" evidence="deterministic" status="done" activated-at="Wave-8-2">(Phase-8 unstub commit caf30ab) Section('X', level=1).add_chart(chart: Chart) appends Chart to _blocks AND returns self for fluent chaining. Pre-Phase-8 raised NotImplementedError + emitted BLOCK_PHASE_GUARD; that stub-era contract is retired. NOTE: Section.add_chart with a non-Chart input may raise TypeError via mypy/runtime checks but the legacy "Phase 2" message is no longer expected.</scenario-5>
+        <scenario-6 kind="success" evidence="integration" status="done" activated-at="Wave-8-2">(Phase-8) Section.render walks Chart.render — saving a Section that contains a Chart produces an inline_shape whose width.emu == round(width_inches × 914400). The legacy BLOCK_PHASE_GUARD-on-add_chart trace from Phase-7 is retired; Chart blocks emit their own [MP-Chart][render][BLOCK_RENDER_CHART] marker via the per-block render dispatch (no Section-side marker on add_chart anymore).</scenario-6>
       </scenarios>
       <required-log-markers>
         <marker-1>[MP-Section][add_chart][BLOCK_PHASE_GUARD] — fires on stub touch; payload: method + target_phase</marker-1>
@@ -1822,6 +1822,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
     <ownership>
       <controller-owns>tests/unit/conftest.py and tests/unit/_mp_helpers.py — provisioned BEFORE Wave-7-1 dispatches; updated only by the controller in batched commits, never by per-module workers.</controller-owns>
       <worker-consumes>Each Wave-7-* worker imports fixtures from conftest.py via pytest's auto-injection AND imports helpers from `tests.unit._mp_helpers` explicitly. Workers MUST NOT redefine these fixtures locally (mirrors V-M-CONFIG forbidden-4 enforcement).</worker-consumes>
+      <integration-conftest-shim PATH="tests/integration/conftest.py" added-in="Phase-8 (Wave-8-2)">Pytest does NOT auto-discover the unit conftest for tests under tests/integration/. The shim re-exports unit fixtures into the integration namespace. Controller-owned: extends ONLY the re-export list when a new integration test needs a fixture not yet shimmed (e.g. Wave-8-2 added chart_baseline_path + mpl_figure_cleanup). Workers MUST stop and report when their integration test consumes a fixture missing from the shim — controller updates the shim in a grace(meta) commit, NOT worker. Considered alternatives: local fixture redefinition (violates SwarmFixtures rule-5); pytest_plugins=[...] (collision-prone when both unit and integration trees collect together); chosen approach is the explicit re-export pattern documented in tests/integration/conftest.py MODULE_CONTRACT.</integration-conftest-shim>
     </ownership>
 
     <conftest-spec PATH="tests/unit/conftest.py" KIND="new-file">

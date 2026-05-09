@@ -455,7 +455,7 @@
         <fn-add_paragraph PURPOSE="Append Paragraph or shorthand str; returns self" />
         <fn-add_table PURPOSE="Append Table; returns self" />
         <fn-add_image PURPOSE="Append Image; returns self" />
-        <fn-add_chart PURPOSE="STUB Phase-2 — emits BLOCK_PHASE_GUARD then raises NotImplementedError" />
+        <fn-add_chart PURPOSE="Append Chart to _blocks; returns self for fluent chaining (Phase-8 unstub commit caf30ab — Section.render walks Chart.render alongside Paragraph/Table/Image)" />
       </annotations>
     </MP-SECTION>
 
