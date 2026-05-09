@@ -14,11 +14,15 @@
 #
 # START_MODULE_MAP
 #   (re-exports) - mp_clean_env, tmp_docx_path, mp_minimal_config,
-#     caplog_at_info, marker_counter, golden_doc_builder
+#     caplog_at_info, marker_counter, golden_doc_builder, mpl_figure_cleanup,
+#     chart_baseline_path
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-7-5 - shim added so VF-013 e2e under tests/integration/
+#   LAST_CHANGE: Wave-8-2 - extend re-exports with mpl_figure_cleanup (autouse)
+#     and chart_baseline_path (session-scoped) so VF-014 chart e2e under
+#     tests/integration/ can consume the Phase-8 fixture additions.
+#   PRIOR: Wave-7-5 - shim added so VF-013 e2e under tests/integration/
 #     can reuse mp_clean_env / tmp_docx_path / caplog_at_info / marker_counter
 #     / golden_doc_builder / mp_minimal_config fixtures.
 # END_CHANGE_SUMMARY
@@ -29,18 +33,22 @@ from __future__ import annotations
 # tests.unit.conftest module as a plugin.
 from tests.unit.conftest import (
     caplog_at_info,
+    chart_baseline_path,
     golden_doc_builder,
     marker_counter,
     mp_clean_env,
     mp_minimal_config,
+    mpl_figure_cleanup,
     tmp_docx_path,
 )
 
 __all__ = [
     "caplog_at_info",
+    "chart_baseline_path",
     "golden_doc_builder",
     "marker_counter",
     "mp_clean_env",
     "mp_minimal_config",
+    "mpl_figure_cleanup",
     "tmp_docx_path",
 ]

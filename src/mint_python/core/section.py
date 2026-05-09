@@ -2,17 +2,18 @@
 # VERSION: 0.0.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Fluent Section node per handover §3.2 — heading + ordered list of
-#     content blocks (Paragraph, Table, Image). Phase-1 ships the API surface;
-#     add_chart is an explicit Phase-2 stub raising PhaseGuardNotImplementedError
-#     after emitting BLOCK_PHASE_GUARD so plan-driven callers fail loud at the
-#     boundary instead of silently no-op'ing.
+#     content blocks (Paragraph, Table, Image, Chart). Phase-8 unstubs
+#     add_chart: appends a Chart block to _blocks and returns self for fluent
+#     chaining. Section.render walks block.render(parent_doc) so each Chart
+#     block emits its own BLOCK_RENDER_CHART trace marker.
 #   SCOPE: Public surface = Section, SectionError, SectionLevelOutOfRangeError,
 #     PhaseGuardNotImplementedError. Sibling-only deps: MP-CONTENT (Paragraph,
-#     Image), MP-TABLE (Table). Section.render(parent_doc) emits a heading
-#     paragraph via parent_doc.add_heading(title, level) then iterates blocks
-#     calling each .render(parent_doc); children own their own BLOCK markers.
+#     Image), MP-TABLE (Table), MP-CHART (Chart). Section.render(parent_doc)
+#     emits a heading paragraph via parent_doc.add_heading(title, level) then
+#     iterates blocks calling each .render(parent_doc); children own their own
+#     BLOCK markers.
 #   DEPENDS: mint_python.core.content (Paragraph, Image), mint_python.core.table
-#     (Table), python-docx (1.1.x; Document type only).
+#     (Table), mint_python.core.chart (Chart), python-docx (1.1.x; Document type only).
 #   LINKS: docs/development-plan.xml#MP-SECTION,
 #     docs/verification-plan.xml#V-MP-SECTION,
 #     docs/knowledge-graph.xml#MP-SECTION
@@ -23,7 +24,7 @@
 #   Section.add_paragraph            - str shorthand or Paragraph; returns self
 #   Section.add_table                - Table; returns self
 #   Section.add_image                - Image; returns self
-#   Section.add_chart                - Phase-2 STUB; emits BLOCK_PHASE_GUARD then raises
+#   Section.add_chart                - appends Chart to _blocks; returns self for fluent chain
 #   Section.render                   - heading + ordered block render
 #   SectionError                     - base error
 #   SectionLevelOutOfRangeError      - SECTION_LEVEL_OUT_OF_RANGE
@@ -31,23 +32,25 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-7-3 (MP-SECTION): initial implementation per V-MP-SECTION
+#   LAST_CHANGE: Wave-8-2 (MP-SECTION): unstub add_chart — replace
+#     BLOCK_PHASE_GUARD stub body with concrete `add_chart(chart: Chart) ->
+#     Section` that appends the Chart to _blocks and returns self for fluent
+#     chaining. Add `from mint_python.core.chart import Chart` import. Remove
+#     obsolete START/END_BLOCK_PHASE_GUARD source markers. Phase-8 unblocks
+#     VF-014 e2e PurePythonChartFlow.
+#   PRIOR: Wave-7-3 (MP-SECTION): initial implementation per V-MP-SECTION
 #     scenarios 1-6 + BLOCK_PHASE_GUARD trace assertion.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 from docx.document import Document as DocxDocument
 
+from mint_python.core.chart import Chart
 from mint_python.core.content import Image, Paragraph
 from mint_python.core.table import Table
-
-logger = logging.getLogger("mint_python.core.section")
-
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -95,15 +98,15 @@ class Section:
     The fluent setters return ``self`` so callers compose the whole section in
     a single expression. ``level`` is validated at construction time (1..6).
 
-    add_chart is a Phase-2 stub: it emits a single
-    ``[MP-Section][add_chart][BLOCK_PHASE_GUARD]`` INFO line BEFORE raising
-    :class:`PhaseGuardNotImplementedError`, so plan-driven callers that
-    accidentally schedule a chart in Phase-1 fail loud + observable.
+    Phase-8: add_chart is a concrete fluent setter that appends a Chart block
+    to _blocks. Section.render iterates _blocks calling block.render(parent_doc)
+    so each Chart emits its own BLOCK_RENDER_CHART marker — there is no
+    Section-side render marker for charts.
     """
 
     title: str
     level: int  # 1..6
-    _blocks: list[Paragraph | Table | Image] = field(default_factory=list)
+    _blocks: list[Paragraph | Table | Image | Chart] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not (1 <= self.level <= 6):
@@ -140,25 +143,16 @@ class Section:
         self._blocks.append(image)
         return self
 
-    # START_BLOCK_PHASE_GUARD
-    def add_chart(self, *args: Any, **kwargs: Any) -> Section:
-        """Phase-2 stub: emit BLOCK_PHASE_GUARD then raise.
+    def add_chart(self, chart: Chart) -> Section:
+        """Append a Chart to this Section's blocks; returns self for fluent chaining.
 
-        The matplotlib-backed chart implementation lands with handover §6
-        Phase 2 (MP-CHART). Phase-7 ships the API surface only so plan
-        consumers can resolve the symbol but get an immediate, observable
-        failure if they try to use it.
+        Phase-8: concrete impl. Pre-Phase-8 raised NotImplementedError + emitted
+        BLOCK_PHASE_GUARD. Section.render walks block.render(parent_doc) so a
+        Chart block emits its own BLOCK_RENDER_CHART trace marker; no
+        Section-side marker.
         """
-        logger.info(
-            "[MP-Section][add_chart][BLOCK_PHASE_GUARD] "
-            "method=add_chart target_phase=Phase 2"
-        )
-        raise PhaseGuardNotImplementedError(
-            "Section.add_chart is a Phase-2 stub: matplotlib chart "
-            "implementation lands with handover §6 Phase 2 (MP-CHART). "
-            "Phase-7 ships the API surface only."
-        )
-    # END_BLOCK_PHASE_GUARD
+        self._blocks.append(chart)
+        return self
 
     def render(self, parent_doc: DocxDocument) -> None:
         """Emit heading + ordered child block renders into ``parent_doc``.

@@ -18,7 +18,9 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-7-5 - initial provisioning: V-MP-SDK scenarios 1-4.
+#   LAST_CHANGE: Wave-8-2 (MP-SDK): extend scenario-1 import list to include
+#     Chart (Phase-8 surface addition per handover §3.4).
+#   PRIOR: Wave-7-5 - initial provisioning: V-MP-SDK scenarios 1-4.
 # END_CHANGE_SUMMARY
 from __future__ import annotations
 
@@ -30,9 +32,14 @@ import pytest
 
 # START_BLOCK_TEST_SCENARIO_1
 def test_scenario_1_all_section_3_names_import() -> None:
-    """V-MP-SDK scenario-1: all 9 §3 names resolve via `from mint_python.sdk import …`."""
+    """V-MP-SDK scenario-1: all 10 §3 names resolve via `from mint_python.sdk import …`.
+
+    Phase-8 (Wave-8-2): Chart added to the public surface — bumps the count
+    from 9 to 10.
+    """
     from mint_python.sdk import (
         TOC,
+        Chart,
         ColorPalette,
         Document,
         Image,
@@ -44,7 +51,18 @@ def test_scenario_1_all_section_3_names_import() -> None:
     )
 
     # Each must be a non-None bound symbol.
-    for sym in (Document, Section, Table, Style, Image, TOC, Pt, ColorPalette, presets):
+    for sym in (
+        Document,
+        Section,
+        Table,
+        Style,
+        Image,
+        Chart,
+        TOC,
+        Pt,
+        ColorPalette,
+        presets,
+    ):
         assert sym is not None
 # END_BLOCK_TEST_SCENARIO_1
 

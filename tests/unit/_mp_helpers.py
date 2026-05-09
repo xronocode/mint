@@ -214,24 +214,46 @@ _CHART_BASELINE_PATH = (
 def build_chart_golden_document(out_path: Path) -> Path:
     """VF-014 chart golden document builder — single source of truth (Phase-8).
 
-    Pre-Wave-8-2 STUB raises NotImplementedError naming Wave-8-2. The Wave-8-2
-    worker replaces this body per docs/verification-plan.xml#VF-014
-    golden-document-spec (alga_corporate; 2 sections each with 1 paragraph + 1
-    chart of different type — bar + line; both width_inches=5.0).
+    Per docs/verification-plan.xml#VF-014 golden-document-spec: alga_corporate
+    preset; 2 sections (Revenue + Mix) each with 1 paragraph + 1 chart of
+    different type (bar + line); both width_inches=5.0.
 
-    Activation: Wave-8-2 step-5 (test surface). Pre-condition: VF-014
-    golden-document-spec frozen + MP-CHART (Wave-8-1) shipped + MP-SECTION
-    add_chart unstub (Wave-8-2 step-2) + MP-SDK Chart re-export (Wave-8-2
-    step-3) all complete. STUB raises with exact "Wave-8-2" substring so a
-    worker that imports this before activation gets unambiguous wrong-wave
-    signal.
+    Activated at Wave-8-2 step-5.
     """
-    raise NotImplementedError(
-        "build_chart_golden_document activates at Wave-8-2 step-5 (VF-014 e2e). "
-        "Phase-8 pre-Wave-8-2 stub: MP-SECTION.add_chart still raises NotImplementedError "
-        "and mint_python.sdk does not yet export Chart. "
-        "See docs/verification-plan.xml#VF-014 golden-document-spec for the concrete body."
+    from mint_python.core.chart import Chart
+    from mint_python.core.content import Paragraph
+    from mint_python.core.document import Document
+    from mint_python.core.section import Section
+
+    doc = Document(format="docx", title="VF-014 Chart Golden Document").with_style_preset(
+        "alga_corporate"
     )
+
+    revenue = Section("Revenue", level=1)
+    revenue.add_paragraph(Paragraph("Quarterly revenue trend."))
+    revenue.add_chart(
+        Chart.bar(
+            labels=["Q1", "Q2", "Q3", "Q4"],
+            values=[1.0, 1.3, 1.6, 1.9],
+            title="Revenue ($M)",
+            width_inches=5.0,
+        )
+    )
+    doc.add_section(revenue)
+
+    mix = Section("Mix", level=1)
+    mix.add_paragraph(Paragraph("Region mix."))
+    mix.add_chart(
+        Chart.line(
+            labels=["NA", "EU", "APAC", "LATAM"],
+            values=[60, 30, 10, 5],
+            title="Share %",
+            width_inches=5.0,
+        )
+    )
+    doc.add_section(mix)
+
+    return doc.save(out_path)
 
 
 def assert_chart_inline_shape_emu(doc: Any, expected_widths_inches: list[float]) -> None:

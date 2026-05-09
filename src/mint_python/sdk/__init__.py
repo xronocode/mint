@@ -4,11 +4,12 @@
 #   PURPOSE: Public SDK surface for prompt-style document construction.
 #     Re-exports the §3 type set so users write
 #     `from mint_python.sdk import Document, Section, Table, Style, Image,
-#                                  TOC, Pt, ColorPalette, presets`.
+#                                  Chart, TOC, Pt, ColorPalette, presets`.
 #   SCOPE: Phase-7 Wave-7-5 — public re-exports + named-preset registry alias
-#     (`presets`) + Phase-7 marker class `TOC`. Forbidden surface beyond §3
-#     (V-MP-SDK forbidden-1) and any legacy `mint.*` imports (forbidden-2).
-#   DEPENDS: mint_python.core.{document, section, table, style, content}.
+#     (`presets`) + Phase-7 marker class `TOC`. Phase-8 Wave-8-2 adds Chart to
+#     the public surface. Forbidden surface beyond §3 (V-MP-SDK forbidden-1)
+#     and any legacy `mint.*` imports (forbidden-2).
+#   DEPENDS: mint_python.core.{document, section, table, style, content, chart}.
 #     No imports from src/mint/* (legacy js-engine path).
 #   LINKS: docs/knowledge-graph.xml#MP-SDK, docs/development-plan.xml#MP-SDK,
 #     docs/verification-plan.xml#V-MP-SDK,
@@ -21,6 +22,7 @@
 #   Table - re-export of mint_python.core.table.Table
 #   Style - re-export of mint_python.core.style.Style
 #   Image - re-export of mint_python.core.content.Image
+#   Chart - re-export of mint_python.core.chart.Chart (Phase-8)
 #   Pt - re-export of mint_python.core.style.Pt
 #   ColorPalette - re-export of mint_python.core.style.ColorPalette
 #   TOC - Phase-7 marker class (Document.add_toc carries the only params)
@@ -28,13 +30,16 @@
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 - Wave-7-5: populate public re-exports per handover §3
+#   LAST_CHANGE: v0.2.0 - Wave-8-2 (MP-SDK): add Chart to the public re-export
+#     surface per handover §3.4. Phase-8 unblocks chart-bearing user code.
+#   PRIOR: v0.1.0 - Wave-7-5: populate public re-exports per handover §3
 #     (Document/Section/Table/Style/Image/TOC/Pt/ColorPalette + presets alias).
 #     Replaces Phase-6 empty placeholder.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
+from mint_python.core.chart import Chart
 from mint_python.core.content import Image
 from mint_python.core.document import Document
 from mint_python.core.section import Section
@@ -56,6 +61,7 @@ class TOC:
 
 __all__ = [
     "TOC",
+    "Chart",
     "ColorPalette",
     "Document",
     "Image",

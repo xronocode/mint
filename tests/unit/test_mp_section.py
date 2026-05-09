@@ -1,14 +1,15 @@
 # FILE: tests/unit/test_mp_section.py
 # START_MODULE_CONTRACT
-#   PURPOSE: V-MP-SECTION scenarios 1-6 — Section fluent surface, render order
-#     with heading, str/Paragraph polymorphism on add_paragraph, level-range
-#     enforcement, and the add_chart Phase-2 stub (NotImplementedError content
-#     + BLOCK_PHASE_GUARD trace).
+#   PURPOSE: V-MP-SECTION scenarios 1-4 + Phase-8 add_chart positive scenarios
+#     — Section fluent surface, render order with heading, str/Paragraph
+#     polymorphism on add_paragraph, level-range enforcement, and the Phase-8
+#     add_chart positive contract (chart appended to _blocks; Section.render
+#     walks Chart.render to produce inline_shape with correct EMU width).
 #   SCOPE: Reuses central conftest fixtures (mp_clean_env, caplog_at_info,
-#     marker_counter); imports sibling Paragraph + Table to validate
+#     marker_counter); imports sibling Paragraph + Table + Chart to validate
 #     polymorphism + render ordering. No fixture redefinitions.
 #   DEPENDS: pytest, mint_python.core.section, mint_python.core.content,
-#     mint_python.core.table, python-docx.
+#     mint_python.core.table, mint_python.core.chart, python-docx.
 #   LINKS: docs/verification-plan.xml#V-MP-SECTION,
 #     docs/development-plan.xml#MP-SECTION
 # END_MODULE_CONTRACT
@@ -18,13 +19,16 @@
 #   test_scenario_2_render_emits_heading_then_blocks_in_order
 #   test_scenario_3_add_paragraph_accepts_str_and_paragraph
 #   test_scenario_4_level_out_of_range_raises
-#   test_scenario_5_add_chart_raises_not_implemented
-#   test_scenario_6_add_chart_emits_block_phase_guard_before_raising
-#   test_phase_guard_is_subclass_of_not_implemented_error
+#   test_add_chart_appends_chart_and_returns_self - Phase-8 positive (replaces scenario-5)
+#   test_section_render_walks_chart_render - Phase-8 positive (replaces scenario-6)
+#   test_phase_guard_is_subclass_of_not_implemented_error - PHASE_GUARD class still subclass
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-7-3 (MP-SECTION): initial test suite.
+#   LAST_CHANGE: Wave-8-2 (MP-SECTION): retire scenarios 5/6 (NotImplementedError +
+#     BLOCK_PHASE_GUARD trace) — replace with positive scenarios verifying chart
+#     appended + Section.render walks Chart.render.
+#   PRIOR: Wave-7-3 (MP-SECTION): initial test suite.
 # END_CHANGE_SUMMARY
 from __future__ import annotations
 
@@ -121,54 +125,42 @@ def test_scenario_4_level_out_of_range_raises(bad_level: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# V-MP-SECTION scenario-5: add_chart raises NotImplementedError; message
-# names "Phase 2" and "matplotlib"
+# Phase-8 positive add_chart scenarios (replace pre-Wave-8-2 scenarios 5 + 6
+# which asserted the BLOCK_PHASE_GUARD stub behavior — now removed).
 # ---------------------------------------------------------------------------
 
 
-def test_scenario_5_add_chart_raises_not_implemented() -> None:
-    section = Section("Charts", level=1)
-    with pytest.raises(NotImplementedError) as exc_info:
-        section.add_chart({"data": [1, 2, 3]})
-    msg = str(exc_info.value)
-    assert "Phase 2" in msg
-    assert "matplotlib" in msg.lower()
+def test_add_chart_appends_chart_and_returns_self() -> None:
+    """Phase-8: add_chart(chart: Chart) appends to _blocks and returns self."""
+    from mint_python.core.chart import Chart
+
+    chart = Chart.bar(["a", "b"], [1, 2], width_inches=3.0)
+    s = Section("Title", level=1)
+    out = s.add_chart(chart)
+    assert out is s
+    assert s._blocks[-1] is chart
+
+
+def test_section_render_walks_chart_render() -> None:
+    """Phase-8: Section.render iterates blocks; Chart.render is invoked."""
+    from docx import Document as DocxDoc
+
+    from mint_python.core.chart import Chart
+
+    chart = Chart.line(["a", "b", "c"], [1, 2, 3], width_inches=4.0)
+    s = Section("X", level=1).add_chart(chart)
+    doc = DocxDoc()
+    s.render(doc)
+    assert len(doc.inline_shapes) == 1
+    assert doc.inline_shapes[0].width.emu == round(4.0 * 914400)
 
 
 def test_phase_guard_is_subclass_of_not_implemented_error() -> None:
-    # The custom error MUST remain a NotImplementedError subclass so callers
-    # using the standard exception type keep working.
+    """PhaseGuardNotImplementedError class remains a NotImplementedError subclass.
+
+    Phase-8 keeps the class in MP-SECTION's __all__ for surface compat (sibling
+    modules MP-DOCUMENT + MP-CHART still raise their own PHASE_GUARD errors via
+    the same-named class). The class is no longer raised from MP-SECTION
+    itself after the add_chart unstub.
+    """
     assert issubclass(PhaseGuardNotImplementedError, NotImplementedError)
-
-    section = Section("Charts", level=1)
-    with pytest.raises(PhaseGuardNotImplementedError):
-        section.add_chart()
-
-
-# ---------------------------------------------------------------------------
-# V-MP-SECTION scenario-6: add_chart emits BLOCK_PHASE_GUARD BEFORE raising;
-# payload carries method=add_chart and target_phase=Phase 2 substring
-# ---------------------------------------------------------------------------
-
-
-def test_scenario_6_add_chart_emits_block_phase_guard_before_raising(
-    caplog_at_info, marker_counter
-) -> None:
-    section = Section("Charts", level=1)
-    with pytest.raises(NotImplementedError):
-        section.add_chart(kind="bar")
-
-    # Marker counter sees BLOCK_PHASE_GUARD exactly once.
-    counts = marker_counter(caplog_at_info)
-    assert counts["BLOCK_PHASE_GUARD"] == 1
-
-    # Locate the record that carries the marker; verify payload substrings.
-    guard_records = [
-        r for r in caplog_at_info.records if "BLOCK_PHASE_GUARD" in r.getMessage()
-    ]
-    assert len(guard_records) == 1
-    payload = guard_records[0].getMessage()
-    assert "[MP-Section]" in payload
-    assert "[add_chart]" in payload
-    assert "method=add_chart" in payload
-    assert "target_phase=Phase 2" in payload

@@ -1,0 +1,12 @@
+{
+  "chart_count": 2,
+  "committed_at": "2026-05-09",
+  "document_spec": "tests/unit/_mp_helpers.py::build_chart_golden_document",
+  "generator": "mint_python 0.2.0 + matplotlib 3.10.x",
+  "schema_validation": {
+    "ecma376_validated": false,
+    "lxml_parses": true
+  },
+  "schema_version": "1.0",
+  "structural_fingerprint_sha256": "6d9d449c9e51fe42a621d9d1f2eadf98ac9646a5419196d1f8da095396d63ff0"
+}
