@@ -34,10 +34,20 @@ jobs:
         run: uv sync --extra dev
 
       - name: Ruff check
-        run: uv run ruff check src/mint/
+        run: uv run ruff check src/mint src/mint_python tests
 
       - name: Mypy strict
-        run: uv run mypy src/mint/
+        run: uv run mypy src/mint src/mint_python
 
-      - name: Pytest
-        run: uv run pytest tests/ -x --tb=short -q
+      - name: Pytest + 100% coverage gate (mint_python)
+        env:
+          # mint.config requires these for any subprocess invocation of `mint <subcmd>`
+          # (used by tests/integration/test_cli.py). Sentinel values; no real LLM call.
+          LLM_BASE_URL: http://x:1
+          LLM_MODEL: m
+          MINT_MODEL_TIER: small
+        run: |
+          uv run pytest tests/ \
+            --cov=src/mint_python \
+            --cov-fail-under=100 \
+            --tb=short -q
