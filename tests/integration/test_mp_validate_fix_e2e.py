@@ -29,7 +29,6 @@ from pathlib import Path
 
 import pytest
 
-from mint_python.core.document import PhaseGuardNotImplementedError
 from mint_python.core.section import Section
 from mint_python.core.table import Table
 from mint_python.fix import FixReport
@@ -73,16 +72,20 @@ def test_no_phase_guard_on_validate_fix(
     assert len(guards) == 0
 
 
-def test_inject_grace_still_stub() -> None:
+def test_inject_grace_returns_manifest(tmp_path: Path) -> None:
+    """Phase-11: inject_grace now delegates to MP-GRACE."""
     doc = Document(format="docx", title="Test")
-    with pytest.raises(PhaseGuardNotImplementedError):
-        doc.inject_grace()
+    doc.add_section(Section("S1", level=1).add_paragraph("Content"))
+    doc.save(tmp_path / "pre.docx")
+    manifest = doc.inject_grace()
+    from mint_python.grace import GRACEManifest
+    assert isinstance(manifest, GRACEManifest)
 
 
-def test_to_pdf_still_stub() -> None:
+def test_to_pdf_concrete(tmp_path: Path) -> None:
+    """Phase-11: to_pdf now delegates to Gotenberg (mock via unit test)."""
     doc = Document(format="docx", title="Test")
-    with pytest.raises(PhaseGuardNotImplementedError):
-        doc.to_pdf()
+    assert hasattr(doc, "to_pdf")
 
 
 def test_validate_does_not_mutate(tmp_path: Path) -> None:

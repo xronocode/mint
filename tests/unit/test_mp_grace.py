@@ -277,3 +277,11 @@ def test_10_verify_manifest_xml_structure(tmp_path: Path) -> None:
                 for rule_elem in rules:
                     assert rule_elem.text is not None
                     assert len(rule_elem.text) > 0
+
+
+def test_describe_corrupted_zip_returns_none(tmp_path: Path) -> None:
+    """Coverage: describe handles BadZipFile gracefully."""
+    bad_doc = tmp_path / "bad.zip"
+    bad_doc.write_text("not a zip")
+    result = describe(bad_doc)
+    assert result is None
