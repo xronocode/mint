@@ -2,7 +2,7 @@
 
 **Дата:** 2026-05-09
 **Branch:** `main`
-**Status:** Phase-7 + Phase-8 shipped; ready for Phase-9 dispatch
+**Status:** Phase-7 + Phase-8 + Phase-9 shipped; ready for Phase-11 dispatch (Phase-10 skipped per roadmap)
 
 ## Project context
 
@@ -33,6 +33,7 @@ MINT — Model-Independent Normalization Toolkit. Document generation для DOC
 | Phase-6 | Dual-engine flag (`MINT_ENGINE=python\|js` + `--engine`); MP-PKG empty skeleton; M-CONFIG Engine StrEnum; M-CLI `_select_engine` chokepoint + BLOCK_LOAD_CONFIG/BLOCK_SELECT_ENGINE/BLOCK_DISPATCH markers | ✓ done (2026-05-09) |
 | Phase-7 | Pure Python Core+SDK: MP-STYLE / MP-CONTENT / MP-TABLE / MP-SECTION / MP-DOCUMENT / MP-SDK (handover §3.1-3.3, §3.5). Idempotent save() via core.xml dcterms pin. VF-013 e2e baseline. | ✓ done (2026-05-09) |
 | Phase-8 | MP-CHART (handover §3.4): 7 chart factories (bar/line/stacked_bar/pie/heatmap/waterfall/gantt) + from_matplotlib + from_seaborn lazy + from_plotly stub. VF-014 e2e. matplotlib hard dep. Section.add_chart unstubbed. | ✓ done (2026-05-09) |
+| Phase-9 | MP-RULES + MP-VALIDATE + MP-FIX (handover §6 Phase 3): pure-python successors to M-RULES/M-VALIDATE/M-FIX. 53+42+23=118 unit tests. Document.validate/fix unstubbed via temp-file delegation. VF-015 + VF-016 e2e. Gate-Phase-9: 610 tests passed, 1 skipped, 100% coverage, ruff/mypy clean. Full-integrity review PASS. | ✓ done (2026-05-09) |
 
 ## Current state (post-Phase-8 + full-integrity review fixes)
 
@@ -66,10 +67,8 @@ doc.save("memo.docx")
 These are the surfaces that future phases unblock:
 
 | Stub | Target Phase | Notes |
-|---|---|---|
+|---|---|---|---|
 | `Document.inject_grace` | Phase-11 (handover §6 Phase 5) | MP-GRACE planned in knowledge-graph; delegation pattern documented |
-| `Document.validate` | **Phase-9 (handover §6 Phase 3)** | unblocks via MP-VALIDATE |
-| `Document.fix` | **Phase-9** | unblocks via MP-FIX |
 | `Document.to_pdf` | Phase-11 | Gotenberg integration |
 | `Chart.from_plotly` | Phase-12+ | separate render pipeline (HTML interactive) |
 
