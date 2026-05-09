@@ -425,7 +425,7 @@
       <activation-gate>Wave-9-4 closes Phase-9; this VF is the headline acceptance signal alongside V-MP-RULES/VALIDATE/FIX module-local scenarios.</activation-gate>
     </VF-015>
 
-    <VF-016 NAME="DocumentValidateFixAPI" USE_CASES="UC-003,UC-007" DATA_FLOW="DF-015,DF-016" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-4">
+    <VF-016 NAME="DocumentValidateFixAPI" USE_CASES="UC-003,UC-007" DATA_FLOW="DF-015,DF-016" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-9-4">
       <scenario>User builds Document via SDK → calls Document.validate(level="lenient") → receives ValidationReport → calls Document.fix(strategy="safe_first") → receives FixReport → calls Document.save() → output passes re-validation. BLOCK_PHASE_GUARD retired for validate/fix.</scenario>
       <expected-outcome>(a) Document.validate(level="lenient") returns ValidationReport (no NotImplementedError); (b) Document.fix(strategy="safe_first") returns FixReport (no NotImplementedError); (c) BLOCK_PHASE_GUARD count = 0 on validate/fix paths; (d) full pipeline: build → validate → fix → save → re-validate passes.</expected-outcome>
       <invariants>
@@ -1334,7 +1334,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </forbidden-behaviors>
       <autonomy-assessment>SWARM-SAFE — pure re-export + small registry; no I/O</autonomy-assessment>
     </V-MP-SDK>
-    <V-MP-RULES MODULE="MP-RULES" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-1">
+    <V-MP-RULES MODULE="MP-RULES" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-9-1">
       <source>src/mint_python/rules/ — pure Python successor to M-RULES (src/mint/rules/engine.py). Replaces the Phase-6 empty skeleton with concrete Rule/Violation types, YAML loader, XPath evaluate engine, and all_rules registry.</source>
       <note>Shared YAML rule files live at rules/d-hard.yaml, rules/d-soft.yaml, rules/p-hard.yaml — same path M-RULES reads. MP-RULES does NOT duplicate these files; it reads the same YAML. The ALLOWED cross-package dependency from src/mint_python/rules/ to rules/ is a documented exception to forbidden-2 (V-MP-PKG constraint-8 / V-MP-STYLE forbidden-2), justified by the shared-config contract that avoids YAML duplication across engines.</note>
       <test-files>
@@ -1379,7 +1379,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE — pure deterministic utility; no mutable state; read-only shared rules/*.yaml. No MP-* production deps.</autonomy-assessment>
     </V-MP-RULES>
 
-    <V-MP-VALIDATE MODULE="MP-VALIDATE" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-2">
+    <V-MP-VALIDATE MODULE="MP-VALIDATE" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-9-2">
       <source>src/mint_python/validate.py — pure Python successor to M-VALIDATE (src/mint/validate.py). Validation engine: opens .docx zip, parses word/document.xml via lxml, runs all_rules, classifies violations, produces ValidationReport.</source>
       <note>MP-VALIDATE works on saved .docx files (zip + lxml path), NOT on in-memory python-docx Document objects. This mirrors M-VALIDATE's approach and guarantees that validation checks the final serialized OOXML output. The temp-file delegation pattern (Document.validate → save temp → MP-VALIDATE.validate) is the integration bridge at Wave-9-4.</note>
       <test-files>
@@ -1418,7 +1418,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE-WITH-ISOLATED-FIXTURES — tmp_path for saved docs; read-only shared rules/*.yaml.</autonomy-assessment>
     </V-MP-VALIDATE>
 
-    <V-MP-FIX MODULE="MP-FIX" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-3">
+    <V-MP-FIX MODULE="MP-FIX" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-9-3">
       <source>src/mint_python/fix.py — pure Python successor to M-FIX (src/mint/fix.py). Auto-fix engine: backup → iterate safe/visual fixes → re-validate → cascade detection. Destructive fixes rejected.</source>
       <note>Scope limitation (known from M-FIX): _apply_simple_fix() only implements fix logic for D-H09 (raw newline replacement). All other safe/visual rules (D-H01, D-H04..D-H08, D-H10, D-S01..D-S05) have no concrete fix implementation in Phase-9 scope. _apply_simple_fix() returns False for non-D-H09 rule_ids — this is the documented contract. Extending fix coverage to other rules is a future phase task.</note>
       <test-files>

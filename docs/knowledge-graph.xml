@@ -594,7 +594,7 @@
     <CrossLink from="MP-VALIDATE" to="MP-RULES" relation="run_checks loads rules via MP-RULES.all_rules and evaluates each via MP-RULES.evaluate" />
     <CrossLink from="MP-FIX" to="MP-VALIDATE" relation="apply_fixes calls MP-VALIDATE.run_checks for re-validation after each fix iteration" />
     <CrossLink from="MP-FIX" to="MP-RULES" relation="apply_fixes uses MP-RULES.Violation, FixCategory, Severity types for classification" />
-    <CrossLink from="MP-DOCUMENT" to="M-VALIDATE" relation="Phase-7 e2e gate: saved .docx must pass M-VALIDATE on lenient mode (existing js-side validator; Phase-3 will land MP-VALIDATE pure-Python successor)" />
+    <CrossLink from="MP-DOCUMENT" to="MP-VALIDATE" relation="Phase-9: saved .docx validates via MP-VALIDATE.run_checks (Wave-9-4 unstub). Phantom M-VALIDATE reference retired." />
 
     <!-- Future module placeholder: registered to anchor MP-DOCUMENT.inject_grace delegation contract. Not part of Phase-7. -->
 

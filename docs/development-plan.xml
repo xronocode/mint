@@ -1071,8 +1071,8 @@ writeFileSync('output.docx', buffer);
         <fn-set_footer PURPOSE="Document-wide footer" />
         <fn-save PURPOSE="Serialize to .docx via python-docx + lxml; emits BLOCK_SAVE_DOCX with section_count + table_count + output_path payload" />
         <fn-inject_grace PURPOSE="CORE METHOD with delegation pattern: public surface lives on Document per handover §3.1; implementation delegates to MP-GRACE.inject_manifest_and_instructions(saved_path, manifest, level). Phase-7 STUB raises NotImplementedError naming Phase 5; Phase-5 lands MP-GRACE as a separate module so the Custom XML Parts emission stays decoupled from MP-DOCUMENT.save serialization. Delegation contract: Document.inject_grace(manifest, level=GraceLevel.FULL) → MP-GRACE writes urn:mint:grace:2026:manifest customXml/item*.xml into the saved .docx in-place, preserving all other Custom XML Parts." />
-        <fn-validate PURPOSE="STUB — Phase-3 (Validation Pure Python)" />
-        <fn-fix PURPOSE="STUB — Phase-3 (Fix Pure Python)" />
+         <fn-validate PURPOSE="done (Wave-9-4): saves to temp .docx, delegates to MP-VALIDATE.run_checks via temp-file pattern. Returns ValidationReport." />
+         <fn-fix PURPOSE="done (Wave-9-4): saves to temp .docx, delegates to MP-FIX.fix. Returns FixReport." />
         <fn-to_pdf PURPOSE="STUB — Phase-5 (Gotenberg/render integration)" />
       </interface>
       <depends>MP-SECTION, MP-STYLE</depends>
@@ -1167,6 +1167,27 @@ writeFileSync('output.docx', buffer);
       </observability>
       <verification-ref>V-MP-SDK</verification-ref>
     </MP-SDK>
+
+    <MP-RULES NAME="Pure Python OOXML Rule Engine" TYPE="CORE_LOGIC" LAYER="3" ORDER="16" STATUS="done" ADDED_AT="2026-05-09">
+      <purpose>Load OOXML validation rules from shared YAML (rules/*.yaml) and evaluate via lxml XPath. Pure Python successor to M-RULES.</purpose>
+      <path>src/mint_python/rules/__init__.py</path>
+      <depends>pyyaml, lxml, logging (stdlib)</depends>
+      <verification-ref>V-MP-RULES</verification-ref>
+    </MP-RULES>
+
+    <MP-VALIDATE NAME="Pure Python Validation Engine" TYPE="CORE_LOGIC" LAYER="3" ORDER="17" STATUS="done" ADDED_AT="2026-05-09">
+      <purpose>Open saved OOXML documents, parse XML via lxml, run all MP-RULES, classify violations, produce ValidationReport. Pure Python successor to M-VALIDATE.</purpose>
+      <path>src/mint_python/validate.py</path>
+      <depends>MP-RULES, lxml, zipfile, logging (stdlib)</depends>
+      <verification-ref>V-MP-VALIDATE</verification-ref>
+    </MP-VALIDATE>
+
+    <MP-FIX NAME="Pure Python Auto-Fix Engine" TYPE="CORE_LOGIC" LAYER="3" ORDER="18" STATUS="done" ADDED_AT="2026-05-09">
+      <purpose>Apply safe/visual auto-fixes to OOXML documents with backup, cascade detection, destructive rejection. Pure Python successor to M-FIX.</purpose>
+      <path>src/mint_python/fix.py</path>
+      <depends>MP-VALIDATE, MP-RULES, zipfile, lxml, shutil, hashlib, io</depends>
+      <verification-ref>V-MP-FIX</verification-ref>
+    </MP-FIX>
   </Modules>
 
   <DataFlow>
@@ -1355,6 +1376,15 @@ writeFileSync('output.docx', buffer);
       <step-4 module="(infrastructure)" status="done" verification="V-MP-CHART">DOCUMENTED EXCEPTION: matplotlib &gt;=3.7,&lt;4 is pre-installed by the controller in pre-Wave-8-1 controller setup (verification-plan.xml#SubagentExecutionPackets/pre-wave-8-1-controller-checklist/item-1). Rationale: chart.py would ImportError at module load on the Wave-8-1 worker's test runner without matplotlib in the env; pre-installing avoids the Phase-7 Wave-7-2-style mid-wave deviation pattern where worker B had to add python-docx + pillow to pyproject as an inevitable in-flight scope expansion. This is the ONLY Phase-8 step where the "deps follow code" hygiene rule is intentionally relaxed — matplotlib is a known dep with no surprise factor. Step-4 itself, when it runs in Wave-8-2, covers (a) docs/technology.xml: matplotlib moves from future-dep to active dep (already done in commit c7e38a5); (b) seaborn documented as optional (NOT added to pyproject — lazy-imported in Chart.from_seaborn); (c) uv.lock refresh after MP-CHART code lands (the lockfile changes naturally as the dep-graph resolves around the new chart.py module).</step-4>
       <step-5 module="(test surface)" status="done" verification="VF-014">Add tests/integration/test_mp_chart_e2e.py: build a 2-section chart-bearing document (each section: 1 paragraph + 1 chart of different type — e.g. bar + line) via mint_python.sdk; save → reopen → assert chart count + each inline_shape.width.emu matches requested + M-VALIDATE lenient hard_count=0. Pin structural fingerprint to tests/fixtures/mp_chart_e2e_baseline.json with MP_CHART_E2E_WRITE_BASELINE=1 gate (mirrors VF-013 protocol). Re-run VF-013 e2e to confirm chart-free golden doc still green (non-regression).</step-5>
     </Phase-8>
+
+    <Phase-9 name="Pure Python Edition — Phase 3 (Validation + Fix + PostProcessor per handover §6)" status="done" COMPLETED_AT="2026-05-09">
+      <goal>Land MP-RULES, MP-VALIDATE, MP-FIX as pure-python successors to M-RULES/M-VALIDATE/M-FIX. Unstub Document.validate(level) and Document.fix(strategy). Gate-Phase-9: 100% coverage, ruff/mypy clean, VF-013+VF-014 non-regression green.</goal>
+      <step-1 module="MP-RULES" status="done" verification="V-MP-RULES">Rule/Violation dataclasses, Severity/FixCategory enums, YAML loader (shared rules/*.yaml), XPath evaluate via lxml, all_rules registry. 4 check types: exists, count_gt_zero, tbl_width_mismatch, sum_mismatch. Emits BLOCK_LOAD_RULES + BLOCK_EVALUATE_RULE.</step-1>
+      <step-2 module="MP-VALIDATE" status="done" verification="V-MP-VALIDATE">run_checks engine: open .docx/.pptx zip, parse XML via lxml, evaluate all_rules, classify violations, return ValidationReport. SeverityMode enum (AUDIT/LENIENT/STRICT). Invalid documents return XML-001 report (never raise at top level). Emits BLOCK_RUN_CHECKS.</step-2>
+      <step-3 module="MP-FIX" status="done" verification="V-MP-FIX">Auto-fix engine: backup → destructive filter → iterate safe/visual D-H09 fix → re-validate → cascade detection (max 3 iterations). D-H09 newline fix only in Phase-9 scope. Emits BLOCK_CREATE_BACKUP + BLOCK_APPLY_FIX.</step-3>
+      <step-4 module="MP-DOCUMENT" status="done" verification="VF-016">Unstub Document.validate(level) → temp-file delegation to MP-VALIDATE.run_checks → returns ValidationReport. Unstub Document.fix(strategy) → temp-file delegation to MP-FIX.fix → returns FixReport. inject_grace and to_pdf remain stubs.</step-4>
+      <step-5 module="(test surface)" status="done" verification="VF-015">Add tests/integration/test_mp_validate_fix_e2e.py: validate pipeline (Document.validate→report), fix pipeline (Document.fix→report), temp-file cleanup, BLOCK_PHASE_GUARD absence on validate/fix. VF-013+VF-014 non-regression green.</step-5>
+    </Phase-9>
   </ImplementationOrder>
 
   <ExecutionPolicy>
