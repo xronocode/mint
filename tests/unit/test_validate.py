@@ -1,10 +1,7 @@
 from pathlib import Path
 
-import pytest
-
 from mint.config import SeverityMode
 from mint.validate import (
-    InvalidDocumentError,
     classify_violations,
     run_checks,
     validate,

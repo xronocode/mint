@@ -7,7 +7,6 @@
 #   LINKS: docs/verification-plan.xml#V-M-SECTION
 # END_MODULE_CONTRACT
 
-import pytest
 
 from mint.plan import (
     DocumentPlan,
@@ -18,8 +17,8 @@ from mint.plan import (
 )
 from mint.section import (
     SiblingRef,
-    validate_section_code,
     render_section_prompt,
+    validate_section_code,
 )
 
 

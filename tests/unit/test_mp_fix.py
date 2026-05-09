@@ -188,8 +188,8 @@ class TestApplyFixesEmptyFixable:
         self, tmp_path: Path,
     ) -> None:
         """Coverage: apply_fixes line 206 — break when fixable list empty."""
-        from mint_python.rules import FixCategory, Severity, Violation
         from mint_python.fix import apply_fixes
+        from mint_python.rules import FixCategory, Severity, Violation
 
         bad_doc = tmp_path / "input.docx"
         _build_minimal_docx(bad_doc)

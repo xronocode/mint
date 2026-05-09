@@ -29,7 +29,6 @@
 # END_CHANGE_SUMMARY
 from __future__ import annotations
 
-import logging
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch

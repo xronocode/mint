@@ -28,6 +28,12 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from mint_python.core.section import Section
+from mint_python.core.table import Table
+from mint_python.fix import FixReport
+from mint_python.sdk import Document
+from mint_python.validate import ValidationReport
+
 
 def _docx_content_hash(path: Path) -> str:
     """Hash the .docx package contents, ignoring zip-wrapper mtimes.
@@ -46,14 +52,6 @@ def _docx_content_hash(path: Path) -> str:
             digest.update(z.read(name))
             digest.update(b"\x01")
     return digest.hexdigest()
-
-import pytest
-
-from mint_python.core.section import Section
-from mint_python.core.table import Table
-from mint_python.fix import FixReport
-from mint_python.sdk import Document
-from mint_python.validate import ValidationReport
 
 
 def test_document_validate_returns_report(tmp_path: Path) -> None:

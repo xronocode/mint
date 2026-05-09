@@ -56,7 +56,7 @@ def _document_xml(body_p: str, *, with_w14: bool = True) -> bytes:
         '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>'
         "</w:sectPr>"
         "</w:body></w:document>"
-    ).encode("utf-8")
+    ).encode()
 
 
 def _styles_xml() -> bytes:
@@ -69,7 +69,7 @@ def _styles_xml() -> bytes:
         '<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/></w:style>'
         '<w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/></w:style>'
         "</w:styles>"
-    ).encode("utf-8")
+    ).encode()
 
 
 def _ct_with_extras(*, comments: bool = False, comments_extended: bool = False) -> bytes:
@@ -181,7 +181,7 @@ def create_with_comments() -> Path:
         '<w:p w14:paraId="0000B000"><w:r><w:t>This is a top-level comment.</w:t></w:r></w:p>'
         "</w:comment>"
         "</w:comments>"
-    ).encode("utf-8")
+    ).encode()
     entries = _read_zip(SRC)
     entries["word/document.xml"] = _document_xml(body, with_w14=True)
     entries["word/styles.xml"] = _styles_xml()
@@ -217,14 +217,14 @@ def create_with_comment_replies() -> Path:
         '<w:p w14:paraId="0000B002"><w:r><w:t>Reply comment.</w:t></w:r></w:p>'
         "</w:comment>"
         "</w:comments>"
-    ).encode("utf-8")
+    ).encode()
     comments_extended = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
         f'<w15:commentsEx xmlns:w15="{W15_NS}">'
         '<w15:commentEx w15:paraId="0000B001" w15:done="0"/>'
         '<w15:commentEx w15:paraId="0000B002" w15:paraIdParent="0000B001" w15:done="0"/>'
         "</w15:commentsEx>"
-    ).encode("utf-8")
+    ).encode()
     entries = _read_zip(SRC)
     entries["word/document.xml"] = _document_xml(body, with_w14=True)
     entries["word/styles.xml"] = _styles_xml()

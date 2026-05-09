@@ -20,10 +20,7 @@ Gaps (not yet supported):
 """
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
-
-import pytest
 
 from mint_python.core.content import Paragraph
 from mint_python.sdk import (
@@ -38,15 +35,12 @@ from mint_python.sdk import (
     Margins,
     PageLayout,
     Section,
-    Style,
     TabAlignment,
+    Table,
     TabLeader,
     TabStop,
-    Table,
-    TOC,
     presets,
 )
-
 
 
 def build_showcase_document(tmp_dir: Path) -> Document:
@@ -323,20 +317,25 @@ def build_showcase_document(tmp_dir: Path) -> Document:
     def _make_png(w: int, h: int, r: int, g: int, b: int) -> bytes:
         def chunk(ctype: bytes, data: bytes) -> bytes:
             c = ctype + data
-            return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+            crc = zlib.crc32(c) & 0xFFFFFFFF
+            return struct.pack(">I", len(data)) + c + struct.pack(">I", crc)
         raw = b""
-        for y in range(h):
+        for _ in range(h):
             raw += b"\x00"
-            for x in range(w):
+            for _ in range(w):
                 raw += bytes([r, g, b])
-        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+        header = b"\x89PNG\r\n\x1a\n"
+        ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+        idat = chunk(b"IDAT", zlib.compress(raw))
+        iend = chunk(b"IEND", b"")
+        return header + ihdr + idat + iend
 
     png_data = _make_png(50, 50, 70, 130, 180)
     png_path = tmp_dir / "test_blue.png"
     png_path.write_bytes(png_data)
 
     image_section.add_image(Image.from_path(png_path))
-    image_section.add_paragraph("(50×50 test PNG, programmatically generated)")
+    image_section.add_paragraph("(50x50 test PNG, programmatically generated)")
 
     doc.add_section(image_section)
 
@@ -399,7 +398,10 @@ class TestShowcaseE2E:
         doc.save(tmp_path / "showcase.docx")
 
         report = doc.validate(level="lenient")
-        assert report.passed, f"lenient validation failed: hard={report.hard_count} violations={report.total}"
+        assert report.passed, (
+            f"lenient validation failed: "
+            f"hard={report.hard_count} violations={report.total}"
+        )
         assert report.hard_count == 0, f"expected 0 hard violations, got {report.hard_count}"
 
     def test_sections_count(self, tmp_path: Path) -> None:
@@ -425,7 +427,11 @@ class TestShowcaseE2E:
         doc.validate()
         doc.fix()
         doc.inject_grace()
-        guards = [r.getMessage() for r in caplog_at_info.records if "BLOCK_PHASE_GUARD" in r.getMessage()]
+        guards = [
+            r.getMessage()
+            for r in caplog_at_info.records
+            if "BLOCK_PHASE_GUARD" in r.getMessage()
+        ]
         assert len(guards) == 0, f"Unexpected BLOCK_PHASE_GUARD: {guards}"
 
     def test_gaps_documented_in_last_section(self, tmp_path: Path) -> None:

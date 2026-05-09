@@ -50,7 +50,7 @@ def _document_xml(body_p: str) -> bytes:
         '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>'
         "</w:sectPr>"
         "</w:body></w:document>"
-    ).encode("utf-8")
+    ).encode()
 
 
 def create_with_quote_chars() -> Path:
@@ -95,7 +95,7 @@ def create_with_dangling_rel() -> Path:
         'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
         'Target="media/missing.xml"/>'
         "</Relationships>"
-    ).encode("utf-8")
+    ).encode()
     entries["word/_rels/document.xml.rels"] = rels_xml
     _write_zip(out, entries)
     return out

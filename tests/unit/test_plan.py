@@ -13,18 +13,15 @@ import pytest
 
 from mint.plan import (
     DocumentPlan,
-    HeaderFooterSpec,
     NumberingConfig,
     NumberingLevel,
     PageSetup,
     PlanEmptyError,
     PlanInvalidError,
-    PlanMetadata,
     SectionSpec,
-    StylesConfig,
-    validate_plan,
-    render_plan_prompt,
     _parse_plan_json,
+    render_plan_prompt,
+    validate_plan,
 )
 
 

@@ -7,7 +7,6 @@
 #   LINKS: docs/verification-plan.xml#V-M-ASSEMBLE
 # END_MODULE_CONTRACT
 
-import pytest
 
 from mint.assemble import (
     build_headers_footers,
