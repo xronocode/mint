@@ -33,12 +33,22 @@
 #   test_scenario_13_add_run_kwargs_mirror_run_fields
 #   test_run_color_validation_rejects_bad_hex
 #   test_run_font_size_pt_validation_rejects_nonpositive
+#   test_scenario_16_external_hyperlink_wraps_run_with_relationship
+#   test_scenario_17_internal_hyperlink_uses_anchor
+#   test_scenario_18_bookmark_emits_start_end
+#   test_scenario_19_link_and_bookmark_combine
+#   test_scenario_20_multiple_bookmarks_get_unique_ids
+#   test_run_link_validation_rejects_empty_and_bad_anchor
+#   test_run_bookmark_validation_rejects_bad_name
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 — added scenarios 9-13 covering per-run
-#     formatting overrides (bold/italic/underline/color/font_size_pt) +
-#     2 validation tests for Run.color hex and Run.font_size_pt > 0.
+#   LAST_CHANGE: v0.2.0 — scenarios 16-20 cover Run.link (external URL +
+#     internal anchor) and Run.bookmark (anchor name) rendering via
+#     <w:hyperlink>/<w:bookmarkStart/End>; 2 validation tests guard the
+#     link/bookmark name format. Bookmark id uniqueness is asserted.
+#   PRIOR: v0.1.0 — added scenarios 9-13 covering per-run formatting
+#     overrides + color hex / font_size_pt validation tests.
 # END_CHANGE_SUMMARY
 from __future__ import annotations
 
@@ -421,3 +431,151 @@ def test_run_font_size_pt_validation_rejects_nonpositive() -> None:
         Run("x", font_size_pt=0)
     with pytest.raises(ValueError, match="> 0"):
         Run("x", font_size_pt=-1.5)
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-16: external hyperlink wraps the run with a w:hyperlink
+# carrying an r:id from the package relationships
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_16_external_hyperlink_wraps_run_with_relationship() -> None:
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    Paragraph().add_run("MINT", link="https://example.com/mint").render(doc)
+    paragraph_el = doc.paragraphs[-1]._p
+    hyperlink = paragraph_el.find(qn("w:hyperlink"))
+    assert hyperlink is not None
+    rid = hyperlink.get(qn("r:id"))
+    assert rid is not None and rid.startswith("rId")
+    # The relationship must point at our URL with external=True.
+    rel = doc.paragraphs[-1].part.rels[rid]
+    assert rel.target_ref == "https://example.com/mint"
+    assert rel.is_external is True
+    # The wrapped <w:r> still carries the literal text.
+    inner_run = hyperlink.find(qn("w:r"))
+    assert inner_run is not None
+    assert inner_run.find(qn("w:t")).text == "MINT"
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-17: internal hyperlink uses w:anchor (no relationship)
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_17_internal_hyperlink_uses_anchor() -> None:
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    Paragraph().add_run("see section 2", link="#section_2").render(doc)
+    hyperlink = doc.paragraphs[-1]._p.find(qn("w:hyperlink"))
+    assert hyperlink is not None
+    assert hyperlink.get(qn("w:anchor")) == "section_2"
+    # No package relationship for internal anchors.
+    assert hyperlink.get(qn("r:id")) is None
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-18: bookmark anchor emits start + end siblings
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_18_bookmark_emits_start_end() -> None:
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    Paragraph().add_run("Anchor here", bookmark="here").render(doc)
+    children = list(doc.paragraphs[-1]._p)
+    tags = [c.tag for c in children]
+    assert qn("w:bookmarkStart") in tags
+    assert qn("w:bookmarkEnd") in tags
+    start = next(c for c in children if c.tag == qn("w:bookmarkStart"))
+    end = next(c for c in children if c.tag == qn("w:bookmarkEnd"))
+    assert start.get(qn("w:name")) == "here"
+    # ids match between start and end.
+    assert start.get(qn("w:id")) == end.get(qn("w:id"))
+    # The w:r sits between start and end.
+    start_idx = children.index(start)
+    end_idx = children.index(end)
+    assert end_idx == start_idx + 2  # start, r, end
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-19: link + bookmark combine — bookmark wraps hyperlink
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_19_link_and_bookmark_combine() -> None:
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    Paragraph().add_run(
+        "Self-anchor", link="https://example.com", bookmark="self_anchor"
+    ).render(doc)
+    p = doc.paragraphs[-1]._p
+    children = list(p)
+    tags = [c.tag for c in children]
+    # bookmarkStart, hyperlink, bookmarkEnd.
+    assert tags.count(qn("w:bookmarkStart")) == 1
+    assert tags.count(qn("w:bookmarkEnd")) == 1
+    assert tags.count(qn("w:hyperlink")) == 1
+    # Hyperlink contains the run, not the bookmarks (bookmark wraps the
+    # hyperlink at paragraph level — flat sibling layout).
+    hyperlink = next(c for c in children if c.tag == qn("w:hyperlink"))
+    assert hyperlink.find(qn("w:r")) is not None
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-20: multiple bookmarks across runs get unique ids
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_20_multiple_bookmarks_get_unique_ids() -> None:
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    para = (
+        Paragraph()
+        .add_run("a ", bookmark="anchor_a")
+        .add_run("b", bookmark="anchor_b")
+    )
+    para.render(doc)
+    starts = doc.paragraphs[-1]._p.findall(qn("w:bookmarkStart"))
+    assert len(starts) == 2
+    ids = {s.get(qn("w:id")) for s in starts}
+    assert len(ids) == 2  # all distinct
+    names = {s.get(qn("w:name")) for s in starts}
+    assert names == {"anchor_a", "anchor_b"}
+
+
+def test_run_link_validation_rejects_empty_and_bad_anchor() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        Run("x", link="")
+    with pytest.raises(ValueError, match="non-empty"):
+        Run("x", link="   ")
+    with pytest.raises(ValueError, match="anchor name invalid"):
+        Run("x", link="#1starts_with_digit")
+    with pytest.raises(ValueError, match="anchor name invalid"):
+        Run("x", link="#has-dash")
+
+
+def test_run_bookmark_validation_rejects_bad_name() -> None:
+    with pytest.raises(ValueError, match="bookmark name invalid"):
+        Run("x", bookmark="")
+    with pytest.raises(ValueError, match="bookmark name invalid"):
+        Run("x", bookmark="2nd_anchor")
+    with pytest.raises(ValueError, match="bookmark name invalid"):
+        Run("x", bookmark="has space")
+
+
+def test_bookmark_id_scanner_continues_max_across_renders() -> None:
+    """Second render in the same Document must allocate ids past the first."""
+    from docx.oxml.ns import qn
+
+    doc = Document()
+    Paragraph().add_run("first", bookmark="a").render(doc)
+    Paragraph().add_run("second", bookmark="b").render(doc)
+    starts = doc.element.body.findall(f".//{qn('w:bookmarkStart')}")
+    ids = sorted(int(s.get(qn("w:id"))) for s in starts)
+    assert ids == [0, 1]  # second render saw id 0 in body, used 1

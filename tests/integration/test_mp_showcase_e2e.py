@@ -14,7 +14,7 @@ Generates the richest document the Pure Python Edition SDK can produce,
 then validates it against MP-VALIDATE on lenient mode.
 
 Gaps (not yet supported):
-  a) Hyperlinks, bookmarks, footnotes, tab stops            — no API
+  a) Footnotes, tab stops                                   — no API
   b) Multi-column, per-section headers/footers, page breaks — no section API
   c) Callout boxes (info/warning/code block)                — no component
   d) Landscape orientation, custom margins                  — no page API
@@ -87,6 +87,16 @@ def build_showcase_document(tmp_dir: Path) -> Document:
         .add_run(", and ")
         .add_run("larger", font_size_pt=16.0)
         .add_run(" — all in one paragraph without derived Style objects.")
+    )
+    # Hyperlinks + bookmarks demo (added in MP-CONTENT v0.2.0).
+    sec.add_paragraph(
+        Paragraph("Hyperlinks + bookmarks demo: visit ")
+        .add_run("the MINT repo", link="https://github.com/xronocode/mint")
+        .add_run(" or jump to ")
+        .add_run("the gaps section", link="#known_gaps")
+        .add_run(" — this paragraph is anchored as ", )
+        .add_run("intro_anchor", bookmark="intro_anchor")
+        .add_run(".")
     )
     doc.add_section(sec)
 
@@ -290,9 +300,17 @@ def build_showcase_document(tmp_dir: Path) -> Document:
 
     # ---------- §8: Known Gaps ----------
     gap_section = Section("Known Gaps & Future Work", level=1)
-    gap_section.add_paragraph("The following features are not yet supported by the Pure Python Edition SDK:")
+    gap_section.add_paragraph(
+        Paragraph()
+        .add_run(
+            "The following features are not yet supported by the Pure "
+            "Python Edition SDK",
+            bookmark="known_gaps",
+        )
+        .add_run(":")
+    )
     gaps = [
-        "a) Hyperlinks, bookmarks, footnotes, tab stops — no corresponding block types",
+        "a) Footnotes and tab stops — Document-level footnote container and paragraph tab-stop API not yet exposed",
         "b) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
         "c) Callout components (info, warning, code block) — no component library",
         "d) Landscape orientation, custom page margins — page-level properties not exposed",

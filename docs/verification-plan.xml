@@ -1118,7 +1118,7 @@
       <autonomy-assessment>SWARM-SAFE — pure deterministic; no I/O beyond JSON file reads in tmp; no env reads; module-level state is read-only registry</autonomy-assessment>
     </V-MP-STYLE>
 
-    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2" VERSION="0.1.0">
+    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2" VERSION="0.2.0">
       <test-files>
         <file status="active" activated-at="Wave-7-2">tests/unit/test_mp_content.py</file>
       </test-files>
@@ -1142,6 +1142,13 @@
         <scenario-13 kind="success" evidence="deterministic">Paragraph.add_run kwargs (bold/italic/underline/color/font_size_pt) reach the resulting Run instance via construction unchanged</scenario-13>
         <scenario-14 kind="failure" evidence="deterministic">Run(text, color='red') and Run(text, color='#GGHHII') raise ValueError mentioning '#RRGGBB' or 'hex digits'</scenario-14>
         <scenario-15 kind="failure" evidence="deterministic">Run(text, font_size_pt=0) and Run(text, font_size_pt=-1.5) raise ValueError mentioning '> 0'</scenario-15>
+        <scenario-16 kind="success" evidence="deterministic">Run(text, link='https://...').render emits a w:hyperlink wrapping the w:r; the hyperlink carries an r:id pointing to a package relationship with target_ref=URL and is_external=True</scenario-16>
+        <scenario-17 kind="success" evidence="deterministic">Run(text, link='#anchor').render emits a w:hyperlink with w:anchor='anchor' (no package relationship — internal cross-ref)</scenario-17>
+        <scenario-18 kind="success" evidence="deterministic">Run(text, bookmark='name').render emits w:bookmarkStart + w:bookmarkEnd siblings around the w:r (or hyperlink wrapper if also present); ids match between start and end</scenario-18>
+        <scenario-19 kind="success" evidence="deterministic">Run carrying both link and bookmark: bookmarkStart, hyperlink (containing w:r), bookmarkEnd appear as flat siblings of w:p in document order</scenario-19>
+        <scenario-20 kind="success" evidence="deterministic">Multiple bookmarks within one paragraph or across consecutive renders into the same Document receive distinct ids; the allocator scans the document body for the current max bookmarkStart/@w:id</scenario-20>
+        <scenario-21 kind="failure" evidence="deterministic">Run(text, link='') / link='   ' / link='#1starts_with_digit' / link='#has-dash' raise ValueError</scenario-21>
+        <scenario-22 kind="failure" evidence="deterministic">Run(text, bookmark='') / bookmark='2nd_anchor' / bookmark='has space' raise ValueError</scenario-22>
       </scenarios>
       <required-log-markers>
         <marker-1>[MP-Content][render][BLOCK_RENDER_CONTENT] — fires per Paragraph or Image .render() call</marker-1>
@@ -1150,6 +1157,7 @@
         <forbidden-1>Paragraph or Image must NEVER write to the filesystem during render — only into the python-docx Document object</forbidden-1>
         <forbidden-2>Run must not be re-used across Paragraphs (would corrupt OOXML). Render() may consume the Run; subsequent renders raise.</forbidden-2>
         <forbidden-3>Per-run overrides set to None must NOT clobber the inherited Style. Only an explicit non-None override value reaches python-docx font properties.</forbidden-3>
+        <forbidden-4>Bookmark id allocator must scan the entire body for max existing id before emitting; never restart from 0 mid-document.</forbidden-4>
       </forbidden-behaviors>
       <autonomy-assessment>SWARM-SAFE — render() target is a per-test python-docx Document instance; no shared mutable state</autonomy-assessment>
     </V-MP-CONTENT>

@@ -1,16 +1,18 @@
 # FILE: src/mint_python/core/content.py
-# VERSION: 0.1.0
+# VERSION: 0.2.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Inline content building blocks for the Pure Python Edition: Run
-#     (frozen data carrier with optional per-run formatting overrides),
-#     Paragraph (composed of runs, .render emits w:p), Image (file-or-bytes
-#     embed via python-docx + pillow). Direct emitters of <w:p>, <w:r>,
-#     <w:drawing> OOXML through python-docx primitives.
+#     (frozen data carrier with optional per-run formatting overrides + link
+#     and bookmark anchors), Paragraph (composed of runs, .render emits w:p),
+#     Image (file-or-bytes embed via python-docx + pillow). Direct emitters
+#     of <w:p>, <w:r>, <w:hyperlink>, <w:bookmarkStart/End>, <w:drawing>
+#     OOXML through python-docx primitives + lxml drop-down for the elements
+#     python-docx does not expose first-class.
 #   SCOPE: Public surface = Run, Paragraph, Image, ImageFileNotFoundError,
 #     ImageFormatUnsupportedError, ContentError. All render() methods take a
 #     python-docx Document and write into it; never to disk.
 #   DEPENDS: mint_python.core.style (Style only — for typography fields),
-#     python-docx (1.1.x), pillow (10.x).
+#     python-docx (1.1.x), pillow (10.x), lxml (1.x via python-docx).
 #   LINKS: docs/development-plan.xml#MP-CONTENT,
 #     docs/verification-plan.xml#V-MP-CONTENT,
 #     docs/knowledge-graph.xml#MP-CONTENT
@@ -20,6 +22,8 @@
 #   Run                          - frozen dataclass; text + optional style
 #                                  + per-run overrides
 #                                  (bold/italic/underline/color/font_size_pt)
+#                                  + link (URL or "#anchor")
+#                                  + bookmark (anchor name)
 #   Paragraph                    - styled paragraph + .add_run + .render
 #   Image                        - .from_path / .from_bytes / .render
 #   ContentError                 - base error
@@ -28,16 +32,19 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 — Run gains per-run formatting overrides
-#     (bold, italic, underline, color, font_size_pt). All optional, default
-#     None = inherit from effective Style. Run-field precedence wins over
-#     Style. add_run mirrors the same kwargs. New V-MP-CONTENT
-#     scenarios 9-13 + showcase E2E mixed-formatting paragraph.
+#   LAST_CHANGE: v0.2.0 — Run gains link (external URL or "#anchor") and
+#     bookmark (anchor name) fields. Render path emits <w:hyperlink> and
+#     <w:bookmarkStart/End> via lxml drop-down (python-docx has no
+#     first-class API for either). Bookmark IDs allocated per-render by
+#     scanning the document for max existing id.
+#   PRIOR: v0.1.0 — Run gains per-run formatting overrides
+#     (bold, italic, underline, color, font_size_pt).
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
@@ -45,6 +52,9 @@ from typing import Any
 
 from docx.document import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.opc.constants import RELATIONSHIP_TYPE as _RT
+from docx.oxml import OxmlElement as _OxmlElement
+from docx.oxml.ns import qn as _qn
 from docx.shared import Inches, RGBColor
 from docx.shared import Pt as DocxPt
 from PIL import Image as PilImage
@@ -91,6 +101,11 @@ _ALIGNMENT_MAP: dict[str, Any] = {
 
 _HEX_COLOR_LEN = 7  # "#RRGGBB"
 
+# Word bookmark name rule: letter/underscore start, then letters, digits,
+# underscores. We mirror this for both `bookmark` and the anchor-portion of
+# an internal link "#name" so cross-references stay round-trippable.
+_BOOKMARK_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 
 def _validate_run_color(value: str) -> None:
     if len(value) != _HEX_COLOR_LEN or not value.startswith("#"):
@@ -101,6 +116,26 @@ def _validate_run_color(value: str) -> None:
         int(value[1:], 16)
     except ValueError as exc:
         raise ValueError(f"Run.color hex digits invalid: {value!r}") from exc
+
+
+def _validate_run_link(value: str) -> None:
+    if not value.strip():
+        raise ValueError("Run.link must be a non-empty URL or '#anchor'")
+    if value.startswith("#"):
+        anchor = value[1:]
+        if not _BOOKMARK_NAME_RE.match(anchor):
+            raise ValueError(
+                f"Run.link anchor name invalid (letter/underscore start, "
+                f"alphanumeric tail): {value!r}"
+            )
+
+
+def _validate_run_bookmark(value: str) -> None:
+    if not _BOOKMARK_NAME_RE.match(value):
+        raise ValueError(
+            f"Run.bookmark name invalid (letter/underscore start, "
+            f"alphanumeric tail): {value!r}"
+        )
 
 
 @dataclass(frozen=True)
@@ -140,6 +175,8 @@ class Run:
     underline: bool | None = None
     color: str | None = None
     font_size_pt: float | None = None
+    link: str | None = None
+    bookmark: str | None = None
 
     def __post_init__(self) -> None:
         if self.color is not None:
@@ -148,6 +185,10 @@ class Run:
             raise ValueError(
                 f"Run.font_size_pt must be > 0, got {self.font_size_pt!r}"
             )
+        if self.link is not None:
+            _validate_run_link(self.link)
+        if self.bookmark is not None:
+            _validate_run_bookmark(self.bookmark)
 
 
 # ---------------------------------------------------------------------------
@@ -200,12 +241,18 @@ class Paragraph:
         underline: bool | None = None,
         color: str | None = None,
         font_size_pt: float | None = None,
+        link: str | None = None,
+        bookmark: str | None = None,
     ) -> Paragraph:
         """Append a Run; ``style=None`` inherits paragraph style at render.
 
         Per-run override kwargs (bold/italic/underline/color/font_size_pt)
         mirror :class:`Run`'s formatting fields. ``None`` = inherit from
         the effective :class:`Style`; an explicit value wins.
+
+        ``link`` accepts an external URL or an internal anchor reference of
+        the form ``"#bookmark_name"``. ``bookmark`` declares this run's text
+        as a bookmark anchor target with the given name.
 
         Returns self to enable fluent chaining per V-MP-CONTENT scenario-2.
         """
@@ -218,6 +265,8 @@ class Paragraph:
                 underline=underline,
                 color=color,
                 font_size_pt=font_size_pt,
+                link=link,
+                bookmark=bookmark,
             )
         )
         return self
@@ -256,12 +305,85 @@ class Paragraph:
         if self.style is not None:
             self._apply_paragraph_style(docx_paragraph, self.style)
 
+        next_bookmark_id = self._next_bookmark_id(parent_doc)
         for run in self._runs:
             docx_run = docx_paragraph.add_run(run.text)
             base_style = run.style if run.style is not None else self.style
             self._apply_run_style(docx_run, run, base_style)
+            if run.link is not None or run.bookmark is not None:
+                next_bookmark_id = self._wrap_run_anchors(
+                    docx_paragraph, docx_run, run, next_bookmark_id
+                )
 
         return docx_paragraph
+
+    @staticmethod
+    def _next_bookmark_id(parent_doc: DocxDocument) -> int:
+        """Return one greater than the highest existing w:bookmarkStart/@w:id.
+
+        OOXML requires bookmark ids to be unique within the document. We scan
+        the entire body once per render to find the current max; subsequent
+        bookmarks emitted by this render share the local counter.
+        """
+        max_id = -1
+        for el in parent_doc.element.body.iter(_qn("w:bookmarkStart")):
+            try:
+                cur = int(el.get(_qn("w:id"), "-1"))
+            except ValueError:  # pragma: no cover — non-int @w:id is OOXML-illegal
+                continue
+            if cur > max_id:
+                max_id = cur
+        return max_id + 1
+
+    @staticmethod
+    def _wrap_run_anchors(
+        docx_paragraph: Any,
+        docx_run: Any,
+        run: Run,
+        bookmark_id: int,
+    ) -> int:
+        """Wrap an emitted w:r with bookmarkStart/End and/or w:hyperlink.
+
+        Order in the parent w:p:
+            <w:bookmarkStart .../><w:hyperlink><w:r/></w:hyperlink><w:bookmarkEnd .../>
+
+        Both wrappers are independent: a Run may carry just one, both, or
+        neither (caller filters before invoking). Returns the next
+        bookmark id to use for subsequent runs in the same render pass.
+        """
+        p_el = docx_paragraph._p
+        r_el = docx_run._r
+
+        # Hyperlink wrap: replace r in p with <w:hyperlink>{r}</w:hyperlink>.
+        anchor_target = r_el  # element to wrap with bookmarks
+        if run.link is not None:
+            hyperlink = _OxmlElement("w:hyperlink")
+            if run.link.startswith("#"):
+                hyperlink.set(_qn("w:anchor"), run.link[1:])
+            else:
+                rid = docx_paragraph.part.relate_to(
+                    run.link, _RT.HYPERLINK, is_external=True
+                )
+                hyperlink.set(_qn("r:id"), rid)
+            r_index = list(p_el).index(r_el)
+            p_el.remove(r_el)
+            hyperlink.append(r_el)
+            p_el.insert(r_index, hyperlink)
+            anchor_target = hyperlink
+
+        # Bookmark wrap: insert start before, end after the anchor target.
+        if run.bookmark is not None:
+            start = _OxmlElement("w:bookmarkStart")
+            start.set(_qn("w:id"), str(bookmark_id))
+            start.set(_qn("w:name"), run.bookmark)
+            end = _OxmlElement("w:bookmarkEnd")
+            end.set(_qn("w:id"), str(bookmark_id))
+            target_index = list(p_el).index(anchor_target)
+            p_el.insert(target_index, start)
+            p_el.insert(target_index + 2, end)  # after the anchor target
+            bookmark_id += 1
+
+        return bookmark_id
 
     @staticmethod
     def _apply_paragraph_style(docx_paragraph: Any, style: Style) -> None:

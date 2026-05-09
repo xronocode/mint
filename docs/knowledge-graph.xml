@@ -417,14 +417,14 @@
       </annotations>
     </MP-STYLE>
 
-    <MP-CONTENT NAME="Pure Python Content Primitives" TYPE="CORE_LOGIC" STATUS="done" VERSION="0.1.0">
-      <purpose>Inline content blocks placed inside a Section: Paragraph + Run (with per-run formatting overrides) + Image, all OOXML emitters via python-docx + pillow</purpose>
+    <MP-CONTENT NAME="Pure Python Content Primitives" TYPE="CORE_LOGIC" STATUS="done" VERSION="0.2.0">
+      <purpose>Inline content blocks placed inside a Section: Paragraph + Run (with per-run formatting overrides + link/bookmark anchors) + Image, all OOXML emitters via python-docx + lxml drop-down for w:hyperlink/w:bookmarkStart/End</purpose>
       <path>src/mint_python/core/content.py</path>
       <depends>MP-STYLE</depends>
       <verification-ref>V-MP-CONTENT</verification-ref>
       <annotations>
-        <type-Paragraph PURPOSE="Styled paragraph; .add_run(text, style=None, *, bold/italic/underline/color/font_size_pt) fluent; .render(parent_doc) writes to python-docx Document" />
-        <type-Run PURPOSE="Inline styled fragment with optional per-run overrides (bold/italic/underline/color/font_size_pt). None = inherit effective Style; explicit value wins" />
+        <type-Paragraph PURPOSE="Styled paragraph; .add_run(text, style=None, *, bold/italic/underline/color/font_size_pt/link/bookmark) fluent; .render(parent_doc) writes to python-docx Document" />
+        <type-Run PURPOSE="Inline styled fragment with optional per-run overrides (bold/italic/underline/color/font_size_pt) + link (external URL or '#anchor') + bookmark (anchor name). None = inherit effective Style; explicit value wins" />
         <type-Image PURPOSE="Image embed with .from_path / .from_bytes constructors; .render emits w:drawing with auto rId" />
       </annotations>
     </MP-CONTENT>
