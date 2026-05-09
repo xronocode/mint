@@ -21,17 +21,18 @@
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-9-1 initial implementation — pure Python OOXML rule engine
-#     replacing Phase-6 skeleton with full XPath-based validation, YAML loading,
-#     and 4 check types (exists, count_gt_zero, tbl_width_mismatch, sum_mismatch).
+#   LAST_CHANGE: Post-review fix — XPath timeout guard (signal.alarm 5s) + sum_mismatch
+#     error logging (no more silent swallow on int()/sum() parse errors).
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
 import logging
+import signal
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 import yaml
@@ -63,6 +64,10 @@ class FixCategory(StrEnum):
 
 class RuleLoadError(Exception):
     """Raised when rule YAML cannot be loaded or parsed."""
+
+
+class XPathTimeoutError(Exception):
+    """Raised when XPath evaluation exceeds the timeout."""
 
 
 # START_CONTRACT: Rule
@@ -113,7 +118,22 @@ def evaluate(rule: Rule, tree: _Element) -> Violation | None:
         f"rule_id={rule.id} check={rule.check}"
     )
     try:
-        raw_results = tree.xpath(rule.xpath, namespaces=NAMESPACES)
+        def _handler(signum: int, frame: FrameType | None) -> None:
+            raise XPathTimeoutError("XPath evaluation timed out")
+
+        old_handler = signal.signal(signal.SIGALRM, _handler)
+        signal.alarm(5)
+        try:
+            raw_results = tree.xpath(rule.xpath, namespaces=NAMESPACES)
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+    except XPathTimeoutError:
+        logger.warning(
+            f"[{_LOG_PREFIX}][evaluate][BLOCK_EVALUATE_RULE] "
+            f"rule_id={rule.id} xpath timed out"
+        )
+        return None
     except etree.XPathError as exc:
         logger.warning(
             f"[{_LOG_PREFIX}][evaluate][BLOCK_EVALUATE_RULE] "
@@ -155,8 +175,11 @@ def evaluate(rule: Rule, tree: _Element) -> Violation | None:
                     hint=rule.hint,
                     location=str(results[0]),
                 )
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.warning(
+                f"[{_LOG_PREFIX}][evaluate][BLOCK_EVALUATE_RULE] "
+                f"rule_id={rule.id} sum_mismatch parse error: {exc}"
+            )
     elif rule.check == "tbl_width_mismatch":
         w_ns = NAMESPACES["w"]
         for tbl in tree.iter(f"{{{w_ns}}}tbl"):
