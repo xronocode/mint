@@ -14,6 +14,7 @@
 #   GRACEInjectionError - injection error
 #   GRACEManifest - manifest dataclass with structure, fingerprint, instructions
 #   GRACE_INSTRUCTIONS - 10 GRACE rules
+#   compute_file_hash - SHA-256 file hash (imported from mint_python._hash)
 #   bootstrap - inject manifest + instructions into document
 #   describe - read existing GRACE metadata from document
 # END_MODULE_MAP
@@ -35,6 +36,8 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from mint_python._hash import compute_file_hash
+
 logger = logging.getLogger(__name__)
 
 GRACE_NS = "urn:mint:grace:2026:manifest"
@@ -54,14 +57,6 @@ GRACE_INSTRUCTIONS = [
     "Compute fingerprint before and after edits to detect drift.",
     "Backup document before applying any destructive changes.",
 ]
-
-
-def _compute_file_hash(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
 
 
 def _validate_zip_paths(zf: zipfile.ZipFile) -> None:
@@ -101,7 +96,7 @@ def bootstrap(
     except Exception as e:
         raise GRACEInjectionError(f"Structure analysis failed: {e}") from e
 
-    fingerprint = _compute_file_hash(document_path)
+    fingerprint = compute_file_hash(document_path)
 
     part_id = str(uuid.uuid4())
     part_name = f"grace/manifest_{part_id}.xml"
@@ -180,7 +175,8 @@ def _build_manifest_xml(manifest: GRACEManifest) -> str:
 
 
 def _parse_manifest_xml(xml_content: str, part_name: str) -> GRACEManifest:
-    root = ET.fromstring(xml_content)
+    parser = ET.XMLParser()  # Python >=3.7.1 disables external entities by default
+    root = ET.fromstring(xml_content, parser=parser)
     structure: dict[str, Any] = {}
     struct_elem = root.find(f"{{{GRACE_NS}}}documentStructure")
     if struct_elem is not None:
@@ -244,7 +240,8 @@ def _update_content_types(tmp_dir: Path, part_name: str) -> None:
         return  # pragma: no cover — every valid .docx has Content_Types.xml
 
     try:
-        tree = ET.parse(ct_path)
+        parser = ET.XMLParser()  # Python >=3.7.1 disables external entities by default
+        tree = ET.parse(ct_path, parser=parser)
         root = tree.getroot()
     except ET.ParseError:  # pragma: no cover — unreachable for valid OOXML
         return
@@ -265,7 +262,8 @@ def _update_relationships(tmp_dir: Path, part_name: str) -> None:
         root = ET.Element(f"{{{REL_NS}}}Relationships")  # pragma: no cover
     else:
         try:
-            tree = ET.parse(rels_path)
+            parser = ET.XMLParser()  # Python >=3.7.1 disables external entities by default
+            tree = ET.parse(rels_path, parser=parser)
             root = tree.getroot()
         except ET.ParseError:  # pragma: no cover — unreachable for valid OOXML
             root = ET.Element(f"{{{REL_NS}}}Relationships")

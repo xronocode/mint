@@ -709,8 +709,8 @@ class Chart:
             chart_type="plotly",
             _png_bytes=png_bytes,
             caption=caption,
-            width_inches=width_inches or 6.0,
-            height_inches=height_inches or 4.0,
+            width_inches=width_inches if width_inches is not None else 6.0,
+            height_inches=height_inches if height_inches is not None else 4.0,
         )
         logger.info(
             "[MP-Chart][from_plotly][BLOCK_BUILD_CHART_PLOTLY] "

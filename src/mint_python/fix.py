@@ -1,5 +1,5 @@
 # FILE: src/mint_python/fix.py
-# VERSION: 1.0.0
+# VERSION: 1.1.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Apply safe/visual auto-fixes to OOXML documents with backup,
 #     cascade detection, and destructive rejection.
@@ -7,7 +7,7 @@
 #     cascade detection (max 3 iterations), fix convenience function.
 #   DEPENDS: MP-VALIDATE (run_checks, SeverityMode, ValidationReport,
 #     InvalidDocumentError), MP-RULES (Violation, FixCategory, Severity),
-#     zipfile, lxml, shutil, io, hashlib, logging.
+#     zipfile, lxml, shutil, io, mint_python._hash, logging.
 #   LINKS: docs/verification-plan.xml#V-MP-FIX
 # END_MODULE_CONTRACT
 #
@@ -18,27 +18,30 @@
 #   BackupFailedError - raised when backup creation fails
 #   DestructiveRejectedError - raised when destructive fix attempted
 #   FixReport - result dataclass with applied fixes, backup path, iterations, diff
+#   _compute_file_hash - SHA-256 file hash (imported from mint_python._hash)
 #   create_backup - copy document to .bak before modification
 #   apply_fixes - iterate safe+visual fixes, re-validate, detect cascade
 #   fix - main fix entry point (run_checks → apply_fixes)
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-9-3 initial implementation — pure Python auto-fix engine
-#     replacing M-FIX (src/mint/fix.py) with local hash computation, lxml-based
-#     D-H09 fix, and SeverityMode.LENIENT default in fix().
+#   LAST_CHANGE: Post-review fix: stream-based ZIP rewrite with size guard
+#     (zip bomb mitigation). _apply_simple_fix now streams entries instead of
+#     loading all ZIP content into memory.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
-import hashlib
-import io
+import contextlib
 import logging
+import os
 import shutil
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from mint_python._hash import compute_file_hash as _compute_file_hash
 from mint_python.rules import FixCategory, Violation
 from mint_python.validate import SeverityMode, run_checks
 
@@ -46,14 +49,6 @@ logger = logging.getLogger(__name__)
 
 _LOG_PREFIX = "MP-Fix"
 DEFAULT_MAX_ITERATIONS = 3
-
-
-def _compute_file_hash(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 class FixError(Exception):
@@ -104,41 +99,55 @@ def create_backup(doc_path: Path) -> Path:
 
 
 def _apply_simple_fix(doc_path: Path, violation: Violation) -> bool:
+    """Apply fix for a single violation. Streams ZIP entries; only rewrites word/document.xml."""
     if violation.fix_category not in (FixCategory.SAFE, FixCategory.VISUAL):
         return False  # pragma: no cover — destructive filtered upstream in apply_fixes
 
     if violation.rule_id != "D-H09":
         return False
 
+    max_xml_bytes = 100 * 1024 * 1024  # 100 MB
+
     try:
-        with zipfile.ZipFile(doc_path) as z:
-            entries = {n: z.read(n) for n in z.namelist()}
+        tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".docx", dir=doc_path.parent)
+        os.close(tmp_fd)
+        tmp = Path(tmp_path_str)
 
         modified = False
-        for name, data in entries.items():
-            if not name.endswith(".xml"):
-                continue
-            xml_str = data.decode("utf-8")
+        with zipfile.ZipFile(doc_path, "r") as z_in:
+            for info in z_in.infolist():
+                if info.file_size > max_xml_bytes:
+                    raise FixError(
+                        f"ZIP entry {info.filename} exceeds size limit "
+                        f"({info.file_size} > {max_xml_bytes})"
+                    )
 
-            fixed = xml_str.replace(">\n", "> ").replace(">\r\n", "> ")
-            if fixed != xml_str:
-                entries[name] = fixed.encode("utf-8")
-                modified = True
+            with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z_out:
+                for info in z_in.infolist():
+                    data = z_in.read(info)
+                    if info.filename == "word/document.xml":
+                        text = data.decode("utf-8")
+                        new_text = text.replace(">\n", "> ")
+                        if new_text != text:
+                            modified = True
+                            data = new_text.encode("utf-8")
+                    z_out.writestr(info, data)
 
         if modified:
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w") as zo:
-                for name, data in entries.items():
-                    zo.writestr(name, data)
-            doc_path.write_bytes(buf.getvalue())
+            tmp.replace(doc_path)
             return True
+        else:
+            tmp.unlink()
+            return False
+
     except (KeyError, zipfile.BadZipFile, OSError) as exc:
         logger.warning("[MP-Fix][_apply_simple_fix] Failed: %s", exc)
         # Zip corruption exceptions are not reachable with the valid-OOXML fixtures
         # used in our test corpus; covered by hand-crafted broken-zip tests instead.
+        with contextlib.suppress(OSError):
+            if "tmp" in locals():
+                tmp.unlink()
         return False  # pragma: no cover
-
-    return False  # pragma: no cover — unreachable (only reached if try block exits without return)
 
 
 # START_CONTRACT: apply_fixes
