@@ -1,8 +1,8 @@
 # FILE: tests/unit/test_mp_document.py
 # START_MODULE_CONTRACT
 #   PURPOSE: V-MP-DOCUMENT scenarios 1-9 — Document fluent surface, save()
-#     emit + idempotency, format/preset error paths, and the four Phase-N
-#     stubs (BLOCK_PHASE_GUARD trace + NotImplementedError content).
+#     emit + idempotency, format/preset error paths, and the remaining Phase-N
+#     stub (to_pdf; BLOCK_PHASE_GUARD trace + NotImplementedError content).
 #   SCOPE: Reuses central conftest fixtures (mp_clean_env autouse,
 #     tmp_docx_path, caplog_at_info, marker_counter); imports extract_marker
 #     from tests.unit._mp_helpers; uses mint.fingerprint.fingerprint for
@@ -27,10 +27,14 @@
 #   test_phase_guard_is_subclass_of_not_implemented_error
 #   test_save_returns_path
 #   test_with_style_from_path_loads_preset
+#   test_inject_grace_returns_grace_manifest
+#   test_inject_grace_via_document_pipeline
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-9-4 — retire Phase-7 BLOCK_PHASE_GUARD assertions for
+#   LAST_CHANGE: Wave-11-1 — retire inject_grace from stub parametrize;
+#     add test that inject_grace returns GRACEManifest via MP-GRACE delegation
+#   PRIOR: Wave-9-4 — retire Phase-7 BLOCK_PHASE_GUARD assertions for
 #     validate/fix; add tests that validate returns ValidationReport and
 #     fix returns FixReport.
 #   PRIOR: Wave-7-4 (MP-DOCUMENT): initial test suite.
@@ -52,6 +56,7 @@ from mint_python.core.document import (
     PhaseGuardNotImplementedError,
 )
 from mint_python.core.section import Section
+from mint_python.grace import GRACEManifest
 
 # Audit baseline path — scenario-9 is skipped until Wave-7-5 produces the
 # baseline file. Mirrors _mp_helpers._BASELINE_PATH so the skip condition
@@ -152,7 +157,6 @@ def test_scenario_5_unknown_preset_raises_document_preset_not_found() -> None:
 @pytest.mark.parametrize(
     "method_name,target_phase",
     [
-        ("inject_grace", "Phase 5"),
         ("to_pdf", "Phase 5"),
     ],
 )
@@ -353,3 +357,45 @@ def test_fix_returns_fix_report(tmp_docx_path: Path) -> None:
     assert isinstance(report, FixReport)
     assert hasattr(report, "applied_fixes")
     assert len(report.applied_fixes) == 0
+
+
+# ---------------------------------------------------------------------------
+# Wave-11-1: inject_grace is unstubbed — returns GRACEManifest via MP-GRACE
+# ---------------------------------------------------------------------------
+
+
+def test_inject_grace_returns_grace_manifest() -> None:
+    doc = (
+        Document(format="docx", title="Test")
+        .with_style_preset("alga_corporate")
+        .add_section(Section("S1", level=1).add_paragraph("Content"))
+    )
+    manifest = doc.inject_grace()
+    assert isinstance(manifest, GRACEManifest)
+    assert manifest.fingerprint != ""
+    assert len(manifest.instructions) == 10
+    assert manifest.xml_part_name.startswith("grace/")
+
+
+def test_inject_grace_via_document_pipeline(tmp_path: Path) -> None:
+    doc = (
+        Document(format="docx", title="Pipeline Test")
+        .with_style_preset("alga_corporate")
+        .add_cover(title="Cover", subtitle="Sub")
+        .add_section(Section("Body", level=1).add_paragraph("hello"))
+    )
+    manifest = doc.inject_grace()
+
+    assert isinstance(manifest, GRACEManifest)
+    assert manifest.document_structure["format"] == "docx"
+    assert "parts" in manifest.document_structure
+
+    # Verify the output .docx exists and has the grace part.
+    output_path = tmp_path / "pipeline_grace.docx"
+    doc.inject_grace(output_path=output_path)
+    assert output_path.exists()
+
+    import zipfile as zf_mod
+    with zf_mod.ZipFile(output_path, "r") as zf:
+        names = zf.namelist()
+        assert any(n.startswith("grace/") and n.endswith(".xml") for n in names)

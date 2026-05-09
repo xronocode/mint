@@ -1,12 +1,12 @@
 # FILE: src/mint_python/core/document.py
-# VERSION: 1.1.0
+# VERSION: 1.2.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Document facade per handover §3.1 — full API surface (cover,
 #     sections, TOC, header/footer, save, validate, fix) for the Pure
 #     Python Edition. Save uses python-docx as the backbone with a small
 #     lxml drop-down for the Word TOC field. validate() and fix() delegate
-#     to MP-VALIDATE and MP-FIX via temp-file save. Stubs inject_grace and
-#     to_pdf with PhaseGuardNotImplementedError pointing at later phases.
+#     to MP-VALIDATE and MP-FIX via temp-file save. inject_grace delegates to
+#     MP-GRACE via temp-file save. Stubs to_pdf with PhaseGuardNotImplementedError.
 #   SCOPE: Public surface = Document (@dataclass facade) + 4 errors
 #     (DocumentError, DocumentFormatUnsupportedError, DocumentPresetNotFoundError,
 #     DocumentSaveIOError) + PhaseGuardNotImplementedError. Sibling-only deps:
@@ -35,7 +35,7 @@
 #   Document.set_header                 - document-wide header text
 #   Document.set_footer                 - document-wide footer text
 #   Document.save                       - serialize to .docx; emits BLOCK_SAVE_DOCX
-#   Document.inject_grace               - Phase-5 STUB; emits BLOCK_PHASE_GUARD
+#   Document.inject_grace               - delegate to MP-GRACE.bootstrap via temp-file save
 #   Document.validate                   - Phase-9: validates via MP-VALIDATE
 #   Document.fix                        - Phase-9: auto-fixes via MP-FIX
 #   Document.to_pdf                     - Phase-5 STUB; emits BLOCK_PHASE_GUARD
@@ -49,7 +49,8 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-9-4 — unstub Document.validate and Document.fix via
+#   LAST_CHANGE: Wave-11-1 — unstub inject_grace via temp-file delegation to MP-GRACE
+#   PRIOR: Wave-9-4 — unstub Document.validate and Document.fix via
 #     temp-file delegation to MP-VALIDATE + MP-FIX.
 #   PRIOR: Wave-7-4 (MP-DOCUMENT): initial implementation per V-MP-DOCUMENT
 #     scenarios 1-9 + BLOCK_SAVE_DOCX + BLOCK_PHASE_GUARD trace assertions.
@@ -174,11 +175,10 @@ class Document:
     fields to :data:`DOCUMENT_FIXED_TIMESTAMP` (1980-01-01) at the start
     of ``save()`` to guarantee stability. See V-MP-DOCUMENT scenario-8.
 
-    Stubs (``inject_grace``, ``validate``, ``fix``, ``to_pdf``) emit
-    ``[MP-Document][stub][BLOCK_PHASE_GUARD]`` at INFO BEFORE raising
-    :class:`PhaseGuardNotImplementedError` so plan consumers that
-    accidentally schedule a deferred capability in Phase-7 fail loud +
-    observable.
+    Stub (``to_pdf``) emits ``[MP-Document][stub][BLOCK_PHASE_GUARD]`` at
+    INFO BEFORE raising :class:`PhaseGuardNotImplementedError` so plan
+    consumers that accidentally schedule a deferred capability in Phase-7
+    fail loud + observable.
     """
 
     format: Literal["docx"]
@@ -345,20 +345,23 @@ class Document:
     # ------------------------------------------------------------------ #
 
     def inject_grace(self, *args: Any, **kwargs: Any) -> Any:
-        """Phase-5 stub: emit BLOCK_PHASE_GUARD then raise.
+        """Inject GRACE manifest + instructions via MP-GRACE.
 
-        The MP-GRACE custom-XML-parts emission lands with handover §6
-        Phase 5. Phase-7 ships the API surface only.
+        Delegation pattern: saves to temp, calls MP-GRACE.bootstrap.
         """
-        logger.info(
-            "[MP-Document][stub][BLOCK_PHASE_GUARD] "
-            "method=inject_grace target_phase=Phase 5"
-        )
-        raise PhaseGuardNotImplementedError(
-            "Document.inject_grace is a Phase 5 stub: GRACE Custom XML Parts "
-            "emission delegates to MP-GRACE.inject_manifest_and_instructions "
-            "(planned). Phase-7 ships the API surface only."
-        )
+        import tempfile
+
+        from mint_python.grace import bootstrap as grace_bootstrap
+
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:
+            tmp_path = Path(tf.name)
+        try:
+            self.save(tmp_path)
+            rules = kwargs.get("rules")
+            output_path = kwargs.get("output_path")
+            return grace_bootstrap(tmp_path, rules=rules, output_path=output_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def validate(self, level: str = "lenient") -> ValidationReport:
         """Validate the document via MP-VALIDATE (pure Python).
