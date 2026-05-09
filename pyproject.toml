@@ -27,6 +27,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-timeout>=2.3",
+    "pytest-cov>=5.0",
     "ruff>=0.8",
     "mypy>=1.13",
 ]
@@ -37,6 +38,20 @@ packages = ["src/mint", "src/mint_python"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/mint_python"]
+branch = false
+
+[tool.coverage.report]
+exclude_also = [
+    # `from __future__` is a compiler directive, not runtime code.
+    "^from __future__ import",
+    # Explicit opt-out markers on genuinely unreachable lines.
+    "pragma: no cover",
+    # TYPE_CHECKING-only branches.
+    "if TYPE_CHECKING:",
+]
 
 [tool.ruff]
 target-version = "py312"

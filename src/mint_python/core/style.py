@@ -216,17 +216,6 @@ def _fail(pointer: str, constraint: str) -> STYLE_PRESET_INVALID_SCHEMA:
     return STYLE_PRESET_INVALID_SCHEMA(f"{pointer}: {constraint}")
 
 
-def _require_type(
-    value: Any,
-    expected: type | tuple[type, ...],
-    pointer: str,
-    type_name: str,
-) -> None:
-    if not isinstance(value, expected) or (expected is float and isinstance(value, bool)):
-        # bool is subclass of int in Python; reject when a numeric was expected.
-        raise _fail(pointer, f"expected {type_name}, got {type(value).__name__}")
-
-
 def _require_number_nonneg(value: Any, pointer: str) -> None:
     # bools must NOT pass as numbers.
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -455,7 +444,7 @@ def load_preset(
         json_path: Path = BUILTIN_PRESETS[name]
         try:
             raw = json_path.read_text(encoding="utf-8")
-        except FileNotFoundError as exc:
+        except FileNotFoundError as exc:  # pragma: no cover
             # Should be unreachable for built-ins; guarded for completeness.
             raise STYLE_PRESET_NOT_FOUND(
                 f"built-in preset file missing on disk: {json_path}"

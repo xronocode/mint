@@ -162,7 +162,7 @@ def _format_numeric(value: Any) -> str:
             return f"{float(s):,.2f}"
         return f"{int(s):,.0f}"
     # Should not be reached when guarded by _is_numeric_like.
-    return str(value)
+    return str(value)  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +489,9 @@ class Table:
                 # we can attach run-level font formatting.
                 paragraph = docx_cell.paragraphs[0]
                 # Wipe any existing runs in case python-docx pre-seeds.
-                for existing_run in list(paragraph.runs):
+                # Defensive: fresh cells have 0 runs in current python-docx;
+                # the loop body is unreachable in normal flow.
+                for existing_run in list(paragraph.runs):  # pragma: no cover
                     existing_run.text = ""
                 run = paragraph.add_run(cell.value)
 

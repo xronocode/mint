@@ -469,7 +469,7 @@ class Document:
         if self._header is None and self._footer is None:
             return
 
-        if not doc.sections:
+        if not doc.sections:  # pragma: no cover
             # Defensive: a brand-new python-docx Document always has a
             # default section, so this branch is theoretically unreachable.
             return

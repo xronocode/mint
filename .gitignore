@@ -37,3 +37,4 @@ e2e_results/
 # Local scratch artifacts
 .last_assembled.js
 docs/article-draft.md
+.coverage
