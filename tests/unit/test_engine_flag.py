@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from mint.cli import _select_engine
+from mint.cli import _select_engine_from_env
 from mint.config import ConfigInvalidError, Engine, load_config
 
 # Reuse the central autouse `clean_env` fixture from test_config.py
@@ -80,23 +80,18 @@ def test_v_mp_flag_3_garbage_raises_with_valid_set(
 def test_v_mp_flag_4_select_engine_js_returns_js(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """scenario-4: _select_engine returns 'js' on Engine.JS."""
-    _set_required_env(monkeypatch)
+    """scenario-4: _select_engine_from_env returns 'js' on Engine.JS."""
     monkeypatch.setenv("MINT_ENGINE", "js")
-    cfg = load_config()
-    assert _select_engine(cfg) == "js"
+    assert _select_engine_from_env() == "js"
 
 
 def test_v_mp_flag_5_select_engine_python_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """scenario-5: _select_engine raises NotImplementedError on Engine.PYTHON."""
-    _set_required_env(monkeypatch)
-    cfg = load_config()
-    # safety: replace() works on frozen dataclasses
-    cfg = dataclasses.replace(cfg, engine=Engine.PYTHON)
+    """scenario-5: _select_engine_from_env raises NotImplementedError on Engine.PYTHON."""
+    monkeypatch.setenv("MINT_ENGINE", "python")
     with pytest.raises(NotImplementedError, match="MINT_ENGINE=python") as exc:
-        _select_engine(cfg)
+        _select_engine_from_env()
     assert "Phase 0" in str(exc.value)
 
 
@@ -265,8 +260,10 @@ def test_v_mp_flag_9_cli_override_precedence_trace(
 ) -> None:
     """scenario-9: --engine js overrides MINT_ENGINE=python via os.environ write.
 
-    Asserts BOTH log markers fire with engine=js (proves os.environ write
-    happened BEFORE config() loaded).
+    Asserts BLOCK_SELECT_ENGINE fires with engine=js (proves the os.environ
+    write happened BEFORE engine resolution). BLOCK_LOAD_CONFIG is no longer
+    required here — engine selection reads MINT_ENGINE directly so read-only
+    commands don't have to validate LLM creds.
     """
     caplog.set_level(logging.INFO)
     _set_required_env(monkeypatch)
@@ -286,20 +283,15 @@ def test_v_mp_flag_9_cli_override_precedence_trace(
 
     messages = [r.getMessage() for r in caplog.records]
     joined = "\n".join(messages)
-    assert "BLOCK_LOAD_CONFIG" in joined
     assert "BLOCK_SELECT_ENGINE" in joined
     # BLOCK_DISPATCH is the positive js-path signal (VF-011 trace-sequence:
-    # BLOCK_LOAD_CONFIG -> BLOCK_SELECT_ENGINE -> BLOCK_DISPATCH -> cmd_*).
+    # BLOCK_SELECT_ENGINE -> BLOCK_DISPATCH -> cmd_*).
     assert "BLOCK_DISPATCH" in joined, (
         "BLOCK_DISPATCH must fire on the js path between _select_engine and cmd_*"
     )
-    # Both engine markers must show engine=js
-    load_msgs = [m for m in messages if "BLOCK_LOAD_CONFIG" in m]
     sel_msgs = [m for m in messages if "BLOCK_SELECT_ENGINE" in m]
-    assert load_msgs and all("engine=js" in m for m in load_msgs), load_msgs
     assert sel_msgs and all("engine=js" in m for m in sel_msgs), sel_msgs
-    # Neither marker should ever show engine=python in this scenario
-    for m in load_msgs + sel_msgs:
+    for m in sel_msgs:
         assert "engine=python" not in m, m
 
 
@@ -311,6 +303,7 @@ def test_v_mp_flag_10_default_path_negative_trace(
     """
     caplog.set_level(logging.INFO)
     _set_required_env(monkeypatch)
+    monkeypatch.delenv("MINT_ENGINE", raising=False)
     monkeypatch.setattr(sys, "argv", ["mint", "validate", "/tmp/no.docx"])
 
     from mint.cli import main
@@ -323,7 +316,6 @@ def test_v_mp_flag_10_default_path_negative_trace(
 
     messages = [r.getMessage() for r in caplog.records]
     joined = "\n".join(messages)
-    assert "BLOCK_LOAD_CONFIG" in joined
     assert "BLOCK_SELECT_ENGINE" in joined
 
     forbidden = [

@@ -35,7 +35,7 @@ import os
 import sys
 from pathlib import Path
 
-from mint.config import Engine, MintConfig, config
+from mint.config import DEFAULT_ENGINE, Engine
 
 logger = logging.getLogger("mint.cli")
 
@@ -415,23 +415,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _select_engine(cfg: MintConfig) -> str:
+def _select_engine_from_env() -> str:
     """Phase-6 dual-engine dispatch chokepoint.
 
     Returns 'js' on Engine.JS; raises NotImplementedError on Engine.PYTHON
-    until handover Phases 1-5 populate src/mint_python/.
+    until handover Phases 1-5 populate src/mint_python/. Reads MINT_ENGINE
+    directly from the environment so read-only commands (validate /
+    fingerprint / extract / edit) don't have to load the full LLM config.
     """
+    engine_str = os.environ.get("MINT_ENGINE", DEFAULT_ENGINE).strip().lower()
     # START_BLOCK_SELECT_ENGINE
-    logger.info(
-        "[CLI][_select_engine][BLOCK_SELECT_ENGINE] engine=%s", cfg.engine.value
-    )
+    logger.info("[CLI][_select_engine][BLOCK_SELECT_ENGINE] engine=%s", engine_str)
     # END_BLOCK_SELECT_ENGINE
-    if cfg.engine == Engine.PYTHON:
+    if engine_str == Engine.PYTHON.value:
         raise NotImplementedError(
             "MINT_ENGINE=python is not implemented yet (Phase 0 skeleton). "
             "Use MINT_ENGINE=js or pass --engine js."
         )
-    return cfg.engine.value
+    return engine_str
 
 
 def main() -> None:
@@ -439,8 +440,7 @@ def main() -> None:
     args = parser.parse_args()
     if getattr(args, "engine", None) is not None:
         os.environ["MINT_ENGINE"] = args.engine
-    cfg = config()
-    _select_engine(cfg)
+    _select_engine_from_env()
     # START_BLOCK_DISPATCH
     logger.info("[CLI][main][BLOCK_DISPATCH] command=%s", args.command)
     # END_BLOCK_DISPATCH
