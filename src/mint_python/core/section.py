@@ -1,5 +1,5 @@
 # FILE: src/mint_python/core/section.py
-# VERSION: 0.1.0
+# VERSION: 0.2.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Fluent Section node per handover §3.2 — heading + ordered list of
 #     content blocks (Paragraph, Table, Image, Chart). Phase-8 unstubs
@@ -25,6 +25,7 @@
 #   Section.add_table                - Table; returns self
 #   Section.add_image                - Image; returns self
 #   Section.add_chart                - appends Chart to _blocks; returns self for fluent chain
+#   Section.add_list                 - appends List to _blocks; returns self for fluent chain
 #   Section.render                   - heading + ordered block render
 #   SectionError                     - base error
 #   SectionLevelOutOfRangeError      - SECTION_LEVEL_OUT_OF_RANGE
@@ -32,12 +33,10 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-8-2 (MP-SECTION): unstub add_chart — replace
-#     BLOCK_PHASE_GUARD stub body with concrete `add_chart(chart: Chart) ->
-#     Section` that appends the Chart to _blocks and returns self for fluent
-#     chaining. Add `from mint_python.core.chart import Chart` import. Remove
-#     obsolete START/END_BLOCK_PHASE_GUARD source markers. Phase-8 unblocks
-#     VF-014 e2e PurePythonChartFlow.
+#   LAST_CHANGE: v0.2.0 — add_list / List block support. Section._blocks
+#     type union widened to include MP-LIST.List. Sibling-only dep on
+#     mint_python.core.list_block.
+#   PRIOR: Wave-8-2 (MP-SECTION): unstub add_chart.
 #   PRIOR: Wave-7-3 (MP-SECTION): initial implementation per V-MP-SECTION
 #     scenarios 1-6 + BLOCK_PHASE_GUARD trace assertion.
 # END_CHANGE_SUMMARY
@@ -50,6 +49,7 @@ from docx.document import Document as DocxDocument
 
 from mint_python.core.chart import Chart
 from mint_python.core.content import Image, Paragraph
+from mint_python.core.list_block import List
 from mint_python.core.table import Table
 
 # ---------------------------------------------------------------------------
@@ -106,7 +106,9 @@ class Section:
 
     title: str
     level: int  # 1..6
-    _blocks: list[Paragraph | Table | Image | Chart] = field(default_factory=list)
+    _blocks: list[Paragraph | Table | Image | Chart | List] = field(
+        default_factory=list
+    )
 
     def __post_init__(self) -> None:
         if not (1 <= self.level <= 6):
@@ -152,6 +154,16 @@ class Section:
         Section-side marker.
         """
         self._blocks.append(chart)
+        return self
+
+    def add_list(self, list_block: List) -> Section:
+        """Append a List block; returns self for fluent chaining.
+
+        The List instance owns its own kind (bullet/numbered/checklist), nesting
+        level, and items. List.render emits its own BLOCK_RENDER_LIST trace
+        marker — no Section-side marker.
+        """
+        self._blocks.append(list_block)
         return self
 
     def render(self, parent_doc: DocxDocument) -> None:

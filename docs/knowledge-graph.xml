@@ -445,10 +445,10 @@
       </annotations>
     </MP-TABLE>
 
-    <MP-SECTION NAME="Pure Python Section (fluent)" TYPE="CORE_LOGIC" STATUS="done">
-      <purpose>Fluent Section per handover §3.2; add_chart concrete (Phase-8) — appends Chart block to _blocks</purpose>
+    <MP-SECTION NAME="Pure Python Section (fluent)" TYPE="CORE_LOGIC" STATUS="done" VERSION="0.2.0">
+      <purpose>Fluent Section per handover §3.2; blocks union widened to include MP-LIST.List; add_list available alongside add_paragraph/table/image/chart</purpose>
       <path>src/mint_python/core/section.py</path>
-      <depends>MP-CONTENT, MP-TABLE, MP-CHART</depends>
+      <depends>MP-CONTENT, MP-TABLE, MP-CHART, MP-LIST</depends>
       <verification-ref>V-MP-SECTION</verification-ref>
       <annotations>
         <type-Section PURPOSE="Section node holding heading + ordered list of content blocks" />
@@ -456,8 +456,22 @@
         <fn-add_table PURPOSE="Append Table; returns self" />
         <fn-add_image PURPOSE="Append Image; returns self" />
         <fn-add_chart PURPOSE="Append Chart to _blocks; returns self for fluent chaining (Phase-8 unstub commit caf30ab — Section.render walks Chart.render alongside Paragraph/Table/Image)" />
+        <fn-add_list PURPOSE="Append List (bullet/numbered/checklist) to _blocks; returns self for fluent chaining" />
       </annotations>
     </MP-SECTION>
+
+    <MP-LIST NAME="Pure Python List Block (bullet/numbered/checklist)" TYPE="CORE_LOGIC" STATUS="done" VERSION="0.1.0">
+      <purpose>List block — N items rendered as styled python-docx paragraphs (List Bullet / List Number); checklist mode prepends ☐ unicode; level=N applies 0.25*N inch indent</purpose>
+      <path>src/mint_python/core/list_block.py</path>
+      <depends>(none — direct python-docx)</depends>
+      <verification-ref>V-MP-LIST</verification-ref>
+      <annotations>
+        <type-List PURPOSE="List block: items + kind + level; .render(parent_doc) emits one paragraph per item" />
+        <type-ListKind PURPOSE="StrEnum: BULLET | NUMBERED | CHECKLIST" />
+        <type-ListError PURPOSE="Base error" />
+        <type-ListLevelError PURPOSE="LIST_LEVEL_OUT_OF_RANGE — raised when level &lt; 0" />
+      </annotations>
+    </MP-LIST>
 
     <MP-DOCUMENT NAME="Pure Python Document Facade" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Full §3.1 Document facade; save() produces valid .docx via python-docx + lxml; stubs Phase-3/5 methods</purpose>
@@ -502,10 +516,10 @@
       </annotations>
     </MP-CHART>
 
-    <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" STATUS="done">
+    <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" STATUS="done" VERSION="0.3.0">
       <purpose>Public re-exports of all §3 types + named-preset registry + with_style_from(path) loader</purpose>
       <path>src/mint_python/sdk/__init__.py</path>
-      <depends>MP-DOCUMENT, MP-TABLE, MP-CONTENT, MP-STYLE</depends>
+      <depends>MP-DOCUMENT, MP-TABLE, MP-CONTENT, MP-STYLE, MP-LIST</depends>
       <verification-ref>V-MP-SDK</verification-ref>
       <annotations>
         <export-Document PURPOSE="Re-export of MP-DOCUMENT.Document" />
@@ -513,6 +527,8 @@
         <export-Table PURPOSE="Re-export of MP-TABLE.Table" />
         <export-Style PURPOSE="Re-export of MP-STYLE.Style" />
         <export-Image PURPOSE="Re-export of MP-CONTENT.Image" />
+        <export-List PURPOSE="Re-export of MP-LIST.List" />
+        <export-ListKind PURPOSE="Re-export of MP-LIST.ListKind enum" />
         <export-TOC PURPOSE="Re-export of MP-DOCUMENT.TOC" />
         <export-Pt PURPOSE="Re-export of MP-STYLE.Pt" />
         <export-ColorPalette PURPOSE="Re-export of MP-STYLE.ColorPalette" />
@@ -588,7 +604,9 @@
     <CrossLink from="MP-SDK" to="MP-STYLE" relation="SDK re-exports Style, Pt, ColorPalette + hosts the preset registry" />
     <CrossLink from="MP-CHART" to="MP-STYLE" relation="Chart factories pull active Style preset to apply matplotlib rcParams (font, color cycle, chartjunk removal)" />
     <CrossLink from="MP-SECTION" to="MP-CHART" relation="Section.add_chart(chart) appends to _blocks (Phase-8 unstubs the BLOCK_PHASE_GUARD path); Section.render walks Chart.render alongside Paragraph/Table/Image" />
+    <CrossLink from="MP-SECTION" to="MP-LIST" relation="Section.add_list(list_block) appends to _blocks; Section.render walks List.render alongside other block types" />
     <CrossLink from="MP-SDK" to="MP-CHART" relation="SDK re-exports Chart per handover §3.4 surface list (Phase-8 addition)" />
+    <CrossLink from="MP-SDK" to="MP-LIST" relation="SDK re-exports List + ListKind" />
     <CrossLink from="MP-DOCUMENT" to="MP-VALIDATE" relation="Document.validate() delegates to MP-VALIDATE.run_checks via temp-file pattern (Wave-9-4 unstub)" />
     <CrossLink from="MP-DOCUMENT" to="MP-FIX" relation="Document.fix() delegates to MP-FIX.fix via temp-file pattern (Wave-9-4 unstub)" />
 

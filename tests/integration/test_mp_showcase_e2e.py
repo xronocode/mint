@@ -14,12 +14,11 @@ Generates the richest document the Pure Python Edition SDK can produce,
 then validates it against MP-VALIDATE on lenient mode.
 
 Gaps (not yet supported):
-  a) Bulleted/numbered/checklist lists                      — no List type
-  b) Merged table cells                                     — grid-only tables
-  c) Hyperlinks, bookmarks, footnotes, tab stops            — no API
-  d) Multi-column, per-section headers/footers, page breaks — no section API
-  e) Callout boxes (info/warning/code block)                — no component
-  f) Landscape orientation, custom margins                  — no page API
+  a) Merged table cells                                     — grid-only tables
+  b) Hyperlinks, bookmarks, footnotes, tab stops            — no API
+  c) Multi-column, per-section headers/footers, page breaks — no section API
+  d) Callout boxes (info/warning/code block)                — no component
+  e) Landscape orientation, custom margins                  — no page API
 """
 from __future__ import annotations
 
@@ -36,6 +35,8 @@ from mint_python.sdk import (
     Chart,
     Document,
     Image,
+    List,
+    ListKind,
     Section,
     Style,
     Table,
@@ -92,8 +93,32 @@ def build_showcase_document(tmp_dir: Path) -> Document:
     # ---------- §2: Style System ----------
     style_section = Section("Style System", level=1)
     style_section.add_paragraph("Built-in style presets:")
-    for preset_name in sorted(presets.keys()):
-        style_section.add_paragraph(f"  • {preset_name} — consistent typography, color palette, spacing")
+    style_section.add_list(List(
+        items=[
+            f"{name} — consistent typography, color palette, spacing"
+            for name in sorted(presets.keys())
+        ],
+        kind=ListKind.BULLET,
+    ))
+    style_section.add_paragraph("Numbered roadmap items:")
+    style_section.add_list(List(
+        items=[
+            "Per-run formatting (shipped in MP-CONTENT v0.1.0)",
+            "First-class List block (shipped in MP-LIST v0.1.0)",
+            "Merged table cells (deferred)",
+            "Hyperlinks, bookmarks, footnotes (deferred)",
+        ],
+        kind=ListKind.NUMBERED,
+    ))
+    style_section.add_paragraph("Pre-flight checklist:")
+    style_section.add_list(List(
+        items=[
+            "All tests green",
+            "Lint + mypy clean",
+            "Coverage at 100%",
+        ],
+        kind=ListKind.CHECKLIST,
+    ))
     doc.add_section(style_section)
 
     # ---------- §3: Tables ----------
@@ -253,15 +278,14 @@ def build_showcase_document(tmp_dir: Path) -> Document:
     gap_section = Section("Known Gaps & Future Work", level=1)
     gap_section.add_paragraph("The following features are not yet supported by the Pure Python Edition SDK:")
     gaps = [
-        "a) Bulleted, numbered, and checklist lists — no List block type",
-        "b) Merged table cells — Table assumes regular grid; no merge API",
-        "c) Hyperlinks, bookmarks, footnotes, tab stops — no corresponding block types",
-        "d) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
-        "e) Callout components (info, warning, code block) — no component library",
-        "f) Landscape orientation, custom page margins — page-level properties not exposed",
-        "g) Watermarks, text boxes, WordArt — artistic elements deferred",
-        "h) Track changes, comments, document protection — collaboration features deferred",
-        "i) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
+        "a) Merged table cells — Table assumes regular grid; no merge API",
+        "b) Hyperlinks, bookmarks, footnotes, tab stops — no corresponding block types",
+        "c) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
+        "d) Callout components (info, warning, code block) — no component library",
+        "e) Landscape orientation, custom page margins — page-level properties not exposed",
+        "f) Watermarks, text boxes, WordArt — artistic elements deferred",
+        "g) Track changes, comments, document protection — collaboration features deferred",
+        "h) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
     ]
     for gap in gaps:
         gap_section.add_paragraph(gap)
@@ -334,8 +358,9 @@ class TestShowcaseE2E:
         doc = build_showcase_document(tmp_path)
         last_section = doc._sections[-1]
         assert "Known Gaps" in last_section.title
-        # Should have at least 10 gap items
-        assert len(last_section._blocks) >= 10
+        # Should have at least 8 gap items (per-run + lists shipped, removed
+        # from the gaps list as a side effect; threshold drops accordingly).
+        assert len(last_section._blocks) >= 8
 
 
 # Run this manually to write the baseline:

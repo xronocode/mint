@@ -1211,6 +1211,35 @@
       <autonomy-assessment>SWARM-SAFE — pure construction and per-test render</autonomy-assessment>
     </V-MP-SECTION>
 
+    <V-MP-LIST MODULE="MP-LIST" PRIORITY="medium" STATUS="done" VERSION="0.1.0">
+      <test-files>
+        <file status="active">tests/unit/test_mp_list.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_list.py -x</check-1>
+        <check-2>ruff check src/mint_python/core/list_block.py</check-2>
+        <check-3>mypy src/mint_python/core/list_block.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">List(['a','b','c']).render(doc) emits 3 paragraphs each with python-docx 'List Bullet' style and the corresponding text</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">List(items, kind=ListKind.NUMBERED).render emits paragraphs with 'List Number' style</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">List(items, kind=ListKind.CHECKLIST).render prefixes each item text with the unicode ☐ + space; underlying paragraph style is 'List Bullet' (no native checkbox content-control in v0.1)</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">List(items=[]).render emits zero paragraphs (empty lists are silently allowed for conditional rendering)</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic">List(items, level=N) sets paragraph_format.left_indent to Inches(0.25 * N) for each emitted paragraph</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">List(items, level=-1) raises LIST_LEVEL_OUT_OF_RANGE at construction time</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic">render emits exactly one [MP-List][render][BLOCK_RENDER_LIST] marker carrying kind, items count, and level</scenario-7>
+        <scenario-8 kind="success" evidence="integration">Section.add_list(list_block) appends to _blocks, returns self; Section.render walks List.render so list paragraphs appear in document order</scenario-8>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-List][render][BLOCK_RENDER_LIST] — fires once per List.render call; payload: kind, items count, level</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>render() must NEVER write to the filesystem — only into the python-docx Document object</forbidden-1>
+        <forbidden-2>Mutating List.items between renders must NOT corrupt previously rendered paragraphs (python-docx materializes immediately on add_paragraph)</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — render() target is a per-test python-docx Document instance; no shared mutable state</autonomy-assessment>
+    </V-MP-LIST>
+
     <V-MP-DOCUMENT MODULE="MP-DOCUMENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-4">
       <test-files>
         <file status="active" activated-at="Wave-7-4">tests/unit/test_mp_document.py</file>

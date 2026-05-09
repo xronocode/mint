@@ -1032,7 +1032,7 @@ writeFileSync('output.docx', buffer);
         <fn-add_image PURPOSE="Append Image; returns self" />
         <fn-add_chart PURPOSE="STUB — raises NotImplementedError naming Phase 2 (matplotlib chart impl); emits BLOCK_PHASE_GUARD log marker" />
       </interface>
-      <depends>MP-CONTENT, MP-TABLE</depends>
+      <depends>MP-CONTENT, MP-TABLE, MP-CHART, MP-LIST</depends>
       <target>
         <source>src/mint_python/core/section.py</source>
         <tests>tests/unit/test_mp_section.py</tests>
@@ -1042,6 +1042,36 @@ writeFileSync('output.docx', buffer);
       </observability>
       <verification-ref>V-MP-SECTION</verification-ref>
     </MP-SECTION>
+
+    <MP-LIST NAME="Pure Python List Block" TYPE="CORE_LOGIC" LAYER="1" ORDER="13.5" STATUS="done" VERSION="0.1.0">
+      <contract>
+        <purpose>List block — bulleted, numbered, or checklist sequence rendered as N python-docx paragraphs with the appropriate built-in list style. Sibling block of Paragraph/Table/Image/Chart inside a Section.</purpose>
+        <inputs>
+          <param name="items" type="list[str]" />
+          <param name="kind" type="ListKind" desc="BULLET (default) | NUMBERED | CHECKLIST" />
+          <param name="level" type="int" desc="0..N nesting depth — applies 0.25 * level inch left indent" />
+        </inputs>
+        <outputs>
+          <param name="List_instance" type="List" />
+        </outputs>
+        <errors>
+          <error code="LIST_LEVEL_OUT_OF_RANGE" />
+        </errors>
+      </contract>
+      <interface>
+        <export-List PURPOSE="List block: items + kind + level; .render(parent_doc) emits one styled paragraph per item" />
+        <export-ListKind PURPOSE="StrEnum: BULLET | NUMBERED | CHECKLIST" />
+      </interface>
+      <depends>(none — direct python-docx primitives)</depends>
+      <target>
+        <source>src/mint_python/core/list_block.py</source>
+        <tests>tests/unit/test_mp_list.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-List</log-prefix>
+      </observability>
+      <verification-ref>V-MP-LIST</verification-ref>
+    </MP-LIST>
 
     <MP-DOCUMENT NAME="Pure Python Document Facade" TYPE="CORE_LOGIC" LAYER="3" ORDER="14" STATUS="done">
       <contract>

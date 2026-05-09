@@ -1,5 +1,5 @@
 # FILE: src/mint_python/sdk/__init__.py
-# VERSION: 0.2.0
+# VERSION: 0.3.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Public SDK surface for prompt-style document construction.
 #     Re-exports the §3 type set so users write
@@ -23,6 +23,8 @@
 #   Style - re-export of mint_python.core.style.Style
 #   Image - re-export of mint_python.core.content.Image
 #   Chart - re-export of mint_python.core.chart.Chart (Phase-8)
+#   List - re-export of mint_python.core.list_block.List
+#   ListKind - re-export of mint_python.core.list_block.ListKind
 #   Pt - re-export of mint_python.core.style.Pt
 #   ColorPalette - re-export of mint_python.core.style.ColorPalette
 #   TOC - Phase-7 marker class (Document.add_toc carries the only params)
@@ -30,7 +32,10 @@
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.2.0 - Wave-8-2 (MP-SDK): add Chart to the public re-export
+#   LAST_CHANGE: v0.3.0 - add List + ListKind to the public re-export surface
+#     (MP-LIST). Bulleted, numbered, and checklist sequences become a
+#     first-class block alongside Paragraph/Table/Image/Chart.
+#   PRIOR: v0.2.0 - Wave-8-2 (MP-SDK): add Chart to the public re-export
 #     surface per handover §3.4. Phase-8 unblocks chart-bearing user code.
 #   PRIOR: v0.1.0 - Wave-7-5: populate public re-exports per handover §3
 #     (Document/Section/Table/Style/Image/TOC/Pt/ColorPalette + presets alias).
@@ -42,6 +47,7 @@ from __future__ import annotations
 from mint_python.core.chart import Chart
 from mint_python.core.content import Image
 from mint_python.core.document import Document
+from mint_python.core.list_block import List, ListKind
 from mint_python.core.section import Section
 from mint_python.core.style import (
     BUILTIN_PRESETS as presets,  # noqa: N811 - public alias per handover §3
@@ -65,6 +71,8 @@ __all__ = [
     "ColorPalette",
     "Document",
     "Image",
+    "List",
+    "ListKind",
     "Pt",
     "Section",
     "Style",
