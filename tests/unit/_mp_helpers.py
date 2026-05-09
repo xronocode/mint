@@ -56,17 +56,60 @@ _LEGACY_BLOCK_NAMES: tuple[str, ...] = (
 def build_golden_document(out_path: Path) -> Path:
     """VF-013 golden document builder — single source of truth.
 
-    Phase-7 pre-Wave-7-5 STUB: raises NotImplementedError naming the activating
-    wave so a worker that accidentally imports this before mint_python.sdk is
-    populated gets a clear signal. Wave-7-5 worker replaces the body with the
-    real construction per VF-013 golden-document-spec.
+    Constructs the Phase-7 acceptance fixture per VF-013 golden-document-spec
+    in docs/verification-plan.xml: alga_corporate preset, cover (Q2 Memo /
+    Phase-7 acceptance fixture), TOC max_level=2, two sections (Summary,
+    Details) with paragraphs + tables. Saves to out_path and returns the path.
+
+    Reproducibility: this function is the SINGLE source of truth for the
+    golden doc. Inlining the construction in test bodies is forbidden by
+    VF-013 reproducibility invariant.
     """
-    raise NotImplementedError(
-        "build_golden_document activates at Wave-7-5 (VF-013 e2e). "
-        "Phase-7 pre-Wave-7-5 stub: mint_python.sdk is not yet populated. "
-        "See docs/verification-plan.xml#VF-013 golden-document-spec for the "
-        "concrete body the Wave-7-5 worker implements."
+    from mint_python.core.content import Paragraph
+    from mint_python.core.document import Document
+    from mint_python.core.section import Section
+    from mint_python.core.table import Table
+
+    doc = Document(format="docx", title="VF-013 Golden Document").with_style_preset(
+        "alga_corporate"
     )
+    doc.add_cover(title="Q2 Memo", subtitle="Phase-7 acceptance fixture")
+    doc.add_toc(max_level=2)
+
+    summary = Section("Summary", level=1)
+    summary.add_paragraph(
+        Paragraph(
+            "This is the Phase-7 e2e fixture covering paragraph + table "
+            "rendering through MP-CONTENT and MP-TABLE."
+        )
+    )
+    summary.add_table(
+        Table.from_list(
+            [
+                ["Quarter", "Revenue"],
+                ["Q1", "$1.0M"],
+                ["Q2", "$1.3M"],
+            ],
+            header=True,
+        )
+    )
+    doc.add_section(summary)
+
+    details = Section("Details", level=1)
+    details.add_paragraph(Paragraph("Detail body line one."))
+    details.add_paragraph(Paragraph("Detail body line two."))
+    details.add_table(
+        Table.from_list_of_dicts(
+            [
+                {"Region": "NA", "Share": "60%"},
+                {"Region": "EU", "Share": "30%"},
+                {"Region": "APAC", "Share": "10%"},
+            ]
+        )
+    )
+    doc.add_section(details)
+
+    return doc.save(out_path)
 
 
 def extract_marker(msg: str) -> str | None:
