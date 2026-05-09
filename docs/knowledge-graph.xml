@@ -459,7 +459,7 @@
       </annotations>
     </MP-SECTION>
 
-    <MP-DOCUMENT NAME="Pure Python Document Facade" TYPE="CORE_LOGIC" STATUS="planned">
+    <MP-DOCUMENT NAME="Pure Python Document Facade" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Full §3.1 Document facade; save() produces valid .docx via python-docx + lxml; stubs Phase-3/5 methods</purpose>
       <path>src/mint_python/core/document.py</path>
       <depends>MP-SECTION, MP-STYLE</depends>

@@ -1102,9 +1102,9 @@
       <autonomy-assessment>SWARM-SAFE — pure construction and per-test render</autonomy-assessment>
     </V-MP-SECTION>
 
-    <V-MP-DOCUMENT MODULE="MP-DOCUMENT" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-4">
+    <V-MP-DOCUMENT MODULE="MP-DOCUMENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-4">
       <test-files>
-        <file status="planned" activates-at="Wave-7-4">tests/unit/test_mp_document.py</file>
+        <file status="active" activated-at="Wave-7-4">tests/unit/test_mp_document.py</file>
         <file status="planned" activates-at="Wave-7-5">tests/integration/test_mp_e2e.py</file>
       </test-files>
       <module-checks>
@@ -1442,7 +1442,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Wave-7-3>
 
-    <Wave-7-4 PHASE="Phase-7" SCOPE="MP-DOCUMENT" STATUS="planned">
+    <Wave-7-4 PHASE="Phase-7" SCOPE="MP-DOCUMENT" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Land Document facade with full §3.1 API: real save() via python-docx + lxml; cover/header/footer rendered via lxml direct write where python-docx APIs are insufficient; stubs (inject_grace/validate/fix/to_pdf) raise NotImplementedError naming target phase.</goal>
       <commands>
         <command-1>pytest tests/unit/test_mp_document.py -x</command-1>
