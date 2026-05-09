@@ -476,8 +476,8 @@
         <fn-set_footer PURPOSE="Document-wide footer" />
         <fn-save PURPOSE="Serialize to .docx; emits BLOCK_SAVE_DOCX with section_count + table_count + output_path" />
         <fn-inject_grace PURPOSE="CORE METHOD (delegation pattern): public API on Document per handover §3.1; delegates to MP-GRACE.inject_manifest_and_instructions; Phase-7 stub raises NotImplementedError pointing at Phase 5" />
-        <fn-validate PURPOSE="STUB Phase-3 — pure-Python validation deferred to MP-RULES + MP-VALIDATE" />
-        <fn-fix PURPOSE="STUB Phase-3 — pure-Python fix engine deferred" />
+         <fn-validate PURPOSE="Phase-3 (done Wave-9-4): delegates to MP-VALIDATE.run_checks via temp-file save → validate pattern. Returns ValidationReport." />
+         <fn-fix PURPOSE="Phase-3 (done Wave-9-4): delegates to MP-FIX.fix via temp-file save → fix pattern. Returns FixReport." />
         <fn-to_pdf PURPOSE="STUB Phase-5 — Gotenberg/render integration deferred" />
       </annotations>
     </MP-DOCUMENT>
@@ -589,6 +589,11 @@
     <CrossLink from="MP-CHART" to="MP-CONTENT" relation="Chart.render mirrors the Image render protocol — calls parent_doc.add_picture with PNG bytes (Phase-8) producing an inline_shape" />
     <CrossLink from="MP-SECTION" to="MP-CHART" relation="Section.add_chart(chart) appends to _blocks (Phase-8 unstubs the BLOCK_PHASE_GUARD path); Section.render walks Chart.render alongside Paragraph/Table/Image" />
     <CrossLink from="MP-SDK" to="MP-CHART" relation="SDK re-exports Chart per handover §3.4 surface list (Phase-8 addition)" />
+    <CrossLink from="MP-DOCUMENT" to="MP-VALIDATE" relation="Document.validate() delegates to MP-VALIDATE.run_checks via temp-file pattern (Wave-9-4 unstub)" />
+    <CrossLink from="MP-DOCUMENT" to="MP-FIX" relation="Document.fix() delegates to MP-FIX.fix via temp-file pattern (Wave-9-4 unstub)" />
+    <CrossLink from="MP-VALIDATE" to="MP-RULES" relation="run_checks loads rules via MP-RULES.all_rules and evaluates each via MP-RULES.evaluate" />
+    <CrossLink from="MP-FIX" to="MP-VALIDATE" relation="apply_fixes calls MP-VALIDATE.run_checks for re-validation after each fix iteration" />
+    <CrossLink from="MP-FIX" to="MP-RULES" relation="apply_fixes uses MP-RULES.Violation, FixCategory, Severity types for classification" />
     <CrossLink from="MP-DOCUMENT" to="M-VALIDATE" relation="Phase-7 e2e gate: saved .docx must pass M-VALIDATE on lenient mode (existing js-side validator; Phase-3 will land MP-VALIDATE pure-Python successor)" />
 
     <!-- Future module placeholder: registered to anchor MP-DOCUMENT.inject_grace delegation contract. Not part of Phase-7. -->

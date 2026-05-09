@@ -1542,7 +1542,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Gate-Phase-8>
 
-    <Gate-Phase-9 PHASE="Phase-9" STATUS="planned">
+    <Gate-Phase-9 PHASE="Phase-9" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Pure Python Edition Phase 3 (handover §6 Phase 3) lands: MP-RULES + MP-VALIDATE + MP-FIX as pure-python successors to M-RULES/M-VALIDATE/M-FIX. Document.validate(level) and Document.fix(strategy) unstubbed. Golden doc passes lenient MP-VALIDATE with hard_count=0; fix pipeline converges on bad fixtures; destructive violations rejected. VF-013 + VF-014 non-regression green. Coverage 100% on all new mint_python modules.</goal>
       <commands>
         <command-1>pytest tests/ -x --timeout=120</command-1>
