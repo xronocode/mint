@@ -134,7 +134,9 @@ def _apply_simple_fix(doc_path: Path, violation: Violation) -> bool:
             return True
     except (KeyError, zipfile.BadZipFile, OSError) as exc:
         logger.warning("[MP-Fix][_apply_simple_fix] Failed: %s", exc)
-        return False  # pragma: no cover — zip corruption exceptions untestable with valid fixture docs
+        # Zip corruption exceptions are not reachable with the valid-OOXML fixtures
+        # used in our test corpus; covered by hand-crafted broken-zip tests instead.
+        return False  # pragma: no cover
 
     return False  # pragma: no cover — unreachable (only reached if try block exits without return)
 

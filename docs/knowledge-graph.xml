@@ -475,10 +475,10 @@
         <fn-set_header PURPOSE="Document-wide header (Phase-1 scope)" />
         <fn-set_footer PURPOSE="Document-wide footer" />
         <fn-save PURPOSE="Serialize to .docx; emits BLOCK_SAVE_DOCX with section_count + table_count + output_path" />
-        <fn-inject_grace PURPOSE="CORE METHOD (delegation pattern): public API on Document per handover §3.1; delegates to MP-GRACE.inject_manifest_and_instructions; Phase-7 stub raises NotImplementedError pointing at Phase 5" />
-         <fn-validate PURPOSE="Phase-3 (done Wave-9-4): delegates to MP-VALIDATE.run_checks via temp-file save → validate pattern. Returns ValidationReport." />
-         <fn-fix PURPOSE="Phase-3 (done Wave-9-4): delegates to MP-FIX.fix via temp-file save → fix pattern. Returns FixReport." />
-        <fn-to_pdf PURPOSE="STUB Phase-5 — Gotenberg/render integration deferred" />
+        <fn-inject_grace PURPOSE="CORE METHOD (delegation pattern): public API on Document per handover §3.1; delegates to MP-GRACE.bootstrap writing GRACE manifest + 10 instruction rules as Custom XML Parts under urn:mint:grace:2026:manifest into the saved .docx, preserving existing customXml entries (Phase-11 unstub commit 3ed23fd)" />
+        <fn-validate PURPOSE="Phase-3 (done Wave-9-4): delegates to MP-VALIDATE.run_checks via temp-file save → validate pattern. Returns ValidationReport." />
+        <fn-fix PURPOSE="Phase-3 (done Wave-9-4): delegates to MP-FIX.fix via temp-file save → fix pattern. Returns FixReport." />
+        <fn-to_pdf PURPOSE="CORE METHOD: delegates to Gotenberg HTTP adapter for PDF rendering — saves docx to temp, posts to Gotenberg /forms/libreoffice/convert, writes PDF bytes to the caller-supplied path (Phase-11 unstub commit 4e682d7)" />
       </annotations>
     </MP-DOCUMENT>
 
@@ -596,16 +596,23 @@
     <CrossLink from="MP-FIX" to="MP-RULES" relation="apply_fixes uses MP-RULES.Violation, FixCategory, Severity types for classification" />
     <CrossLink from="MP-DOCUMENT" to="MP-VALIDATE" relation="Phase-9: saved .docx validates via MP-VALIDATE.run_checks (Wave-9-4 unstub). Phantom M-VALIDATE reference retired." />
 
-    <!-- Future module placeholder: registered to anchor MP-DOCUMENT.inject_grace delegation contract. Not part of Phase-7. -->
+    <!-- Phase 11: Pure Python Edition Phase 5 — GRACE injector + PDF (handover §3.1, §6) -->
 
-    <MP-GRACE NAME="Pure Python GRACE Injector v1.1" TYPE="CORE_LOGIC" STATUS="planned" PLANNED_FOR="Phase-5 of pure-python rollout (handover §6); separate dedicated phase TBD">
-      <purpose>Pure Python successor to M-GRACE: emit GRACE manifest + instructions as Custom XML Parts under urn:mint:grace:2026:manifest into a saved .docx, preserving any existing Custom XML Parts from other vendors. Called via delegation from MP-DOCUMENT.inject_grace; not invoked directly by user code through the SDK.</purpose>
-      <path>src/mint_python/grace/ (skeleton only in Phase-7; concrete implementation in handover §6 Phase 5)</path>
-      <depends>MP-DOCUMENT (for the saved-file path), lxml (for Custom XML Parts emission), MP-STYLE (for serializing Style references inside the manifest)</depends>
-      <verification-ref>V-MP-GRACE (planned)</verification-ref>
-      <note>This node is registered now (Phase-7 plan) so MP-DOCUMENT.inject_grace has a concrete delegation target in the graph. Annotation surface will populate when Phase-5-pure-python lands.</note>
+    <MP-GRACE NAME="Pure Python GRACE Injector v1.1" TYPE="CORE_LOGIC" STATUS="done" ADDED_AT="2026-05-09">
+      <purpose>Pure Python successor to M-GRACE: emit GRACE manifest + instructions as Custom XML Parts under urn:mint:grace:2026:manifest into a saved .docx, preserving any existing Custom XML Parts from other vendors. Called via delegation from MP-DOCUMENT.inject_grace; stdlib-only deps (zipfile + xml.etree + tempfile + hashlib + uuid) — NO cross-package imports inside src/mint_python/.</purpose>
+      <path>src/mint_python/grace/__init__.py</path>
+      <depends>zipfile, xml.etree.ElementTree, hashlib, uuid, tempfile, logging (stdlib)</depends>
+      <verification-ref>V-MP-GRACE</verification-ref>
+      <annotations>
+        <type-GRACEManifest PURPOSE="Manifest dataclass: document_structure dict, fingerprint hash, instructions list, namespace, xml_part_name" />
+        <type-GRACEInjectionError PURPOSE="Raised on path-traversal in source ZIP, missing source file, or structure analysis failure" />
+        <export-GRACE_NS PURPOSE="Constant: 'urn:mint:grace:2026:manifest'" />
+        <export-GRACE_INSTRUCTIONS PURPOSE="Default 10-rule instruction list bootstrapped into the manifest when caller does not supply explicit rules" />
+        <fn-bootstrap PURPOSE="Inject GRACE manifest + instructions Custom XML Part into source .docx; computes fingerprint sha256 of source; emits [MP-Grace][inject][BLOCK_INJECT_MANIFEST] at INFO with part_name + fingerprint[:16]; returns GRACEManifest" />
+        <fn-describe PURPOSE="Read existing GRACE manifest from .docx if present (looks for grace/*.xml inside the ZIP); returns GRACEManifest or None" />
+      </annotations>
     </MP-GRACE>
 
-    <CrossLink from="MP-DOCUMENT" to="MP-GRACE" relation="Document.inject_grace is a delegation chokepoint: the public API lives on Document per handover §3.1; the OOXML Custom XML Parts emission lives in MP-GRACE; Phase-7 stubs the chokepoint with NotImplementedError" />
+    <CrossLink from="MP-DOCUMENT" to="MP-GRACE" relation="Document.inject_grace is a delegation chokepoint: the public API lives on Document per handover §3.1; MP-GRACE.bootstrap writes the urn:mint:grace:2026:manifest Custom XML Parts into the saved .docx (Phase-11 unstub)." />
   </Project>
 </KnowledgeGraph>

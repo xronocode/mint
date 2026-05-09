@@ -2,7 +2,7 @@
 
 **Дата:** 2026-05-09
 **Branch:** `main`
-**Status:** Phase-7 + Phase-8 + Phase-9 shipped; ready for Phase-11 dispatch (Phase-10 skipped per roadmap)
+**Status:** Phase-7 + Phase-8 + Phase-9 + Phase-11 shipped (Phase-10 = handover §6 Phase 4 Execution tiers + RestrictedPython, skipped per roadmap; deferred TBD). Active stubs: ONLY `Chart.from_plotly` (Phase-12+; separate render pipeline). Document API surface complete: validate/fix/inject_grace/to_pdf all functional via delegation.
 
 ## Project context
 
@@ -64,15 +64,20 @@ doc.save("memo.docx")
 
 ## Active stubs (NotImplementedError + BLOCK_PHASE_GUARD)
 
-These are the surfaces that future phases unblock:
+After Phase-11 closeout, only ONE stub remains:
 
 | Stub | Target Phase | Notes |
-|---|---|---|---|
-| `Document.inject_grace` | Phase-11 (handover §6 Phase 5) | MP-GRACE planned in knowledge-graph; delegation pattern documented |
-| `Document.to_pdf` | Phase-11 | Gotenberg integration |
-| `Chart.from_plotly` | Phase-12+ | separate render pipeline (HTML interactive) |
+|---|---|---|
+| `Chart.from_plotly` | Phase-12+ | separate render pipeline (plotly is HTML/JS interactive, not PNG/EMF via matplotlib) |
 
-## Pre-Phase-9 reading list (in order)
+**Retired stubs (chronological):**
+
+- Phase-8 commit `caf30ab`: `Section.add_chart` (was Phase-2 stub)
+- Phase-9 commit `f021046`: `Document.validate` + `Document.fix` (were Phase-3 stubs; delegate via temp-file save → MP-VALIDATE/MP-FIX)
+- Phase-11 commit `3ed23fd`: `Document.inject_grace` (was Phase-5 stub; delegates to MP-GRACE.bootstrap)
+- Phase-11 commit `4e682d7`: `Document.to_pdf` (was Phase-5 stub; delegates to Gotenberg HTTP adapter)
+
+## Pre-Phase-N reading list (general convention for any new phase)
 
 1. **`docs/mint-pure-python-handover-v1.md`** §6 Phase 3 + §7 acceptance criteria — canonical scope spec
 2. **`docs/development-plan.xml`** Phase-8 + ImplementationOrder/Phase-7 — convention reference (module structure, step descriptions, status flips)

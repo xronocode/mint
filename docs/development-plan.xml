@@ -1188,6 +1188,44 @@ writeFileSync('output.docx', buffer);
       <depends>MP-VALIDATE, MP-RULES, zipfile, lxml, shutil, hashlib, io</depends>
       <verification-ref>V-MP-FIX</verification-ref>
     </MP-FIX>
+
+    <!-- Phase 11: Pure Python Edition Phase 5 — GRACE injector + PDF (handover §3.1, §6) -->
+
+    <MP-GRACE NAME="Pure Python GRACE Injector v1.1" TYPE="CORE_LOGIC" LAYER="2" ORDER="20" STATUS="done" ADDED_AT="2026-05-09">
+      <contract>
+        <purpose>Inject GRACE manifest + 10 instruction rules as Custom XML Parts under urn:mint:grace:2026:manifest into a saved .docx, preserving any existing customXml entries from other vendors. Pure Python successor to M-GRACE; stdlib-only deps. Called via delegation from MP-DOCUMENT.inject_grace.</purpose>
+        <inputs>
+          <param name="document_path" type="Path" />
+          <param name="rules" type="list[str] | None" />
+          <param name="output_path" type="Path | None" />
+        </inputs>
+        <outputs>
+          <param name="manifest" type="GRACEManifest" />
+        </outputs>
+        <errors>
+          <error code="GRACE_INJECTION_ERROR_FILE_NOT_FOUND" />
+          <error code="GRACE_INJECTION_ERROR_PATH_TRAVERSAL" />
+          <error code="GRACE_INJECTION_ERROR_STRUCTURE_ANALYSIS" />
+        </errors>
+      </contract>
+      <interface>
+        <export-GRACE_NS PURPOSE="Constant: 'urn:mint:grace:2026:manifest'" />
+        <export-GRACE_INSTRUCTIONS PURPOSE="Default 10-rule instruction list" />
+        <type-GRACEManifest PURPOSE="Manifest dataclass: document_structure dict, fingerprint hash, instructions list, namespace, xml_part_name" />
+        <type-GRACEInjectionError PURPOSE="Raised on path-traversal in source ZIP, missing source file, or structure analysis failure" />
+        <fn-bootstrap PURPOSE="Inject GRACE manifest + instructions Custom XML Part into source .docx; emits [MP-Grace][inject][BLOCK_INJECT_MANIFEST] at INFO; returns GRACEManifest" />
+        <fn-describe PURPOSE="Read existing GRACE manifest from .docx if present (looks for grace/*.xml); returns GRACEManifest or None" />
+      </interface>
+      <depends>none (stdlib only — zipfile, xml.etree.ElementTree, hashlib, uuid, tempfile, logging)</depends>
+      <target>
+        <source>src/mint_python/grace/__init__.py</source>
+        <tests>tests/unit/test_mp_grace.py + tests/integration/test_mp_grace_e2e.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Grace</log-prefix>
+      </observability>
+      <verification-ref>V-MP-GRACE</verification-ref>
+    </MP-GRACE>
   </Modules>
 
   <DataFlow>
@@ -1302,6 +1340,26 @@ writeFileSync('output.docx', buffer);
       <step-4>Register on Document for downstream Section/Table/Image to inherit.</step-4>
       <evidence>[MP-Style][load_preset][BLOCK_LOAD_PRESET] at INFO with preset name + source (registry|file). On failure: structured ValueError with field path.</evidence>
     </DF-010>
+
+    <DF-015 NAME="Pure Python Validation Flow" TRIGGER="Document.validate(level=...) (Phase-9)">
+      <step-1>Document.validate creates a tempfile.NamedTemporaryFile (suffix=.docx, delete=False); copies the in-memory document to the temp path via self.save().</step-1>
+      <step-2>Resolve the level string ("lenient"/"strict"/"audit" or unknown→AUDIT) via _resolve_severity_mode helper; returns SeverityMode enum value.</step-2>
+      <step-3>Call mint_python.validate.run_checks(tmp_path, severity) which opens the saved .docx ZIP, parses word/document.xml + sibling parts via lxml, and evaluates all_rules from the YAML registry.</step-3>
+      <step-4>Classify violations via classify_violations grouping by severity + fix_category; return ValidationReport with totals + mode + passed boolean (depends on level).</step-4>
+      <step-5>finally: tmp_path.unlink(missing_ok=True) — cleanup is unconditional even on exception (VF-016 inv-1 TEMP-FILE-CLEANUP).</step-5>
+      <evidence>[MP-Validate][run_checks][BLOCK_RUN_CHECKS] at INFO with violation count + mode + classification breakdown. NO BLOCK_PHASE_GUARD on this path post-Phase-9 (VF-016 forbidden-1).</evidence>
+    </DF-015>
+
+    <DF-016 NAME="Pure Python Auto-Fix Flow" TRIGGER="Document.fix(strategy=...) (Phase-9)">
+      <step-1>Document.fix saves to tempfile (same pattern as DF-015 step-1).</step-1>
+      <step-2>Call mint_python.fix.fix(tmp_path) which: (a) calls run_checks at LENIENT to get current violations; (b) creates .bak backup via create_backup; (c) iterates safe/visual fixes (D-H09 newline fix is the only Phase-9 implementation); (d) re-validates after each iteration and detects cascade (max 3 iterations).</step-2>
+      <step-3>Destructive violations short-circuit at the start: DestructiveRejectedError raised before any file mutation.</step-3>
+      <step-4>BackupFailedError propagates: backup_path = None then re-raise (no silent swallow).</step-4>
+      <step-5>Cascade detected (no convergence after max iterations): CascadeDetectedError raised with iteration count.</step-5>
+      <step-6>Return FixReport with applied_fixes list, remaining_violations, backup_path, iterations count, diff summary.</step-6>
+      <step-7>finally: tmp_path.unlink(missing_ok=True).</step-7>
+      <evidence>[MP-Fix][backup][BLOCK_CREATE_BACKUP] + [MP-Fix][apply][BLOCK_APPLY_FIX] at INFO per iteration; ValidationReport (re-validate) emits its own BLOCK_RUN_CHECKS.</evidence>
+    </DF-016>
   </DataFlow>
 
   <ImplementationOrder>
@@ -1385,6 +1443,18 @@ writeFileSync('output.docx', buffer);
       <step-4 module="MP-DOCUMENT" status="done" verification="VF-016">Unstub Document.validate(level) → temp-file delegation to MP-VALIDATE.run_checks → returns ValidationReport. Unstub Document.fix(strategy) → temp-file delegation to MP-FIX.fix → returns FixReport. inject_grace and to_pdf remain stubs.</step-4>
       <step-5 module="(test surface)" status="done" verification="VF-015">Add tests/integration/test_mp_validate_fix_e2e.py: validate pipeline (Document.validate→report), fix pipeline (Document.fix→report), temp-file cleanup, BLOCK_PHASE_GUARD absence on validate/fix. VF-013+VF-014 non-regression green.</step-5>
     </Phase-9>
+
+    <Phase-10 name="Pure Python Edition — Phase 4 (Execution tiers + RestrictedPython sandbox per handover §6)" status="skipped" SKIP_RATIONALE="Roadmap pivot 2026-05-09: Phase-11 (GRACE + Gotenberg) prioritized over execution-tier sandbox. MP-EXEC-{SMALL,MEDIUM,FRONTIER} + RestrictedPython sandbox + VF-012 PurePythonRegression activation deferred to a future phase TBD. M-SANDBOX (legacy js engine) remains the only execution path until the skip is unwound — VF-012 deprecation-trigger remains unsatisfied. Decision recorded for traceability; see SESSION_HANDOFF_2026-05-09.md.">
+      <note>Skipped by design — not abandoned. The handover §6 Phase 4 scope (sandboxed Python execution for tier=frontier code) remains in the roadmap but is sequenced after Phase-11 GRACE/PDF work.</note>
+    </Phase-10>
+
+    <Phase-11 name="Pure Python Edition — Phase 5 (GRACE + Gotenberg PDF per handover §3.1, §6)" status="done" COMPLETED_AT="2026-05-09">
+      <goal>Land MP-GRACE as a pure-python successor to M-GRACE. Unstub Document.inject_grace and Document.to_pdf — the last two stubs declared in MP-DOCUMENT MODULE_MAP that retire surfaces deferred from Phase-7. Gate-Phase-11: 100% coverage maintained, ruff/mypy clean, e2e tests for GRACE injection + PDF generation green.</goal>
+      <step-1 module="MP-GRACE" status="done" verification="V-MP-GRACE">MP-GRACE module: GRACEManifest dataclass + bootstrap (inject manifest as Custom XML Part) + describe (read back existing manifest). 10 default instruction rules (GRACE_INSTRUCTIONS). Path-traversal guard on source ZIP. Stdlib-only deps (zipfile, xml.etree, hashlib, uuid, tempfile). Emits BLOCK_INJECT_MANIFEST + BLOCK_PRESERVE_EXISTING.</step-1>
+      <step-2 module="MP-DOCUMENT" status="done" verification="V-MP-DOCUMENT">In-place unstub: Document.inject_grace → temp-file delegation to MP-GRACE.bootstrap. Phase-7 BLOCK_PHASE_GUARD on inject_grace retired.</step-2>
+      <step-3 module="MP-DOCUMENT" status="done" verification="V-MP-DOCUMENT">In-place unstub: Document.to_pdf → Gotenberg HTTP adapter (POST /forms/libreoffice/convert with the saved docx; receive PDF bytes; write to caller-supplied path). Phase-7 BLOCK_PHASE_GUARD on to_pdf retired.</step-3>
+      <step-4 module="(test surface)" status="done" verification="VF-016">Add tests/unit/test_mp_grace.py + tests/integration/test_mp_grace_e2e.py + tests/integration/test_mp_pdf_e2e.py covering: bootstrap idempotency under fingerprint, describe round-trip, vendor Custom XML Parts preservation (non-GRACE customXml entries unchanged after injection), Gotenberg adapter happy path + error path. VF-013 + VF-014 + VF-015 + VF-016 all stay green (non-regression).</step-4>
+    </Phase-11>
   </ImplementationOrder>
 
   <ExecutionPolicy>

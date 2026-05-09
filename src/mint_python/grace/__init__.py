@@ -68,7 +68,8 @@ def _validate_zip_paths(zf: zipfile.ZipFile) -> None:
     for name in zf.namelist():
         p = Path(name)
         if p.is_absolute() or ".." in p.parts:
-            raise GRACEInjectionError(f"Unsafe ZIP entry: {name!r}")  # pragma: no cover — requires malicious ZIP fixture
+            # Path traversal guard — defensive; requires malicious-ZIP fixture to trigger.
+            raise GRACEInjectionError(f"Unsafe ZIP entry: {name!r}")  # pragma: no cover
 
 
 class GRACEInjectionError(Exception):
@@ -140,7 +141,8 @@ def describe(document_path: Path) -> GRACEManifest | None:
                 if name.startswith("grace/") and name.endswith(".xml"):
                     xml_content = zf.read(name).decode("utf-8")
                     return _parse_manifest_xml(xml_content, name)
-    except (zipfile.BadZipFile, KeyError):  # pragma: no cover — requires corrupted ZIP with grace/ entries
+    # BadZipFile path requires a corrupted .docx with grace/ entries; not in fixture corpus.
+    except (zipfile.BadZipFile, KeyError):  # pragma: no cover
         pass
 
     return None
@@ -257,7 +259,9 @@ def _update_content_types(tmp_dir: Path, part_name: str) -> None:
 def _update_relationships(tmp_dir: Path, part_name: str) -> None:
     rels_path = tmp_dir / "_rels" / ".rels"
     if not rels_path.exists():
-        rels_path.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover — every valid .docx has _rels/.rels
+        # Defensive: every valid .docx ships _rels/.rels; this branch is unreachable
+        # for the fixture corpus.
+        rels_path.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover
         root = ET.Element(f"{{{REL_NS}}}Relationships")  # pragma: no cover
     else:
         try:
