@@ -1086,6 +1086,53 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-DOCUMENT</verification-ref>
     </MP-DOCUMENT>
 
+    <MP-CHART NAME="Pure Python Chart factories + render" TYPE="CORE_LOGIC" LAYER="2" ORDER="14" STATUS="planned">
+      <contract>
+        <purpose>Chart class with 7 factory constructors per handover §3.4 (bar, line, stacked_bar, pie, heatmap, waterfall, gantt) + from_matplotlib/from_seaborn/from_plotly channels. Renders matplotlib Figure to PNG @ 300 DPI and embeds via python-docx add_picture; corporate theming applied from active Style preset; chartjunk removal via matplotlib rcParams. Phase-8 unblocks Section.add_chart stub.</purpose>
+        <inputs>
+          <param name="labels" type="list[str] | None" />
+          <param name="values" type="list[float] | list[list[float]]" />
+          <param name="title" type="str | None" />
+          <param name="caption" type="str | None" />
+          <param name="width_inches" type="float | None" />
+          <param name="height_inches" type="float | None" />
+          <param name="vector" type="bool" />
+          <param name="matplotlib_figure" type="matplotlib.figure.Figure" />
+        </inputs>
+        <outputs>
+          <param name="Chart_instance" type="Chart" />
+        </outputs>
+        <errors>
+          <error code="CHART_INVALID_DATA" />
+          <error code="CHART_FIGURE_RENDER_FAILED" />
+          <error code="PHASE_GUARD_NOT_IMPLEMENTED" />
+        </errors>
+      </contract>
+      <interface>
+        <export-Chart PURPOSE="Chart model with cached PNG bytes + width/height/caption + .render(parent_doc)" />
+        <fn-bar PURPOSE="Chart.bar(labels, values, title=None, **kwargs) — vertical bar chart" />
+        <fn-line PURPOSE="Chart.line(labels, values, title=None, **kwargs) — line chart with optional multi-series" />
+        <fn-stacked_bar PURPOSE="Chart.stacked_bar(labels, series_dict, title=None, **kwargs) — stacked verticals" />
+        <fn-pie PURPOSE="Chart.pie(labels, values, title=None, **kwargs) — pie chart with corporate palette slices" />
+        <fn-heatmap PURPOSE="Chart.heatmap(matrix, row_labels, col_labels, title=None, **kwargs) — matplotlib imshow with colorbar" />
+        <fn-waterfall PURPOSE="Chart.waterfall(labels, deltas, title=None, **kwargs) — composed from bar+annotation primitives (matplotlib has no first-class waterfall)" />
+        <fn-gantt PURPOSE="Chart.gantt(tasks, title=None, **kwargs) — horizontal bar variant with task spans" />
+        <fn-from_matplotlib PURPOSE="Chart.from_matplotlib(fig, caption=None, width_inches=None, vector=True) — wrap user-built matplotlib Figure; vector kwarg accepted for forward-compat but Phase-8 emits PNG @ 300 DPI" />
+        <fn-from_seaborn PURPOSE="Chart.from_seaborn(fig, **kwargs) — lazy-imports seaborn; aliases to from_matplotlib (seaborn returns matplotlib Figure)" />
+        <fn-from_plotly PURPOSE="STUB Phase-9+: raises NotImplementedError naming Phase-9 + emits [MP-Chart][from_plotly][BLOCK_PHASE_GUARD]" />
+        <fn-render PURPOSE="Chart.render(parent_doc) — calls parent_doc.add_picture with PNG bytes + Inches(width); emits [MP-Chart][render][BLOCK_RENDER_CHART] chart_type=%s emu_width=%d" />
+      </interface>
+      <depends>MP-STYLE, MP-CONTENT</depends>
+      <target>
+        <source>src/mint_python/core/chart.py</source>
+        <tests>tests/unit/test_mp_chart.py + tests/integration/test_mp_chart_e2e.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Chart</log-prefix>
+      </observability>
+      <verification-ref>V-MP-CHART</verification-ref>
+    </MP-CHART>
+
     <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" LAYER="4" ORDER="15" STATUS="done">
       <contract>
         <purpose>Public re-exports of all §3 types so users write `from mint_python.sdk import Document, Section, Table, Style, Image, TOC, Pt, ColorPalette`. Hosts the named-preset registry and the with_style_from(path) loader.</purpose>
@@ -1210,6 +1257,23 @@ writeFileSync('output.docx', buffer);
       <evidence>[MP-Document][save][BLOCK_SAVE_DOCX] fires once per save; [MP-Document][stub][BLOCK_PHASE_GUARD] fires when a stub is touched. M-VALIDATE invoked on the saved file (via existing CLI `mint --engine js validate output.docx`) reports zero hard violations on lenient mode for simple text+table documents.</evidence>
     </DF-009>
 
+    <DF-011 NAME="Chart Construction" TRIGGER="Chart.&lt;factory&gt;(...) or Chart.from_matplotlib(fig, ...) (Phase-8)">
+      <step-1>Factory dispatch: Chart.bar/line/stacked_bar/pie/heatmap/waterfall/gantt accept canonical data shapes; from_matplotlib accepts a pre-built matplotlib.figure.Figure.</step-1>
+      <step-2>Corporate theme application: pull Style namespace from active Document preset (passed via render-time context OR captured at construction via thread-local); apply matplotlib rcParams for font.family, color cycle, axes spine/grid styling (chartjunk removal); fallback to system defaults if Inter font unavailable.</step-2>
+      <step-3>Figure render: matplotlib savefig → BytesIO @ 300 DPI PNG; cached in Chart instance until first render(parent_doc) call.</step-3>
+      <step-4>BLOCK_BUILD_CHART emitted at INFO with chart_type + data_shape (rows × cols for matrix-typed charts; len(values) for 1D).</step-4>
+      <step-5>Plotly stub path: from_plotly emits BLOCK_PHASE_GUARD then raises NotImplementedError naming Phase-9+ before any matplotlib invocation.</step-5>
+      <evidence>[MP-Chart][&lt;factory&gt;][BLOCK_BUILD_CHART] fires once per factory call; [MP-Chart][from_plotly][BLOCK_PHASE_GUARD] fires on stub touch then raises.</evidence>
+    </DF-011>
+
+    <DF-012 NAME="Chart Embed in Section" TRIGGER="Section.add_chart(chart) called and Section.render(parent_doc) walks the block">
+      <step-1>Section.add_chart(chart: Chart) appends to _blocks and returns self (post-Phase-8: stub raising BLOCK_PHASE_GUARD is replaced with this concrete implementation).</step-1>
+      <step-2>Section.render iterates _blocks calling block.render(parent_doc) per block; Chart.render is invoked when block is a Chart instance.</step-2>
+      <step-3>Chart.render calls parent_doc.add_picture(BytesIO(self._png_bytes), width=Inches(self.width_inches)); python-docx assigns rId and embeds the image part.</step-3>
+      <step-4>BLOCK_RENDER_CHART emitted at INFO with chart_type + emu_width (resolved EMU value used in the OOXML w:cx attribute).</step-4>
+      <evidence>[MP-Chart][render][BLOCK_RENDER_CHART] fires exactly once per Chart.render call; the chart's inline_shape.width.emu == round(width_inches × 914400) on the saved .docx.</evidence>
+    </DF-012>
+
     <DF-010 NAME="Style Preset Loading" TRIGGER="Document.with_style_preset(name) | Document.with_style_from(path) | Style.load_preset(name) (Phase-7)">
       <step-1>Resolve preset source: registry lookup by name OR JSON file at path.</step-1>
       <step-2>Load + validate against schema (typography, color_palette, spacing, named_styles dict). On failure raise STYLE_PRESET_INVALID_SCHEMA with field path of the violation.</step-2>
@@ -1282,6 +1346,15 @@ writeFileSync('output.docx', buffer);
       <step-7 module="(infrastructure)" status="done" verification="V-MP-SDK">Update pyproject.toml [project].dependencies + uv.lock with python-docx ≥1.1 and pillow ≥10.x (landed mid-Wave-7-2 by the MP-CONTENT worker who hit the missing-deps gap; technology.xml already declared them in the Phase-7 plan commit). Note: docs/style-preset-schema.md was provisioned earlier by $grace-verification (commit 8163785) ahead of Wave-7-1 dispatch — not produced during Phase-7 implementation; treat its presence as an upstream verification artifact.</step-7>
       <step-8 module="(test surface)" status="done" verification="VF-013">Add tests/integration/test_mp_e2e.py: build a 3-section golden document (cover + 2 body sections, each with a paragraph + a table) via mint_python.sdk, save to tmp, run existing M-VALIDATE on lenient mode, assert zero hard violations + non-empty soft list (audit baseline). Reused by future phases as the python-engine regression anchor.</step-8>
     </Phase-7>
+
+    <Phase-8 name="Pure Python Edition — Phase 2 (Chart + matplotlib per handover §3.4, §6)" status="planned">
+      <goal>Land MP-CHART unblocking Section.add_chart. Concrete: 7 chart factories (bar, line, stacked_bar, pie, heatmap, waterfall, gantt) + from_matplotlib (primary user channel) + from_seaborn (lazy-import alias) on matplotlib backend; PNG @ 300 DPI rendering with corporate theme application + chartjunk removal; vector kwarg accepted for forward-compat but Phase-8 ships PNG only. Stubs (NotImplementedError + BLOCK_PHASE_GUARD): Chart.from_plotly. In-place updates retire two BLOCK_PHASE_GUARD emit sites: Section.add_chart (becomes concrete) and MP-SDK Chart re-export (becomes available). Phase-8 closes with VF-014: a chart-bearing 2-section document passes M-VALIDATE on lenient mode AND chart inline_shape EMU widths match requested. VF-013 (Phase-7 chart-free golden doc) MUST stay green — non-regression guard. Phase-2 of pure-python rollout per handover §6.</goal>
+      <step-1 module="MP-CHART" status="planned" verification="V-MP-CHART">Chart @dataclass with cached PNG bytes + width/height/caption + chart_type tag. 7 factory classmethods (bar/line/stacked_bar/pie/heatmap/waterfall/gantt) build matplotlib Figure with corporate theme applied (rcParams from active Style preset; fallback graceful), savefig to BytesIO @ 300 DPI PNG. from_matplotlib(fig, caption, width_inches, vector=True) wraps an externally-built Figure; vector kwarg accepted but Phase-8 ships PNG. from_seaborn lazy-imports seaborn (raises ImportError with "pip install seaborn" hint if missing) then aliases to from_matplotlib. from_plotly STUB emits [MP-Chart][from_plotly][BLOCK_PHASE_GUARD] then raises NotImplementedError naming Phase-9+. Each factory emits [MP-Chart][&lt;factory&gt;][BLOCK_BUILD_CHART] chart_type=&lt;name&gt; data_shape=&lt;...&gt; at INFO. .render(parent_doc) calls parent_doc.add_picture with PNG bytes + Inches(width); emits [MP-Chart][render][BLOCK_RENDER_CHART] chart_type=&lt;name&gt; emu_width=&lt;int&gt;. Chartjunk removal: top + right spines off, gridlines styled per Style preset.</step-1>
+      <step-2 module="MP-SECTION" status="planned" verification="V-MP-SECTION">In-place update: replace Section.add_chart stub (currently raises NotImplementedError + emits BLOCK_PHASE_GUARD) with concrete `add_chart(chart: Chart) -> Section` that appends to _blocks and returns self. Section.render unchanged — Chart.render protocol matches Paragraph/Table/Image siblings. Retire V-MP-SECTION scenario-5 (NotImplementedError) + scenario-6 (BLOCK_PHASE_GUARD on add_chart) — replace with positive scenarios verifying chart appended and Section.render walks Chart.render.</step-2>
+      <step-3 module="MP-SDK" status="planned" verification="V-MP-SDK">In-place update: add Chart to the public re-export list per handover §3 surface. Update __all__; bump CHANGE_SUMMARY to note Phase-8 surface addition. V-MP-SDK scenario-1 (§3 import list) extends with Chart.</step-3>
+      <step-4 module="(infrastructure)" status="planned" verification="V-MP-CHART">Update pyproject.toml [project].dependencies: add matplotlib &gt;=3.7,&lt;4. seaborn is NOT a hard dep — lazy-imported in Chart.from_seaborn. Update docs/technology.xml: matplotlib moves from future-dep to active dep; document seaborn as optional. Update uv.lock.</step-4>
+      <step-5 module="(test surface)" status="planned" verification="VF-014">Add tests/integration/test_mp_chart_e2e.py: build a 2-section chart-bearing document (each section: 1 paragraph + 1 chart of different type — e.g. bar + line) via mint_python.sdk; save → reopen → assert chart count + each inline_shape.width.emu matches requested + M-VALIDATE lenient hard_count=0. Pin structural fingerprint to tests/fixtures/mp_chart_e2e_baseline.json with MP_CHART_E2E_WRITE_BASELINE=1 gate (mirrors VF-013 protocol). Re-run VF-013 e2e to confirm chart-free golden doc still green (non-regression).</step-5>
+    </Phase-8>
   </ImplementationOrder>
 
   <ExecutionPolicy>

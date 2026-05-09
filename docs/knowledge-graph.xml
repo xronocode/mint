@@ -482,6 +482,26 @@
       </annotations>
     </MP-DOCUMENT>
 
+    <MP-CHART NAME="Pure Python Chart factories + render" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Chart class + 7 factory constructors per handover §3.4 + from_matplotlib/seaborn/plotly channels; matplotlib Figure → PNG @ 300 DPI → python-docx add_picture embed; corporate theming + chartjunk removal applied via matplotlib rcParams</purpose>
+      <path>src/mint_python/core/chart.py</path>
+      <depends>MP-STYLE, MP-CONTENT</depends>
+      <verification-ref>V-MP-CHART</verification-ref>
+      <annotations>
+        <type-Chart PURPOSE="Chart model with cached PNG bytes + chart_type tag + width/height/caption; .render(parent_doc) returns the python-docx inline_shape" />
+        <fn-bar PURPOSE="Chart.bar(labels, values, **kwargs) — vertical bar chart" />
+        <fn-line PURPOSE="Chart.line(labels, values, **kwargs) — line chart with multi-series support" />
+        <fn-stacked_bar PURPOSE="Chart.stacked_bar(labels, series_dict, **kwargs) — stacked verticals" />
+        <fn-pie PURPOSE="Chart.pie(labels, values, **kwargs) — pie with corporate palette" />
+        <fn-heatmap PURPOSE="Chart.heatmap(matrix, row_labels, col_labels, **kwargs) — matplotlib imshow + colorbar" />
+        <fn-waterfall PURPOSE="Chart.waterfall(labels, deltas, **kwargs) — composed from bar primitives" />
+        <fn-gantt PURPOSE="Chart.gantt(tasks, **kwargs) — horizontal bar variant" />
+        <fn-from_matplotlib PURPOSE="Chart.from_matplotlib(fig, caption=None, width_inches=None, vector=True) — wrap user-built matplotlib Figure" />
+        <fn-from_seaborn PURPOSE="Chart.from_seaborn(fig, **kwargs) — lazy-imports seaborn; aliases to from_matplotlib" />
+        <fn-from_plotly PURPOSE="STUB Phase-9+ — emits BLOCK_PHASE_GUARD then raises NotImplementedError" />
+      </annotations>
+    </MP-CHART>
+
     <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" STATUS="done">
       <purpose>Public re-exports of all §3 types + named-preset registry + with_style_from(path) loader</purpose>
       <path>src/mint_python/sdk/__init__.py</path>
@@ -511,6 +531,10 @@
     <CrossLink from="MP-SDK" to="MP-TABLE" relation="SDK re-exports Table" />
     <CrossLink from="MP-SDK" to="MP-CONTENT" relation="SDK re-exports Image" />
     <CrossLink from="MP-SDK" to="MP-STYLE" relation="SDK re-exports Style, Pt, ColorPalette + hosts the preset registry" />
+    <CrossLink from="MP-CHART" to="MP-STYLE" relation="Chart factories pull active Style preset to apply matplotlib rcParams (font, color cycle, chartjunk removal)" />
+    <CrossLink from="MP-CHART" to="MP-CONTENT" relation="Chart.render mirrors the Image render protocol — calls parent_doc.add_picture with PNG bytes (Phase-8) producing an inline_shape" />
+    <CrossLink from="MP-SECTION" to="MP-CHART" relation="Section.add_chart(chart) appends to _blocks (Phase-8 unstubs the BLOCK_PHASE_GUARD path); Section.render walks Chart.render alongside Paragraph/Table/Image" />
+    <CrossLink from="MP-SDK" to="MP-CHART" relation="SDK re-exports Chart per handover §3.4 surface list (Phase-8 addition)" />
     <CrossLink from="MP-DOCUMENT" to="M-VALIDATE" relation="Phase-7 e2e gate: saved .docx must pass M-VALIDATE on lenient mode (existing js-side validator; Phase-3 will land MP-VALIDATE pure-Python successor)" />
 
     <!-- Future module placeholder: registered to anchor MP-DOCUMENT.inject_grace delegation contract. Not part of Phase-7. -->

@@ -1,4 +1,4 @@
-<VerificationPlan VERSION="0.5.0">
+<VerificationPlan VERSION="0.6.0">
   <GlobalPolicy>
     <log-format>[Module][function][BLOCK_NAME] message</log-format>
     <deterministic-first>true</deterministic-first>
@@ -341,6 +341,58 @@
       <activation-gate>This VF is exercised at Wave-7-5 (the e2e closing wave). Earlier waves run only their module-local checks. Gate-Phase-7 references VF-013 as the headline acceptance signal.</activation-gate>
       <swarm-safety>SWARM-SAFE: e2e test writes to tmp_path; no shared mutable state; M-VALIDATE and M-FINGERPRINT invocations are pure read-only on the saved file. Baseline write gated by MP_E2E_WRITE_BASELINE env so concurrent xdist workers cannot race-overwrite the baseline JSON. Module-local waves (7-1..7-4) are read-only against the rest of the repo and SAFE for pytest-xdist.</swarm-safety>
     </VF-013>
+
+    <VF-014 NAME="PurePythonChartFlow" USE_CASES="UC-001" DATA_FLOW="DF-011,DF-012" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-8-2">
+      <scenario>Phase-8 acceptance: a 2-section chart-bearing document built via mint_python.sdk (Document.with_style_preset → 2 sections each with a paragraph + a chart of different type, e.g. bar + line) produces a .docx that python-docx reopens cleanly AND M-VALIDATE on lenient mode reports passed=true with hard_count=0 AND each chart's inline_shape EMU width matches the requested width_inches × 914400.</scenario>
+      <golden-document-spec>
+        <preset>alga_corporate</preset>
+        <output-format>docx</output-format>
+        <title>VF-014 Chart Golden Document</title>
+        <body-spec>
+          <section-1 title="Revenue" level="1">
+            <content-1>Paragraph: "Quarterly revenue trend."</content-1>
+            <content-2>Chart.bar(labels=["Q1","Q2","Q3","Q4"], values=[1.0,1.3,1.6,1.9], title="Revenue ($M)", width_inches=5.0)</content-2>
+          </section-1>
+          <section-2 title="Mix" level="1">
+            <content-1>Paragraph: "Region mix."</content-1>
+            <content-2>Chart.line(labels=["NA","EU","APAC","LATAM"], values=[60,30,10,5], title="Share %", width_inches=5.0)</content-2>
+          </section-2>
+        </body-spec>
+        <reproducibility>tests/integration/test_mp_chart_e2e.py::build_chart_golden_document — single source of truth; future agents rebuild via this helper, not inline construction.</reproducibility>
+      </golden-document-spec>
+      <expected-outcome>(a) save() emits exactly one BLOCK_SAVE_DOCX with section_count=2, table_count=0, paragraph_count pinned by baseline; (b) lxml.etree.parse on word/document.xml succeeds; (c) M-VALIDATE on lenient mode returns passed=True with hard_count=0; (d) doc.inline_shapes contains exactly 2 entries; each .width.emu == round(5.0 * 914400) == 4_572_000; (e) caplog records exactly 2 BLOCK_BUILD_CHART (one per Chart.bar / Chart.line) and exactly 2 BLOCK_RENDER_CHART (one per chart); (f) NO BLOCK_PHASE_GUARD on the golden-doc path (Section.add_chart is concrete post-Phase-8).</expected-outcome>
+      <invariants>
+        <inv-1>NON-REGRESSION: VF-013 e2e (Phase-7 chart-free golden doc) re-runs and stays green; structural fingerprint matches the existing tests/fixtures/mp_e2e_baseline.json; BLOCK_PHASE_GUARD count remains 0 on the chart-free path.</inv-1>
+        <inv-2>IDEMPOTENCY: build_chart_golden_document(tmp_path/"a") and (tmp_path/"b") produce two .docx with equal mint.fingerprint hash. Chart PNG bytes deterministic? matplotlib output may vary by platform — fingerprint is taken on word/styles.xml + word/numbering.xml (per existing M-FINGERPRINT subset) which DOES NOT include media; so chart PNG drift does NOT affect the structural fingerprint.</inv-2>
+        <inv-3>EMU PRECISION: each inline_shape.width.emu == round(width_inches × 914400) exactly. No rounding drift from python-docx Inches() → EMU conversion.</inv-3>
+        <inv-4>CHARTJUNK REMOVED: parse the embedded PNG via pillow → assert image dimensions are sane (not absurdly small/large); spine removal verified via matplotlib rcParams snapshot in caplog (decision-level evidence; not pixel comparison).</inv-4>
+        <inv-5>NO PLOTLY ON HAPPY PATH: BLOCK_PHASE_GUARD count = 0 on the golden-doc trace (no stub method touched).</inv-5>
+        <inv-6>BASELINE PIN: structural_fingerprint_sha256 matches tests/fixtures/mp_chart_e2e_baseline.json::structural_fingerprint_sha256. First run gated by MP_CHART_E2E_WRITE_BASELINE=1 (mirrors VF-013 protocol).</inv-6>
+      </invariants>
+      <required-signals>
+        <log-marker>[MP-Style][load_preset][BLOCK_LOAD_PRESET] — fires once per Document.with_style_preset</log-marker>
+        <log-marker>[MP-Chart][&lt;factory&gt;][BLOCK_BUILD_CHART] — fires per factory call; payload chart_type + data_shape; expected count=2 (bar + line)</log-marker>
+        <log-marker>[MP-Content][render][BLOCK_RENDER_CONTENT] — fires per Paragraph render; expected count=2 (one per section)</log-marker>
+        <log-marker>[MP-Chart][render][BLOCK_RENDER_CHART] — fires per Chart render; payload chart_type + emu_width; expected count=2</log-marker>
+        <log-marker>[MP-Document][save][BLOCK_SAVE_DOCX] — fires once per save</log-marker>
+        <trace-sequence>BLOCK_LOAD_PRESET → (BLOCK_BUILD_CHART × 2) → (BLOCK_RENDER_CONTENT | BLOCK_RENDER_CHART)+ → BLOCK_SAVE_DOCX. Counts: BLOCK_BUILD_CHART=2, BLOCK_RENDER_CHART=2, BLOCK_RENDER_CONTENT≥2 (one per body paragraph), BLOCK_SAVE_DOCX=1, BLOCK_PHASE_GUARD=0.</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>BLOCK_PHASE_GUARD firing on the chart golden-doc path — would indicate a chart factory delegated to a stub or Section.add_chart still raises post-Phase-8</forbidden-1>
+        <forbidden-2>BLOCK_RENDER_CHART count ≠ 2 — would indicate render skipped, fired twice on one chart, or chart not registered with Section</forbidden-2>
+        <forbidden-3>Any [Sandbox]/[Validate]/[Edit] markers from the build path (excluding the explicit M-VALIDATE invocation step which is partitioned)</forbidden-3>
+      </forbidden-signals>
+      <e2e-harness-spec PATH="tests/integration/test_mp_chart_e2e.py">
+        <fixture>tmp_path + tmp_docx_path (from conftest)</fixture>
+        <helper>build_chart_golden_document(out_path: Path) -&gt; Path — single source of truth</helper>
+        <validation-mode>Lenient via mint.validate.validate(saved_path, mp_minimal_config) — direct in-process call</validation-mode>
+        <fingerprint-call>mint.fingerprint.fingerprint(saved_path).hash</fingerprint-call>
+        <baseline-write-gate>MP_CHART_E2E_WRITE_BASELINE=1 (parallel to MP_E2E_WRITE_BASELINE pattern)</baseline-write-gate>
+        <vf013-non-regression>Re-runs the existing VF-013 build_golden_document(...) and asserts its fingerprint still matches mp_e2e_baseline.json — guards against in-place edits to MP-SECTION breaking the chart-free path.</vf013-non-regression>
+      </e2e-harness-spec>
+      <activation-gate>Wave-8-2 closes Phase-8; this VF is the headline acceptance signal alongside V-MP-CHART module-local scenarios.</activation-gate>
+      <swarm-safety>SWARM-SAFE: e2e test writes to tmp_path; no shared mutable state; matplotlib uses Agg backend (forced via matplotlib.use('Agg') before any Figure construction) so no display dependencies; baseline write gated by env so xdist workers cannot race-overwrite.</swarm-safety>
+    </VF-014>
   </CriticalFlows>
 
   <ModuleVerification>
@@ -1162,6 +1214,49 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE — save() targets tmp_path per test; no shared mutable state. e2e wave (Wave-7-5) reads-only against M-VALIDATE; baseline assertion is deterministic. Worker-write to tests/fixtures/mp_e2e_baseline.json is gated by MP_E2E_WRITE_BASELINE env so concurrent workers cannot race-overwrite.</autonomy-assessment>
     </V-MP-DOCUMENT>
 
+    <V-MP-CHART MODULE="MP-CHART" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-8-1">
+      <test-files>
+        <file status="planned" activates-at="Wave-8-1">tests/unit/test_mp_chart.py</file>
+        <file status="planned" activates-at="Wave-8-2">tests/integration/test_mp_chart_e2e.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_chart.py -x</check-1>
+        <check-2>ruff check src/mint_python/core/chart.py</check-2>
+        <check-3>mypy src/mint_python/core/chart.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">Chart.bar(labels, values, title, width_inches) returns a Chart instance whose chart_type=='bar', _png_bytes is non-empty, and width_inches matches input</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">Chart.line(labels, values, title, width_inches) — same shape verification with chart_type=='line'</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">Chart.stacked_bar(labels, series_dict, ...) accepts dict-of-series shape and produces stacked rendering (verify via matplotlib axes inspection if feasible OR PNG bytes non-empty + chart_type tag)</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">Chart.pie(labels, values, ...) — verify wedge count matches len(values) via figure introspection before render closes</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic">Chart.heatmap(matrix, row_labels, col_labels, ...) — matrix shape mismatch with labels raises CHART_INVALID_DATA</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic">Chart.waterfall(labels, deltas, ...) — verify sum-of-deltas annotation present (composed bar primitive)</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic">Chart.gantt(tasks, ...) — verify horizontal-bar shape; tasks=[(name, start, duration), ...] minimum schema</scenario-7>
+        <scenario-8 kind="success" evidence="deterministic">Chart.from_matplotlib(fig, caption, width_inches, vector=True) wraps user Figure; vector kwarg accepted and stored on instance but Phase-8 PNG-only — assert _png_bytes non-empty + caption attached</scenario-8>
+        <scenario-9 kind="success" evidence="deterministic">Chart.from_seaborn(fig, **kwargs) — when seaborn installed, aliases to from_matplotlib; when seaborn ImportError, raises ImportError with "pip install seaborn" hint. Test parametrized with monkeypatch on sys.modules to simulate the missing-seaborn case.</scenario-9>
+        <scenario-10 kind="failure" evidence="deterministic">Chart.from_plotly(fig) raises NotImplementedError; message contains "Phase 9" and "plotly"; emits [MP-Chart][from_plotly][BLOCK_PHASE_GUARD] BEFORE raising</scenario-10>
+        <scenario-11 kind="success" evidence="trace">Each factory emits [MP-Chart][&lt;factory_name&gt;][BLOCK_BUILD_CHART] exactly once with chart_type and data_shape payload — assert via marker_counter and explicit caplog inspection</scenario-11>
+        <scenario-12 kind="success" evidence="trace">Chart.render(parent_doc) emits [MP-Chart][render][BLOCK_RENDER_CHART] chart_type=&lt;name&gt; emu_width=&lt;int&gt; exactly once — verify emu_width = round(width_inches × 914400)</scenario-12>
+        <scenario-13 kind="success" evidence="deterministic">Chart.render produces python-docx inline_shape with width.emu == round(width_inches × 914400) (asserted on a fresh DocxDocument)</scenario-13>
+        <scenario-14 kind="success" evidence="deterministic">CORPORATE THEMING: build a Chart under alga_corporate preset; matplotlib rcParams snapshot before/after the build call shows font.family and color cycle changes (or, if rcParams not exposed, assert that the active palette resolved to alga primary hex via figure axis line color)</scenario-14>
+        <scenario-15 kind="success" evidence="deterministic">CHARTJUNK: rendered Chart's matplotlib axes have spines.top.set_visible(False) and spines.right.set_visible(False) — verify by retaining a hook to the figure or by snapshot of figure XML before close</scenario-15>
+        <scenario-16 kind="failure" evidence="deterministic">CHART_INVALID_DATA: Chart.bar(labels=["a","b"], values=[1.0]) raises with message naming the length mismatch (len(labels)=2, len(values)=1)</scenario-16>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-Chart][&lt;factory&gt;][BLOCK_BUILD_CHART] — fires per factory call (one per: bar, line, stacked_bar, pie, heatmap, waterfall, gantt) AND once per from_matplotlib/from_seaborn call (chart_type captured from method name)</marker-1>
+        <marker-2>[MP-Chart][render][BLOCK_RENDER_CHART] — fires per Chart.render call</marker-2>
+        <marker-3>[MP-Chart][from_plotly][BLOCK_PHASE_GUARD] — fires on Phase-9+ stub touch</marker-3>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>Chart construction must NEVER write to filesystem — PNG bytes are cached in-memory in the Chart instance</forbidden-1>
+        <forbidden-2>matplotlib backend MUST be 'Agg' at import time — Chart module forces matplotlib.use('Agg') before any Figure construction (no display dep)</forbidden-2>
+        <forbidden-3>SEABORN MUST NOT be imported at module level — only inside Chart.from_seaborn lazy-import. Verify with `python -c "import mint_python.core.chart; assert 'seaborn' not in sys.modules"`</forbidden-3>
+        <forbidden-4>Plotly stub MUST raise BEFORE any matplotlib invocation — never returns a partially-built Chart instance</forbidden-4>
+        <forbidden-5>NON-REGRESSION: Chart module must NOT introduce a module-level mutable singleton (matplotlib rcParams modification at module load is forbidden — themes apply per-construct via context manager OR per-call rcParams override that does not leak)</forbidden-5>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE-WITH-ISOLATED-FIXTURES: matplotlib backend is process-local (Agg forced); rcParams modifications inside `with mpl.rc_context(...):` blocks don't leak across tests; tmp_path mandate for any image writes; seaborn lazy-import keeps the dep optional. Mid-risk due to matplotlib-version variance — pin matplotlib&gt;=3.7 to stabilize rcParams behavior.</autonomy-assessment>
+    </V-MP-CHART>
+
     <V-MP-SDK MODULE="MP-SDK" PRIORITY="medium" STATUS="done" ACTIVATED_AT="Wave-7-5">
       <test-files>
         <file status="active" activated-at="Wave-7-5">tests/unit/test_mp_sdk.py</file>
@@ -1463,6 +1558,53 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Wave-7-4>
 
+    <Wave-8-1 PHASE="Phase-8" SCOPE="MP-CHART (all 7 factories + from_matplotlib + from_seaborn lazy + from_plotly stub + render + corporate theming)" STATUS="planned">
+      <goal>Land MP-CHART module with all factories + render + corporate theming. Chart.from_plotly is a stub raising NotImplementedError naming Phase-9+. Chart cells in Section.add_chart still raise BLOCK_PHASE_GUARD during this wave (Wave-8-2 unstubs Section).</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_mp_chart.py -x</command-1>
+        <command-2>ruff check src/mint_python/core/chart.py tests/unit/test_mp_chart.py</command-2>
+        <command-3>mypy src/mint_python/core/chart.py</command-3>
+        <command-4>python -c "import sys; import mint_python.core.chart; assert 'seaborn' not in sys.modules, 'seaborn must be lazy-imported'"</command-4>
+      </commands>
+      <swarm-policy>
+        <isolation>Solo wave. matplotlib backend forced to 'Agg' at chart.py import time so headless test runners work. Worker MUST NOT modify pyproject.toml — that's Wave-8-2 step-4 scope. Worker SHOULD assume matplotlib is already in the env (Wave-8-2 worker adds it; Wave-8-1 worker can request a one-shot `uv add` if env is empty, mirroring Wave-7-2 worker B's deviation pattern).</isolation>
+        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
+        <writescope-worker>src/mint_python/core/chart.py, tests/unit/test_mp_chart.py.</writescope-worker>
+      </swarm-policy>
+      <required-evidence>
+        <evidence-1>All V-MP-CHART scenarios 1-16 pass at module level</evidence-1>
+        <evidence-2>BLOCK_BUILD_CHART + BLOCK_RENDER_CHART + BLOCK_PHASE_GUARD markers fire as documented</evidence-2>
+        <evidence-3>seaborn NOT in sys.modules after `import mint_python.core.chart` (lazy-import invariant)</evidence-3>
+        <evidence-4>matplotlib backend == 'Agg' at module import (smoke: `import matplotlib; assert matplotlib.get_backend() == 'Agg'` after importing chart.py)</evidence-4>
+        <evidence-5>100% coverage maintained on src/mint_python/ (Phase-7 baseline; new chart.py at 100%)</evidence-5>
+      </required-evidence>
+    </Wave-8-1>
+
+    <Wave-8-2 PHASE="Phase-8" SCOPE="MP-SECTION unstub + MP-SDK Chart re-export + tech updates + VF-014 e2e" STATUS="planned">
+      <goal>Phase-8 closeout: replace Section.add_chart stub with concrete add_chart(chart: Chart); add Chart to MP-SDK __all__; add matplotlib hard dep to pyproject.toml; ship VF-014 e2e + audit baseline. VF-013 (Phase-7 chart-free golden doc) re-runs as non-regression guard.</goal>
+      <commands>
+        <command-1>pytest tests/ -x --timeout=120</command-1>
+        <command-2>ruff check src/mint_python tests/integration/test_mp_chart_e2e.py</command-2>
+        <command-3>mypy src/mint_python</command-3>
+        <command-4>uv build &amp;&amp; unzip -l dist/*.whl | grep -E "mint_python/(core|sdk)" | wc -l</command-4>
+      </commands>
+      <swarm-policy>
+        <isolation>Solo wave; final Phase-8 step. e2e test writes to tmp_path; M-VALIDATE invocation read-only. MP_CHART_E2E_WRITE_BASELINE env gates baseline write so xdist cannot race.</isolation>
+        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
+        <writescope-worker>src/mint_python/core/section.py (in-place add_chart unstub ONLY — preserve all other methods), src/mint_python/sdk/__init__.py (in-place add Chart to imports + __all__), tests/unit/test_mp_section.py (retire scenarios 5-6, add positive scenarios), tests/unit/test_mp_sdk.py (extend §3-import scenario with Chart), tests/integration/test_mp_chart_e2e.py (NEW), tests/fixtures/mp_chart_e2e_baseline.json (NEW first-run write), pyproject.toml (add matplotlib&gt;=3.7,&lt;4 to dependencies), uv.lock (refresh).</writescope-worker>
+      </swarm-policy>
+      <required-evidence>
+        <evidence-1>VF-014 trace-sequence holds + 6 invariants verified (non-regression of VF-013, idempotency, EMU precision, chartjunk, no plotly stub touched on happy path, baseline pin)</evidence-1>
+        <evidence-2>VF-013 e2e re-runs and stays green — chart-free golden doc fingerprint unchanged</evidence-2>
+        <evidence-3>V-MP-SECTION updated scenarios pass: add_chart returns self + appends Chart to _blocks + Section.render walks Chart.render</evidence-3>
+        <evidence-4>V-MP-SDK scenario-1 extended: Chart imports cleanly from mint_python.sdk</evidence-4>
+        <evidence-5>M-VALIDATE on chart golden doc: lenient mode passes hard_count=0; soft_count baseline captured</evidence-5>
+        <evidence-6>uv build wheel ships chart.py</evidence-6>
+        <evidence-7>matplotlib pinned in pyproject.toml [project].dependencies; uv.lock refreshed</evidence-7>
+        <evidence-8>100% coverage maintained — new e2e test + chart.py both at 100%</evidence-8>
+      </required-evidence>
+    </Wave-8-2>
+
     <Wave-7-5 PHASE="Phase-7" SCOPE="MP-SDK + VF-013 e2e" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Land SDK re-exports + VF-013 end-to-end test: 3-section golden document built via mint_python.sdk passes M-VALIDATE on lenient mode (zero hard violations). Closes Phase-7.</goal>
       <commands>
@@ -1552,6 +1694,27 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Gate-Phase-4>
 
+    <Gate-Phase-8 PHASE="Phase-8" STATUS="planned" ACTIVATES_AT="Wave-8-2 completion">
+      <goal>Pure Python Edition Phase 2 (handover §6 Phase 2) lands: Chart factories functional via mint_python.sdk; Section.add_chart unstubbed; chart-bearing 2-section golden document passes M-VALIDATE on lenient mode; matplotlib pinned in pyproject. Phase-7 (chart-free) golden doc remains green — non-regression guard. Foundation ready for Phase-9 (MP-RULES + MP-VALIDATE pure-Python successors).</goal>
+      <commands>
+        <command-1>pytest tests/ -x --timeout=120</command-1>
+        <command-2>ruff check src/mint_python tests</command-2>
+        <command-3>mypy src/mint_python</command-3>
+        <command-4>uv build</command-4>
+        <command-5>uv run --with pytest-cov pytest tests/ --cov=src/mint_python --cov-report=term --cov-fail-under=100</command-5>
+      </commands>
+      <required-evidence>
+        <evidence-1>All V-MP-CHART scenarios 1-16 pass</evidence-1>
+        <evidence-2>VF-014 trace-sequence + 6 invariants hold on the e2e chart golden document</evidence-2>
+        <evidence-3>M-VALIDATE lenient mode passes on the chart golden document with hard_count=0</evidence-3>
+        <evidence-4>VF-013 (Phase-7 chart-free golden doc) re-runs green — fingerprint matches mp_e2e_baseline.json</evidence-4>
+        <evidence-5>Section.add_chart is concrete — V-MP-SECTION post-Phase-8 scenarios verify positive path; legacy "raises NotImplementedError" scenarios retired</evidence-5>
+        <evidence-6>MP-SDK exports Chart per handover §3.4 — V-MP-SDK scenario extends to cover</evidence-6>
+        <evidence-7>matplotlib in pyproject.toml [project].dependencies (≥3.7,&lt;4); seaborn NOT a hard dep (lazy-imported)</evidence-7>
+        <evidence-8>100% coverage maintained on src/mint_python/ — chart.py + e2e test contribute new lines all covered</evidence-8>
+      </required-evidence>
+    </Gate-Phase-8>
+
     <Gate-Phase-7 PHASE="Phase-7" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Pure Python Edition Phase 1 (handover §6 Phase 1) lands: Document/Section/Table/Style stack works end-to-end via mint_python.sdk; a 3-section golden document passes M-VALIDATE on lenient mode; stubs (inject_grace/validate/fix/to_pdf, Section.add_chart) cleanly point to later phases. Foundation ready for Phase-2 (Chart + matplotlib).</goal>
       <commands>
@@ -1619,6 +1782,12 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <evidence>Phase-6 engine-dispatch contract is implemented and verified end-to-end. Wave-6-1 landed under commits 7ece0df (MP-PKG), 2baab4a (M-CONFIG), 73ae169 (M-CLI), 5cc23b9 (infra), 832912e (V-MP-FLAG tests). 309 unit/integration tests + 1 skipped pass; ruff and mypy clean across the touched surface; uv build wheel includes 9 mint_python __init__.py entries.</evidence>
         <commands>pytest tests/unit/test_engine_flag.py tests/integration/test_cli.py -x</commands>
       </target-6>
+      <target-8 MODULES="MP-CHART" STATUS="swarm-safe-with-isolated-fixtures" PLANNED_AT="2026-05-09">
+        <evidence>Phase-8 module: matplotlib backend forced to 'Agg' at import (process-local; no display dep); seaborn lazy-imported (optional dep). Wave-8-1 solo (no parallelism within MP-CHART; the 7 factories share file). Wave-8-2 solo: in-place updates to MP-SECTION + MP-SDK + tests + pyproject + uv.lock + new e2e test + new baseline JSON. matplotlib rcParams modifications wrapped in `with mpl.rc_context(...):` to prevent leaks across tests. tmp_path mandate for any image writes. Mid-risk due to matplotlib version variance — pinned matplotlib&gt;=3.7,&lt;4 to stabilize.</evidence>
+        <commands>pytest tests/unit/test_mp_chart.py tests/integration/test_mp_chart_e2e.py -x --timeout=120</commands>
+        <wave-dependencies>Wave-8-1 unlocks Wave-8-2 (Section unstub + SDK re-export depend on Chart class existence).</wave-dependencies>
+        <swarm-fixtures-required>(1) tmp_path + tmp_docx_path; (2) caplog_at_info; (3) marker_counter for trace counts; (4) mp_minimal_config for in-process M-VALIDATE; (5) MP_CHART_E2E_WRITE_BASELINE env gate (parallel to MP_E2E_WRITE_BASELINE).</swarm-fixtures-required>
+      </target-8>
       <target-7 MODULES="MP-STYLE,MP-CONTENT,MP-TABLE,MP-SECTION,MP-DOCUMENT,MP-SDK" STATUS="swarm-safe-with-isolated-fixtures" COMPLETED_AT="2026-05-09">
         <evidence>Phase-7 modules are deterministic and tmp_path-isolated. Wave-7-1 (MP-STYLE) is pure deterministic with read-only registry. Wave-7-2 dispatches MP-CONTENT and MP-TABLE in parallel — disjoint files, both depend only on MP-STYLE, no shared state. Wave-7-3 (MP-SECTION), Wave-7-4 (MP-DOCUMENT) are solo. Wave-7-5 closes with MP-SDK + VF-013 e2e — the e2e harness writes to tmp_path; baseline JSON write is gated by MP_E2E_WRITE_BASELINE env. Each MP-* module is forbidden from introducing a module-level mutable singleton (V-MP-* forbidden-3 across the family).</evidence>
         <commands>pytest tests/unit/test_mp_style.py tests/unit/test_mp_content.py tests/unit/test_mp_table.py tests/unit/test_mp_section.py tests/unit/test_mp_document.py tests/unit/test_mp_sdk.py tests/integration/test_mp_e2e.py -x --timeout=120</commands>

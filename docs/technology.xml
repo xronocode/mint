@@ -1,4 +1,4 @@
-<TechnologyStack VERSION="0.3.0">
+<TechnologyStack VERSION="0.4.0">
   <Runtime>From Phase-7 (Pure Python Edition Phase 1): Python 3.12 is the strategic runtime. Node.js 22.x sandbox + docx-js/pptxgenjs/exceljs path retained as MINT_ENGINE=js fallback. Pure-python rollout Phase 4 (handover §6) lands RestrictedPython sandbox; until then python tier=frontier code must be invoked via direct trusted import.</Runtime>
   <Language>Python (primary, from v0.3 onward) + JavaScript (legacy fallback for MINT_ENGINE=js)</Language>
   <Framework>FastMCP (MCP server) + FastAPI (internal APIs)</Framework>
@@ -14,7 +14,8 @@
     <dep name="fastmcp" version="2.x" purpose="MCP tool server for LLM integration" />
     <dep name="gotenberg-client" version="1.x" purpose="PDF/PNG rendering via Gotenberg for QA" />
     <dep name="librechat" version="latest" purpose="Multi-model UI with MCP and Artifacts support" />
-    <future-dep name="matplotlib" version="3.x" purpose="Phase-2 (handover §6): chart rendering for MP-CHART; not added in Phase-7" />
+    <dep name="matplotlib" version="3.7-3.x" purpose="Chart rendering backend for MP-CHART (Phase-8 onward); rendered to PNG @ 300 DPI; corporate theme + chartjunk removal applied via rcParams; backend forced to 'Agg' for headless test runners" />
+    <dep name="seaborn" version="optional" purpose="Convenience wrapper for Chart.from_seaborn (Phase-8); lazy-imported only when called — NOT a hard dep" />
     <future-dep name="RestrictedPython" version="7.x" purpose="Phase-4 (handover §6): sandbox for tier=frontier python tier execution; not added in Phase-7" />
   </Dependencies>
 
