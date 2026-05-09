@@ -384,3 +384,23 @@ def test_klawd_preset_loads_via_yaml() -> None:
     assert ns.body.color_hex == "#333333"       # Dark Gray
     assert ns.caption.italic
     assert ns.heading1.font == ns.body.font == "Arial"
+
+
+def test_yaml_preset_invalid_yaml_raises_schema_error(tmp_path: Path) -> None:
+    """Malformed YAML at the parser stage surfaces as STYLE_PRESET_INVALID_SCHEMA.
+
+    Covers the yaml.YAMLError branch in _parse_preset_text — load_preset
+    catches the YAML parser error and re-raises with the schema-error
+    type so callers don't have to import yaml just to handle it.
+    """
+    import pytest
+
+    from mint_python.core.style import STYLE_PRESET_INVALID_SCHEMA, load_preset
+
+    bad = tmp_path / "broken.yaml"
+    # Unclosed flow mapping — yaml.safe_load raises rather than returning a
+    # dict. (Plain "indentation typos" tend to parse as something valid; we
+    # need a syntactic error the parser can't recover from.)
+    bad.write_text("name: broken\nfoo: {bar: 1\n")
+    with pytest.raises(STYLE_PRESET_INVALID_SCHEMA, match="invalid YAML"):
+        load_preset(path=bad)
