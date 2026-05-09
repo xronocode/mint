@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,23 @@ from mint_python.sdk import (
 )
 
 BASELINE_PATH = Path(__file__).parent.parent / "fixtures" / "mp_showcase_baseline.json"
+
+
+def _content_fingerprint(docx_path: Path) -> str:
+    """Hash the .docx package contents (entry path + bytes) deterministically.
+
+    Iterates archive entries in name-sorted order so the fingerprint is
+    invariant under zip-wrapper mtimes and central-directory ordering —
+    those are not part of the document's semantic state.
+    """
+    digest = hashlib.sha256()
+    with zipfile.ZipFile(docx_path) as z:
+        for name in sorted(z.namelist()):
+            digest.update(name.encode("utf-8"))
+            digest.update(b"\x00")
+            digest.update(z.read(name))
+            digest.update(b"\x01")
+    return digest.hexdigest()
 
 
 def build_showcase_document(tmp_dir: Path) -> Document:
@@ -397,13 +415,19 @@ class TestShowcaseE2E:
         assert report.hard_count == 0, f"expected 0 hard violations, got {report.hard_count}"
 
     def test_showcase_fingerprint_matches_baseline(self, tmp_path: Path) -> None:
-        """Structural fingerprint must match the pinned baseline."""
+        """Structural fingerprint must match the pinned baseline.
+
+        We hash the deterministic *contents* of the .docx package — every
+        archive entry by path + bytes — rather than the raw file. The zip
+        wrapper carries per-entry mtimes set by python-docx at save time
+        which churn between runs even when the document is byte-identical
+        inside; hashing the wrapper would make the test flaky for no
+        meaningful semantic reason.
+        """
         doc = build_showcase_document(tmp_path)
         doc.save(tmp_path / "showcase.docx")
 
-        actual_hash = hashlib.sha256(
-            (tmp_path / "showcase.docx").read_bytes()
-        ).hexdigest()
+        actual_hash = _content_fingerprint(tmp_path / "showcase.docx")
 
         if BASELINE_PATH.exists() and os.environ.get("MP_SHOWCASE_WRITE_BASELINE") != "1":
             baseline = json.loads(BASELINE_PATH.read_text())
