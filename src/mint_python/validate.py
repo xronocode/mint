@@ -158,11 +158,11 @@ def _determine_passed(violations: list[Violation], mode: SeverityMode) -> bool:
         return all(v.severity != Severity.HARD for v in violations)
     elif mode == SeverityMode.STRICT:
         return len(violations) == 0
-    return True
+    return True  # pragma: no cover — unreachable (enum exhaustiveness)
 
 
 def _default_rules_dir() -> Path:
-    return Path(__file__).resolve().parent.parent.parent.parent / "rules"
+    return Path(__file__).resolve().parent.parent.parent / "rules"
 
 
 # START_CONTRACT: run_checks
@@ -272,7 +272,7 @@ def classify_violations(violations: list[Violation]) -> dict[str, list[Violation
                 safe_fixable.append(v)
             elif v.fix_category == FixCategory.VISUAL:
                 visual_fixable.append(v)
-            else:
+            else:  # pragma: no cover — unreachable (FixCategory has 3 members, all handled above)
                 hard_reject.append(v)
         else:
             warnings.append(v)
