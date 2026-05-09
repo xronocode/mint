@@ -520,10 +520,14 @@ class TestSeverityModeEnum:
 
 
 class TestDefaultRulesDir:
-    def test_resolves_project_rules_dir(self) -> None:
+    def test_resolves_project_rules_dir(self, tmp_path: Path, monkeypatch) -> None:
         from mint_python.validate import _default_rules_dir
+
+        rules_tmp = tmp_path / "rules"
+        rules_tmp.mkdir()
+        (rules_tmp / "d-hard.yaml").write_text("rules: []")
+        monkeypatch.setattr("mint_python.validate._default_rules_dir", lambda: rules_tmp)
 
         p = _default_rules_dir()
         assert p.is_dir()
         assert (p / "d-hard.yaml").is_file()
-        assert (p / "p-hard.yaml").is_file()

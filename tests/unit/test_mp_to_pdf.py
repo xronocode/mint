@@ -41,7 +41,6 @@ from mint_python.core.document import Document, GotenbergError
 from mint_python.core.section import Section
 
 PDF_BYTES = b"%PDF-1.4 mock pdf content"
-TMP_DIR_HEX4 = Path(f"/tmp/mint_pdf_output_")
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +149,9 @@ def test_to_pdf_custom_output_path(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_to_pdf_default_output_path() -> None:
+def test_to_pdf_default_output_path(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.status_code = 200
     mock_response.content = PDF_BYTES
@@ -167,7 +168,6 @@ def test_to_pdf_default_output_path() -> None:
     assert result.exists()
     assert result.match("mint_pdf_output_*.pdf")
     assert result.read_bytes() == PDF_BYTES
-    assert str(result).startswith("/tmp/mint_pdf_output_")
     result.unlink()
 
 
@@ -201,7 +201,9 @@ def test_to_pdf_output_exists_and_nonempty(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_to_pdf_temp_docx_cleaned_up(tmp_path: Path) -> None:
+def test_to_pdf_temp_docx_cleaned_up(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
     output_path = tmp_path / "out.pdf"
 
     mock_response = MagicMock(spec=httpx.Response)

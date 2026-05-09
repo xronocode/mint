@@ -247,6 +247,8 @@ def mpl_rcparams_snapshot():
 def chart_baseline_path() -> Path:
     """Path to tests/fixtures/mp_chart_e2e_baseline.json (Phase-8).
 
+    READ-ONLY: tests must NOT write to baselines unless
+    MP_CHART_E2E_WRITE_BASELINE=1 is set (gated by mp_clean_env autouse).
     Symmetric to load_audit_baseline path resolution in _mp_helpers.
     """
     return Path(__file__).resolve().parent.parent / "fixtures" / "mp_chart_e2e_baseline.json"
