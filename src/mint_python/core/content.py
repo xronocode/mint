@@ -1,5 +1,5 @@
 # FILE: src/mint_python/core/content.py
-# VERSION: 0.2.0
+# VERSION: 0.3.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Inline content building blocks for the Pure Python Edition: Run
 #     (frozen data carrier with optional per-run formatting overrides + link
@@ -24,7 +24,13 @@
 #                                  (bold/italic/underline/color/font_size_pt)
 #                                  + link (URL or "#anchor")
 #                                  + bookmark (anchor name)
-#   Paragraph                    - styled paragraph + .add_run + .render
+#   TabStop                      - frozen dataclass: position_inches +
+#                                  alignment + leader
+#   TabAlignment                 - StrEnum: LEFT | CENTER | RIGHT | DECIMAL
+#   TabLeader                    - StrEnum: NONE | DOTS | DASHES | UNDERSCORE
+#   Paragraph                    - styled paragraph + .add_run + .render;
+#                                  optional tab_stops list applied via
+#                                  python-docx paragraph_format.tab_stops
 #   Image                        - .from_path / .from_bytes / .render
 #   ContentError                 - base error
 #   ImageFileNotFoundError       - Image.from_path: missing file
@@ -32,11 +38,13 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.2.0 — Run gains link (external URL or "#anchor") and
-#     bookmark (anchor name) fields. Render path emits <w:hyperlink> and
-#     <w:bookmarkStart/End> via lxml drop-down (python-docx has no
-#     first-class API for either). Bookmark IDs allocated per-render by
-#     scanning the document for max existing id.
+#   LAST_CHANGE: v0.3.0 — Paragraph gains tab_stops field. TabStop dataclass
+#     plus TabAlignment / TabLeader enums shipped. Render passes tab stops
+#     to python-docx paragraph_format.tab_stops. Literal '\\t' in run text
+#     is auto-converted to <w:tab/> by python-docx — callers compose
+#     "Item\\tPage 5" with a TabStop right-aligned at the desired position.
+#   PRIOR: v0.2.0 — Run gains link (external URL or "#anchor") and
+#     bookmark (anchor name) fields.
 #   PRIOR: v0.1.0 — Run gains per-run formatting overrides
 #     (bold, italic, underline, color, font_size_pt).
 # END_CHANGE_SUMMARY
@@ -46,12 +54,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from enum import StrEnum
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 from docx.document import Document as DocxDocument
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT, WD_TAB_LEADER
 from docx.opc.constants import RELATIONSHIP_TYPE as _RT
 from docx.oxml import OxmlElement as _OxmlElement
 from docx.oxml.ns import qn as _qn
@@ -192,6 +201,66 @@ class Run:
 
 
 # ---------------------------------------------------------------------------
+# Tab stops
+# ---------------------------------------------------------------------------
+
+
+class TabAlignment(StrEnum):
+    """Paragraph tab-stop alignment per OOXML w:tab[@w:val]."""
+
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+    DECIMAL = "decimal"
+
+
+class TabLeader(StrEnum):
+    """Paragraph tab-stop leader (the fill character drawn between text)."""
+
+    NONE = "none"
+    DOTS = "dots"
+    DASHES = "dashes"
+    UNDERSCORE = "underscore"
+
+
+_DOCX_TAB_ALIGNMENT: dict[TabAlignment, Any] = {
+    TabAlignment.LEFT: WD_TAB_ALIGNMENT.LEFT,
+    TabAlignment.CENTER: WD_TAB_ALIGNMENT.CENTER,
+    TabAlignment.RIGHT: WD_TAB_ALIGNMENT.RIGHT,
+    TabAlignment.DECIMAL: WD_TAB_ALIGNMENT.DECIMAL,
+}
+
+_DOCX_TAB_LEADER: dict[TabLeader, Any] = {
+    TabLeader.NONE: WD_TAB_LEADER.SPACES,
+    TabLeader.DOTS: WD_TAB_LEADER.DOTS,
+    TabLeader.DASHES: WD_TAB_LEADER.DASHES,
+    TabLeader.UNDERSCORE: WD_TAB_LEADER.LINES,
+}
+
+
+@dataclass(frozen=True)
+class TabStop:
+    """Paragraph tab-stop position + alignment + leader.
+
+    Attributes:
+        position_inches: distance from the left margin, in inches; > 0.
+        alignment: how text snaps to the stop (default left).
+        leader: fill character drawn from the previous text to the stop
+            (default none / spaces).
+    """
+
+    position_inches: float
+    alignment: TabAlignment = TabAlignment.LEFT
+    leader: TabLeader = TabLeader.NONE
+
+    def __post_init__(self) -> None:
+        if self.position_inches <= 0:
+            raise ValueError(
+                f"TabStop.position_inches must be > 0, got {self.position_inches!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Paragraph
 # ---------------------------------------------------------------------------
 
@@ -213,13 +282,17 @@ class Paragraph:
 
     style: Style | None = None
     _runs: list[Run] = field(default_factory=list)
+    tab_stops: list[TabStop] = field(default_factory=list)
 
     def __init__(
         self,
         text_or_runs: str | list[Run] = "",
         style: Style | None = None,
+        *,
+        tab_stops: list[TabStop] | None = None,
     ) -> None:
         self.style = style
+        self.tab_stops = list(tab_stops) if tab_stops else []
         if isinstance(text_or_runs, str):
             if text_or_runs:
                 # Seed with a single Run carrying paragraph-level style by
@@ -304,6 +377,15 @@ class Paragraph:
         # Apply paragraph-level style to paragraph_format BEFORE adding runs.
         if self.style is not None:
             self._apply_paragraph_style(docx_paragraph, self.style)
+
+        # Tab stops — applied after style so they survive style.line_height
+        # and friends. python-docx's tab_stops collection appends in order.
+        for stop in self.tab_stops:
+            docx_paragraph.paragraph_format.tab_stops.add_tab_stop(
+                Inches(stop.position_inches),
+                _DOCX_TAB_ALIGNMENT[stop.alignment],
+                _DOCX_TAB_LEADER[stop.leader],
+            )
 
         next_bookmark_id = self._next_bookmark_id(parent_doc)
         for run in self._runs:
@@ -560,4 +642,7 @@ __all__ = [
     "ImageFormatUnsupportedError",
     "Paragraph",
     "Run",
+    "TabAlignment",
+    "TabLeader",
+    "TabStop",
 ]

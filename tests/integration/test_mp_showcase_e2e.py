@@ -14,7 +14,7 @@ Generates the richest document the Pure Python Edition SDK can produce,
 then validates it against MP-VALIDATE on lenient mode.
 
 Gaps (not yet supported):
-  a) Footnotes, tab stops                                   — no API
+  a) Footnotes                                              — needs OOXML part
   b) Multi-column, per-section headers/footers, page breaks — no section API
   c) Callout boxes (info/warning/code block)                — no component
   d) Landscape orientation, custom margins                  — no page API
@@ -39,6 +39,9 @@ from mint_python.sdk import (
     ListKind,
     Section,
     Style,
+    TabAlignment,
+    TabLeader,
+    TabStop,
     Table,
     TOC,
     presets,
@@ -97,6 +100,31 @@ def build_showcase_document(tmp_dir: Path) -> Document:
         .add_run(" — this paragraph is anchored as ", )
         .add_run("intro_anchor", bookmark="intro_anchor")
         .add_run(".")
+    )
+    # Tab stops demo (added in MP-CONTENT v0.3.0): TOC-style dot leader.
+    sec.add_paragraph(
+        Paragraph(
+            "Per-run formatting demo\t§1.1",
+            tab_stops=[
+                TabStop(
+                    position_inches=6.0,
+                    alignment=TabAlignment.RIGHT,
+                    leader=TabLeader.DOTS,
+                ),
+            ],
+        )
+    )
+    sec.add_paragraph(
+        Paragraph(
+            "Hyperlinks + bookmarks demo\t§1.2",
+            tab_stops=[
+                TabStop(
+                    position_inches=6.0,
+                    alignment=TabAlignment.RIGHT,
+                    leader=TabLeader.DOTS,
+                ),
+            ],
+        )
     )
     doc.add_section(sec)
 
@@ -310,7 +338,7 @@ def build_showcase_document(tmp_dir: Path) -> Document:
         .add_run(":")
     )
     gaps = [
-        "a) Footnotes and tab stops — Document-level footnote container and paragraph tab-stop API not yet exposed",
+        "a) Footnotes — Document-level footnote container needs a custom OOXML part injection (deferred)",
         "b) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
         "c) Callout components (info, warning, code block) — no component library",
         "d) Landscape orientation, custom page margins — page-level properties not exposed",

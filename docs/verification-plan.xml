@@ -1118,7 +1118,7 @@
       <autonomy-assessment>SWARM-SAFE — pure deterministic; no I/O beyond JSON file reads in tmp; no env reads; module-level state is read-only registry</autonomy-assessment>
     </V-MP-STYLE>
 
-    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2" VERSION="0.2.0">
+    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2" VERSION="0.3.0">
       <test-files>
         <file status="active" activated-at="Wave-7-2">tests/unit/test_mp_content.py</file>
       </test-files>
@@ -1149,6 +1149,10 @@
         <scenario-20 kind="success" evidence="deterministic">Multiple bookmarks within one paragraph or across consecutive renders into the same Document receive distinct ids; the allocator scans the document body for the current max bookmarkStart/@w:id</scenario-20>
         <scenario-21 kind="failure" evidence="deterministic">Run(text, link='') / link='   ' / link='#1starts_with_digit' / link='#has-dash' raise ValueError</scenario-21>
         <scenario-22 kind="failure" evidence="deterministic">Run(text, bookmark='') / bookmark='2nd_anchor' / bookmark='has space' raise ValueError</scenario-22>
+        <scenario-23 kind="success" evidence="deterministic">Paragraph('Section\tPage', tab_stops=[TabStop(6.0, RIGHT, DOTS)]) emits exactly one paragraph_format.tab_stops entry at Inches(6) with WD_TAB_ALIGNMENT.RIGHT and WD_TAB_LEADER.DOTS; the literal '\\t' becomes a w:tab element so text after it is right-aligned at the stop</scenario-23>
+        <scenario-24 kind="success" evidence="deterministic">Multiple TabStop entries are applied in order; paragraph_format.tab_stops yields len == N</scenario-24>
+        <scenario-25 kind="failure" evidence="deterministic">TabStop(position_inches=0) and TabStop(position_inches=-1.5) raise ValueError mentioning '> 0'</scenario-25>
+        <scenario-26 kind="success" evidence="deterministic">Paragraph with default empty tab_stops list does not allocate any python-docx tab_stops collection entries</scenario-26>
       </scenarios>
       <required-log-markers>
         <marker-1>[MP-Content][render][BLOCK_RENDER_CONTENT] — fires per Paragraph or Image .render() call</marker-1>

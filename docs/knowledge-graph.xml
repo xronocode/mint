@@ -417,15 +417,18 @@
       </annotations>
     </MP-STYLE>
 
-    <MP-CONTENT NAME="Pure Python Content Primitives" TYPE="CORE_LOGIC" STATUS="done" VERSION="0.2.0">
-      <purpose>Inline content blocks placed inside a Section: Paragraph + Run (with per-run formatting overrides + link/bookmark anchors) + Image, all OOXML emitters via python-docx + lxml drop-down for w:hyperlink/w:bookmarkStart/End</purpose>
+    <MP-CONTENT NAME="Pure Python Content Primitives" TYPE="CORE_LOGIC" STATUS="done" VERSION="0.3.0">
+      <purpose>Inline content blocks placed inside a Section: Paragraph (with optional tab_stops) + Run (with per-run formatting overrides + link/bookmark anchors) + Image + TabStop primitives, all OOXML emitters via python-docx + lxml drop-down for w:hyperlink/w:bookmarkStart/End</purpose>
       <path>src/mint_python/core/content.py</path>
       <depends>MP-STYLE</depends>
       <verification-ref>V-MP-CONTENT</verification-ref>
       <annotations>
-        <type-Paragraph PURPOSE="Styled paragraph; .add_run(text, style=None, *, bold/italic/underline/color/font_size_pt/link/bookmark) fluent; .render(parent_doc) writes to python-docx Document" />
+        <type-Paragraph PURPOSE="Styled paragraph with optional tab_stops list; .add_run(text, style=None, *, bold/italic/underline/color/font_size_pt/link/bookmark) fluent; .render(parent_doc) writes to python-docx Document" />
         <type-Run PURPOSE="Inline styled fragment with optional per-run overrides (bold/italic/underline/color/font_size_pt) + link (external URL or '#anchor') + bookmark (anchor name). None = inherit effective Style; explicit value wins" />
         <type-Image PURPOSE="Image embed with .from_path / .from_bytes constructors; .render emits w:drawing with auto rId" />
+        <type-TabStop PURPOSE="Frozen dataclass: position_inches (>0) + alignment (TabAlignment) + leader (TabLeader)" />
+        <type-TabAlignment PURPOSE="StrEnum: LEFT | CENTER | RIGHT | DECIMAL" />
+        <type-TabLeader PURPOSE="StrEnum: NONE | DOTS | DASHES | UNDERSCORE" />
       </annotations>
     </MP-CONTENT>
 
@@ -516,7 +519,7 @@
       </annotations>
     </MP-CHART>
 
-    <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" STATUS="done" VERSION="0.3.0">
+    <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" STATUS="done" VERSION="0.5.0">
       <purpose>Public re-exports of all §3 types + named-preset registry + with_style_from(path) loader</purpose>
       <path>src/mint_python/sdk/__init__.py</path>
       <depends>MP-DOCUMENT, MP-TABLE, MP-CONTENT, MP-STYLE, MP-LIST</depends>
@@ -529,6 +532,9 @@
         <export-Image PURPOSE="Re-export of MP-CONTENT.Image" />
         <export-List PURPOSE="Re-export of MP-LIST.List" />
         <export-ListKind PURPOSE="Re-export of MP-LIST.ListKind enum" />
+        <export-TabStop PURPOSE="Re-export of MP-CONTENT.TabStop" />
+        <export-TabAlignment PURPOSE="Re-export of MP-CONTENT.TabAlignment enum" />
+        <export-TabLeader PURPOSE="Re-export of MP-CONTENT.TabLeader enum" />
         <export-TOC PURPOSE="Re-export of MP-DOCUMENT.TOC" />
         <export-Pt PURPOSE="Re-export of MP-STYLE.Pt" />
         <export-ColorPalette PURPOSE="Re-export of MP-STYLE.ColorPalette" />

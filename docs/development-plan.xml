@@ -936,7 +936,7 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-STYLE</verification-ref>
     </MP-STYLE>
 
-    <MP-CONTENT NAME="Pure Python Content Primitives (Paragraph / Run / Image)" TYPE="CORE_LOGIC" LAYER="1" ORDER="11" STATUS="done" VERSION="0.2.0">
+    <MP-CONTENT NAME="Pure Python Content Primitives (Paragraph / Run / Image / TabStop)" TYPE="CORE_LOGIC" LAYER="1" ORDER="11" STATUS="done" VERSION="0.3.0">
       <contract>
         <purpose>Inline content building blocks placed inside a Section: styled text Paragraph (composed of Run instances with optional per-run formatting overrides + link/bookmark anchors) and Image embedded via python-docx + pillow. Direct emitters of `&lt;w:p&gt;`, `&lt;w:r&gt;`, `&lt;w:hyperlink&gt;`, `&lt;w:bookmarkStart/End&gt;`, `&lt;w:drawing&gt;` OOXML.</purpose>
         <inputs>
@@ -958,12 +958,16 @@ writeFileSync('output.docx', buffer);
           <error code="RUN_FONT_SIZE_INVALID" />
           <error code="RUN_LINK_INVALID" />
           <error code="RUN_BOOKMARK_INVALID" />
+          <error code="TAB_STOP_POSITION_INVALID" />
         </errors>
       </contract>
       <interface>
-        <export-Paragraph PURPOSE="Styled paragraph; .add_run(text, style=None, *, bold/italic/underline/color/font_size_pt/link/bookmark) returns self for chaining; .render(parent_doc) writes to python-docx Document" />
+        <export-Paragraph PURPOSE="Styled paragraph with optional tab_stops list; .add_run(text, style=None, *, bold/italic/underline/color/font_size_pt/link/bookmark) returns self for chaining; .render(parent_doc) writes to python-docx Document" />
         <export-Run PURPOSE="Inline styled text fragment with optional per-run formatting overrides (bold, italic, underline, color, font_size_pt) + link (external URL or '#anchor') + bookmark (anchor name). Run-field precedence wins over inherited Style at render time." />
         <export-Image PURPOSE="Image embed: Image.from_path(path, width=None, height=None) | Image.from_bytes(data, format='png'); .render(parent_doc) emits w:drawing with auto rId" />
+        <export-TabStop PURPOSE="Frozen dataclass: position_inches (>0) + alignment (TabAlignment) + leader (TabLeader); applied via paragraph_format.tab_stops at render" />
+        <export-TabAlignment PURPOSE="StrEnum: LEFT | CENTER | RIGHT | DECIMAL" />
+        <export-TabLeader PURPOSE="StrEnum: NONE | DOTS | DASHES | UNDERSCORE" />
       </interface>
       <depends>MP-STYLE</depends>
       <target>

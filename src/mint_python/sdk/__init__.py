@@ -1,5 +1,5 @@
 # FILE: src/mint_python/sdk/__init__.py
-# VERSION: 0.4.0
+# VERSION: 0.5.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Public SDK surface for prompt-style document construction.
 #     Re-exports the §3 type set so users write
@@ -26,6 +26,9 @@
 #   Chart - re-export of mint_python.core.chart.Chart (Phase-8)
 #   List - re-export of mint_python.core.list_block.List
 #   ListKind - re-export of mint_python.core.list_block.ListKind
+#   TabStop - re-export of mint_python.core.content.TabStop
+#   TabAlignment - re-export of mint_python.core.content.TabAlignment enum
+#   TabLeader - re-export of mint_python.core.content.TabLeader enum
 #   Pt - re-export of mint_python.core.style.Pt
 #   ColorPalette - re-export of mint_python.core.style.ColorPalette
 #   TOC - Phase-7 marker class (Document.add_toc carries the only params)
@@ -33,7 +36,10 @@
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.4.0 - add Cell to the public re-export surface so
+#   LAST_CHANGE: v0.5.0 - add TabStop, TabAlignment, TabLeader to the public
+#     re-export surface so callers can attach paragraph tab stops without
+#     importing from mint_python.core.content directly.
+#   PRIOR: v0.4.0 - add Cell to the public re-export surface so
 #     callers can build merged-cell tables without importing from
 #     mint_python.core.table directly.
 #   PRIOR: v0.3.0 - add List + ListKind to the public re-export surface
@@ -49,7 +55,7 @@
 from __future__ import annotations
 
 from mint_python.core.chart import Chart
-from mint_python.core.content import Image
+from mint_python.core.content import Image, TabAlignment, TabLeader, TabStop
 from mint_python.core.document import Document
 from mint_python.core.list_block import List, ListKind
 from mint_python.core.section import Section
@@ -81,6 +87,9 @@ __all__ = [
     "Pt",
     "Section",
     "Style",
+    "TabAlignment",
+    "TabLeader",
+    "TabStop",
     "Table",
     "presets",
 ]

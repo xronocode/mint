@@ -40,15 +40,20 @@
 #   test_scenario_20_multiple_bookmarks_get_unique_ids
 #   test_run_link_validation_rejects_empty_and_bad_anchor
 #   test_run_bookmark_validation_rejects_bad_name
+#   test_bookmark_id_scanner_continues_max_across_renders
+#   test_scenario_23_tab_stop_right_with_dots
+#   test_scenario_24_multiple_tab_stops_preserved
+#   test_scenario_25_tab_stop_position_must_be_positive
+#   test_scenario_26_no_tab_stops_means_no_collection_entries
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.2.0 — scenarios 16-20 cover Run.link (external URL +
-#     internal anchor) and Run.bookmark (anchor name) rendering via
-#     <w:hyperlink>/<w:bookmarkStart/End>; 2 validation tests guard the
-#     link/bookmark name format. Bookmark id uniqueness is asserted.
-#   PRIOR: v0.1.0 — added scenarios 9-13 covering per-run formatting
-#     overrides + color hex / font_size_pt validation tests.
+#   LAST_CHANGE: v0.3.0 — scenarios 23-26 cover Paragraph.tab_stops:
+#     right-aligned with dot leader, multiple stops, position-must-be-positive
+#     validation, default empty list does not allocate the python-docx
+#     paragraph_format.tab_stops collection.
+#   PRIOR: v0.2.0 — scenarios 16-20 cover Run.link / Run.bookmark.
+#   PRIOR: v0.1.0 — scenarios 9-13 per-run formatting overrides.
 # END_CHANGE_SUMMARY
 from __future__ import annotations
 
@@ -67,6 +72,9 @@ from mint_python.core.content import (
     ImageFormatUnsupportedError,
     Paragraph,
     Run,
+    TabAlignment,
+    TabLeader,
+    TabStop,
 )
 from mint_python.core.style import Style, load_preset
 from tests.unit._mp_helpers import extract_marker
@@ -579,3 +587,86 @@ def test_bookmark_id_scanner_continues_max_across_renders() -> None:
     starts = doc.element.body.findall(f".//{qn('w:bookmarkStart')}")
     ids = sorted(int(s.get(qn("w:id"))) for s in starts)
     assert ids == [0, 1]  # second render saw id 0 in body, used 1
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-23: single tab stop with right alignment + dot leader
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_23_tab_stop_right_with_dots() -> None:
+    from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
+    from docx.shared import Inches as DocxInches
+
+    doc = Document()
+    Paragraph(
+        "Section 1\tPage 5",
+        tab_stops=[
+            TabStop(
+                position_inches=6.0,
+                alignment=TabAlignment.RIGHT,
+                leader=TabLeader.DOTS,
+            )
+        ],
+    ).render(doc)
+
+    # python-docx exposes the tab_stops collection — assert one stop at 6 in.
+    stops = list(doc.paragraphs[-1].paragraph_format.tab_stops)
+    assert len(stops) == 1
+    assert stops[0].position == DocxInches(6)
+    assert stops[0].alignment == WD_TAB_ALIGNMENT.RIGHT
+    assert stops[0].leader == WD_TAB_LEADER.DOTS
+
+    # The literal '\t' in run text becomes a w:tab element so the rendered
+    # paragraph aligns "Page 5" against the right tab stop.
+    assert any("\t" in r.text or r._r.find(qn_w_tab()) is not None
+               for r in doc.paragraphs[-1].runs)
+
+
+def qn_w_tab() -> str:
+    """Helper — qualified name for w:tab element."""
+    from docx.oxml.ns import qn
+    return qn("w:tab")
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-24: multiple tab stops in one paragraph
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_24_multiple_tab_stops_preserved() -> None:
+    doc = Document()
+    Paragraph(
+        "L\tC\tR",
+        tab_stops=[
+            TabStop(2.0, alignment=TabAlignment.LEFT),
+            TabStop(4.0, alignment=TabAlignment.CENTER),
+            TabStop(6.0, alignment=TabAlignment.RIGHT, leader=TabLeader.DASHES),
+        ],
+    ).render(doc)
+    stops = list(doc.paragraphs[-1].paragraph_format.tab_stops)
+    assert len(stops) == 3
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-25: TabStop position validation
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_25_tab_stop_position_must_be_positive() -> None:
+    with pytest.raises(ValueError, match="> 0"):
+        TabStop(position_inches=0)
+    with pytest.raises(ValueError, match="> 0"):
+        TabStop(position_inches=-1.5)
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-26: tab_stops default empty does not pollute paragraph
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_26_no_tab_stops_means_no_collection_entries() -> None:
+    doc = Document()
+    Paragraph("plain").render(doc)
+    stops = list(doc.paragraphs[-1].paragraph_format.tab_stops)
+    assert stops == []
