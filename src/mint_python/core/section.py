@@ -1,5 +1,5 @@
 # FILE: src/mint_python/core/section.py
-# VERSION: 0.0.0
+# VERSION: 0.1.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Fluent Section node per handover §3.2 — heading + ordered list of
 #     content blocks (Paragraph, Table, Image, Chart). Phase-8 unstubs

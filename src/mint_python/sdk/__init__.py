@@ -1,5 +1,5 @@
 # FILE: src/mint_python/sdk/__init__.py
-# VERSION: 0.1.0
+# VERSION: 0.2.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Public SDK surface for prompt-style document construction.
 #     Re-exports the §3 type set so users write

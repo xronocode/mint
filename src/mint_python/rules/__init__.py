@@ -4,7 +4,7 @@
 #   PURPOSE: Load YAML OOXML validation rules (D-H*, D-S*, P-H*) and evaluate via lxml XPath.
 #   SCOPE: YAML parsing, Rule/Violation dataclasses, Severity/FixCategory enums,
 #     evaluate via XPath, all_rules registry.
-#   DEPENDS: pyyaml (yaml.safe_load), lxml (etree), logging (stdlib) — NO MP-* production deps.
+#   DEPENDS: pyyaml (yaml.safe_load), lxml (etree), logging (stdlib), signal (stdlib) — NO MP-* production deps.
 #   LINKS: docs/knowledge-graph.xml#MP-RULES, docs/verification-plan.xml#V-MP-RULES
 # END_MODULE_CONTRACT
 #
@@ -14,6 +14,7 @@
 #   Severity - HARD/SOFT enum
 #   FixCategory - SAFE/VISUAL/DESTRUCTIVE enum
 #   RuleLoadError - raised on broken/missing YAML
+#   XPathTimeoutError - raised when XPath evaluation exceeds 5 sec timeout
 #   evaluate - evaluate a single rule against an lxml-parsed document XML tree
 #   all_rules - load all YAML rules for a given format
 #   classify_severity - classify violation severity and fix category

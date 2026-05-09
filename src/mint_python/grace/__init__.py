@@ -4,8 +4,8 @@
 #   PURPOSE: Inject GRACE manifest + instructions as Custom XML Parts into OOXML docs
 #   SCOPE: Custom XML Part injection (urn:mint:grace:2026:manifest), vendor XML
 #     preservation, manifest read-back (describe), content-types + relationships updates
-#   DEPENDS: zipfile, xml.etree.ElementTree, pathlib, hashlib, uuid, tempfile, logging
-#     (stdlib only — NO cross-package deps inside src/mint_python/)
+#   DEPENDS: zipfile, xml.etree.ElementTree, pathlib, uuid, tempfile,
+#     mint_python._hash, logging
 #   LINKS: docs/knowledge-graph.xml#MP-GRACE
 # END_MODULE_CONTRACT
 #

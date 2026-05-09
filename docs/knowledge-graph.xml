@@ -432,7 +432,7 @@
     <MP-TABLE NAME="Pure Python Table" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Table class with §3.3 factory constructors and post-construction shaping; renders into python-docx Table</purpose>
       <path>src/mint_python/core/table.py</path>
-      <depends>MP-STYLE, MP-CONTENT</depends>
+      <depends>MP-STYLE</depends>
       <verification-ref>V-MP-TABLE</verification-ref>
       <annotations>
         <type-Table PURPOSE="Table model + .render(parent_doc) → python-docx Table" />
@@ -446,9 +446,9 @@
     </MP-TABLE>
 
     <MP-SECTION NAME="Pure Python Section (fluent)" TYPE="CORE_LOGIC" STATUS="done">
-      <purpose>Fluent Section per handover §3.2; Phase-1 stubs add_chart with NotImplementedError naming Phase 2</purpose>
+      <purpose>Fluent Section per handover §3.2; add_chart concrete (Phase-8) — appends Chart block to _blocks</purpose>
       <path>src/mint_python/core/section.py</path>
-      <depends>MP-CONTENT, MP-TABLE</depends>
+      <depends>MP-CONTENT, MP-TABLE, MP-CHART</depends>
       <verification-ref>V-MP-SECTION</verification-ref>
       <annotations>
         <type-Section PURPOSE="Section node holding heading + ordered list of content blocks" />
@@ -462,7 +462,7 @@
     <MP-DOCUMENT NAME="Pure Python Document Facade" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Full §3.1 Document facade; save() produces valid .docx via python-docx + lxml; stubs Phase-3/5 methods</purpose>
       <path>src/mint_python/core/document.py</path>
-      <depends>MP-SECTION, MP-STYLE</depends>
+      <depends>MP-SECTION, MP-STYLE, MP-VALIDATE, MP-FIX, MP-GRACE, mint_python._hash</depends>
       <verification-ref>V-MP-DOCUMENT</verification-ref>
       <annotations>
         <type-Document PURPOSE="Document facade aggregating Sections, document-wide Style preset, header/footer, cover" />
@@ -485,7 +485,7 @@
     <MP-CHART NAME="Pure Python Chart factories + render" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Chart class + 7 factory constructors per handover §3.4 + from_matplotlib/seaborn/plotly channels; matplotlib Figure → PNG @ 300 DPI → python-docx add_picture embed; corporate theming + chartjunk removal applied via matplotlib rcParams</purpose>
       <path>src/mint_python/core/chart.py</path>
-      <depends>MP-STYLE, MP-CONTENT</depends>
+      <depends>MP-STYLE</depends>
       <verification-ref>V-MP-CHART</verification-ref>
       <annotations>
         <type-Chart PURPOSE="Chart model with cached PNG bytes + chart_type tag + width/height/caption; .render(parent_doc) returns the python-docx inline_shape" />
@@ -516,6 +516,7 @@
         <export-TOC PURPOSE="Re-export of MP-DOCUMENT.TOC" />
         <export-Pt PURPOSE="Re-export of MP-STYLE.Pt" />
         <export-ColorPalette PURPOSE="Re-export of MP-STYLE.ColorPalette" />
+        <export-Chart PURPOSE="Re-export of MP-CHART.Chart (Phase-8 addition)" />
         <export-presets PURPOSE="Built-in preset registry: 'alga_corporate', 'minimal', 'compact'" />
       </annotations>
     </MP-SDK>
@@ -559,7 +560,7 @@
     <MP-FIX NAME="Pure Python Auto-Fix Engine" TYPE="CORE_LOGIC" STATUS="done" ADDED_AT="2026-05-09">
       <purpose>Apply safe/visual auto-fixes to OOXML documents with backup, cascade detection (max 3 iterations), destructive rejection. Pure Python successor to M-FIX (src/mint/fix.py). D-H09 newline fix only in Phase-9 scope.</purpose>
       <path>src/mint_python/fix.py</path>
-      <depends>MP-VALIDATE (run_checks, SeverityMode, ValidationReport, InvalidDocumentError), MP-RULES (Violation, FixCategory, Severity), zipfile, lxml, shutil, hashlib, io</depends>
+      <depends>MP-VALIDATE (run_checks, SeverityMode, ValidationReport, InvalidDocumentError), MP-RULES (Violation, FixCategory, Severity), mint_python._hash, zipfile, lxml, shutil, io</depends>
       <verification-ref>V-MP-FIX</verification-ref>
       <annotations>
         <type-FixReport PURPOSE="Report dataclass: fixed_path, backup_path, iterations, applied_fixes, remaining_violations, diff summary" />
@@ -576,7 +577,7 @@
 
     <CrossLink from="MP-CONTENT" to="MP-STYLE" relation="Paragraph and Run consume Style for typography/color/spacing" />
     <CrossLink from="MP-TABLE" to="MP-STYLE" relation="Table.apply_style and the financial/comparison factories consume Style" />
-    <CrossLink from="MP-TABLE" to="MP-CONTENT" relation="Table cells embed Paragraph instances for rich-text content" />
+    <CrossLink from="MP-TABLE" to="MP-STYLE" relation="Table.apply_style and the financial/comparison factories consume Style" />
     <CrossLink from="MP-SECTION" to="MP-CONTENT" relation="Section.add_paragraph / add_image consume Paragraph and Image" />
     <CrossLink from="MP-SECTION" to="MP-TABLE" relation="Section.add_table consumes Table" />
     <CrossLink from="MP-DOCUMENT" to="MP-SECTION" relation="Document body is an ordered list of Sections" />
@@ -586,22 +587,17 @@
     <CrossLink from="MP-SDK" to="MP-CONTENT" relation="SDK re-exports Image" />
     <CrossLink from="MP-SDK" to="MP-STYLE" relation="SDK re-exports Style, Pt, ColorPalette + hosts the preset registry" />
     <CrossLink from="MP-CHART" to="MP-STYLE" relation="Chart factories pull active Style preset to apply matplotlib rcParams (font, color cycle, chartjunk removal)" />
-    <CrossLink from="MP-CHART" to="MP-CONTENT" relation="Chart.render mirrors the Image render protocol — calls parent_doc.add_picture with PNG bytes (Phase-8) producing an inline_shape" />
     <CrossLink from="MP-SECTION" to="MP-CHART" relation="Section.add_chart(chart) appends to _blocks (Phase-8 unstubs the BLOCK_PHASE_GUARD path); Section.render walks Chart.render alongside Paragraph/Table/Image" />
     <CrossLink from="MP-SDK" to="MP-CHART" relation="SDK re-exports Chart per handover §3.4 surface list (Phase-8 addition)" />
     <CrossLink from="MP-DOCUMENT" to="MP-VALIDATE" relation="Document.validate() delegates to MP-VALIDATE.run_checks via temp-file pattern (Wave-9-4 unstub)" />
     <CrossLink from="MP-DOCUMENT" to="MP-FIX" relation="Document.fix() delegates to MP-FIX.fix via temp-file pattern (Wave-9-4 unstub)" />
-    <CrossLink from="MP-VALIDATE" to="MP-RULES" relation="run_checks loads rules via MP-RULES.all_rules and evaluates each via MP-RULES.evaluate" />
-    <CrossLink from="MP-FIX" to="MP-VALIDATE" relation="apply_fixes calls MP-VALIDATE.run_checks for re-validation after each fix iteration" />
-    <CrossLink from="MP-FIX" to="MP-RULES" relation="apply_fixes uses MP-RULES.Violation, FixCategory, Severity types for classification" />
-    <CrossLink from="MP-DOCUMENT" to="MP-VALIDATE" relation="Phase-9: saved .docx validates via MP-VALIDATE.run_checks (Wave-9-4 unstub). Phantom M-VALIDATE reference retired." />
 
     <!-- Phase 11: Pure Python Edition Phase 5 — GRACE injector + PDF (handover §3.1, §6) -->
 
     <MP-GRACE NAME="Pure Python GRACE Injector v1.1" TYPE="CORE_LOGIC" STATUS="done" ADDED_AT="2026-05-09">
-      <purpose>Pure Python successor to M-GRACE: emit GRACE manifest + instructions as Custom XML Parts under urn:mint:grace:2026:manifest into a saved .docx, preserving any existing Custom XML Parts from other vendors. Called via delegation from MP-DOCUMENT.inject_grace; stdlib-only deps (zipfile + xml.etree + tempfile + hashlib + uuid) — NO cross-package imports inside src/mint_python/.</purpose>
+      <purpose>Pure Python successor to M-GRACE: emit GRACE manifest + instructions as Custom XML Parts under urn:mint:grace:2026:manifest into a saved .docx, preserving any existing Custom XML Parts from other vendors. Called via delegation from MP-DOCUMENT.inject_grace; deps: zipfile + xml.etree + tempfile + uuid + mint_python._hash.</purpose>
       <path>src/mint_python/grace/__init__.py</path>
-      <depends>zipfile, xml.etree.ElementTree, hashlib, uuid, tempfile, logging (stdlib)</depends>
+      <depends>zipfile, xml.etree.ElementTree, mint_python._hash, uuid, tempfile, logging (stdlib)</depends>
       <verification-ref>V-MP-GRACE</verification-ref>
       <annotations>
         <type-GRACEManifest PURPOSE="Manifest dataclass: document_structure dict, fingerprint hash, instructions list, namespace, xml_part_name" />
@@ -612,6 +608,15 @@
         <fn-describe PURPOSE="Read existing GRACE manifest from .docx if present (looks for grace/*.xml inside the ZIP); returns GRACEManifest or None" />
       </annotations>
     </MP-GRACE>
+
+    <MP-HASH NAME="Shared SHA-256 File Hasher" TYPE="UTILITY" STATUS="done" ADDED_AT="2026-05-09">
+      <purpose>Internal utility: SHA-256 file hash with 64 KB chunked reading. Shared by MP-FIX and MP-GRACE.</purpose>
+      <path>src/mint_python/_hash.py</path>
+      <depends>hashlib, pathlib (stdlib)</depends>
+      <annotations>
+        <fn-compute_file_hash PURPOSE="Return SHA-256 hex digest of file at path" />
+      </annotations>
+    </MP-HASH>
 
     <CrossLink from="MP-DOCUMENT" to="MP-GRACE" relation="Document.inject_grace is a delegation chokepoint: the public API lives on Document per handover §3.1; MP-GRACE.bootstrap writes the urn:mint:grace:2026:manifest Custom XML Parts into the saved .docx (Phase-11 unstub)." />
   </Project>

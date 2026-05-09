@@ -434,7 +434,7 @@
         <inv-3>DELEGATION-CORRECT: Document.validate delegates to MP-VALIDATE.validate(tmp_path); Document.fix to MP-FIX.fix(tmp_path). No duplicate logic in Document.</inv-3>
       </invariants>
       <required-signals>
-        <log-marker>[MP-Document][stub][BLOCK_PHASE_GUARD] — fires only for inject_grace and to_pdf (still stubs); NOT for validate/fix.</log-marker>
+        <log-marker>BLOCK_PHASE_GUARD retired — all Document stubs (validate/fix/inject_grace/to_pdf) are concrete post-Phase-12. No BLOCK_PHASE_GUARD on any Document method.</log-marker>
       </required-signals>
       <forbidden-signals>
         <forbidden-1>BLOCK_PHASE_GUARD on method=validate or method=fix — these stubs are retired</forbidden-1>
@@ -1219,7 +1219,7 @@
         <scenario-3 kind="success" evidence="deterministic">save(tmp_path / 'out.docx') produces a file that exists; lxml parses word/document.xml without error</scenario-3>
         <scenario-4 kind="failure" evidence="deterministic">Document(format='pdf') raises DOCUMENT_FORMAT_UNSUPPORTED naming valid formats {'docx'} for Phase-1</scenario-4>
         <scenario-5 kind="failure" evidence="deterministic">Document(...).with_style_preset('does_not_exist') raises DOCUMENT_PRESET_NOT_FOUND</scenario-5>
-        <scenario-6 kind="failure" evidence="deterministic">Each stub (inject_grace, validate, fix, to_pdf) raises NotImplementedError with target phase in message; emits BLOCK_PHASE_GUARD before raising</scenario-6>
+        <scenario-6 kind="success" evidence="deterministic">All former stubs are now concrete: validate → ValidationReport, fix → FixReport, inject_grace → GRACEManifest, to_pdf → Path. Zero NotImplementedError raisers. Zero BLOCK_PHASE_GUARD emitters.</scenario-6>
         <scenario-7 kind="success" evidence="trace">save() emits exactly one [MP-Document][save][BLOCK_SAVE_DOCX] with section_count, table_count, output_path payload</scenario-7>
         <scenario-8 kind="success" evidence="deterministic">IDEMPOTENCY UNDER M-FINGERPRINT: invoking save() twice on the same Document produces two files whose `mint.fingerprint.fingerprint(path).hash` are equal. Pytest snippet (lives in tests/unit/test_mp_document.py):
 ```
@@ -1233,7 +1233,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </scenarios>
       <required-log-markers>
         <marker-1>[MP-Document][save][BLOCK_SAVE_DOCX] — fires once per save</marker-1>
-        <marker-2>[MP-Document][stub][BLOCK_PHASE_GUARD] — fires per stub method touch</marker-2>
+        <marker-2>RETIRED post-Phase-12 — BLOCK_PHASE_GUARD no longer fires; all Document stubs concrete</marker-2>
       </required-log-markers>
       <forbidden-behaviors>
         <forbidden-1>save() must never produce a partial file: on serialization error, the temp output is removed before re-raising</forbidden-1>
@@ -2005,7 +2005,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <field-4>src/mint_python/core/document.py (in-place: unstub validate() and fix() methods ONLY); tests/integration/test_mp_validate_fix_e2e.py (new); tests/unit/test_mp_document.py (update: retire Phase-7 BLOCK_PHASE_GUARD assertions for validate/fix). NO edits to any other src/mint_python/core/* file. NO edits to conftest.py (existing Phase-7+Phase-8 fixtures sufficient).</field-4>
       <field-5>Unstub Document.validate(level) and Document.fix(strategy). Delegation pattern: validate saves to temp .docx → calls MP-VALIDATE.validate(tmp_path, level) → returns ValidationReport; fix saves to temp → calls MP-VALIDATE.run_checks → MP-FIX.apply_fixes → returns FixReport. Temp files cleaned up via contextlib after call.</field-5>
       <field-7>Document methods depend on MP-VALIDATE (validate, run_checks, ValidationReport, SeverityMode) and MP-FIX (fix, apply_fixes, FixReport). Both shipped in Wave-9-2 and Wave-9-3. Additionally depends on MP-SECTION (Section) and MP-STYLE — already shipped Phase-7/8.</field-7>
-      <field-8>VF-016 verification excerpt: 3 invariants (temp-file cleanup, stub retired, delegation correct), 1 required signal (BLOCK_PHASE_GUARD only for inject_grace/to_pdf), 1 forbidden (no BLOCK_PHASE_GUARD on validate/fix). V-MP-DOCUMENT scenario update: retire Phase-7 "stub raises NotImplementedError" scenarios for validate/fix — replace with "returns concrete report" scenarios.</field-8>
+      <field-8>VF-016 verification excerpt: 3 invariants (temp-file cleanup, all stubs retired, delegation correct). BLOCK_PHASE_GUARD retired post-Phase-12 — no stub methods remain on Document.</field-8>
       <field-9>mp_clean_env, tmp_docx_path, caplog_at_info, marker_counter, golden_doc_builder. DO NOT redefine.</field-9>
       <field-10>build_golden_document, assert_marker_sequence, assert_no_legacy_markers, load_audit_baseline, write_audit_baseline.</field-10>
       <field-11>NO new trace markers. Existing BLOCK_SAVE_DOCX fires from Document.save() (unchanged). BLOCK_PHASE_GUARD fires ONLY for inject_grace and to_pdf — specifically NOT for validate/fix.</field-11>

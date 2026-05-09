@@ -17,7 +17,8 @@
 #     dcterms:created/modified to DOCUMENT_FIXED_TIMESTAMP so two saves of the
 #     same Document produce the same fingerprint hash.
 #   DEPENDS: python-docx (1.1.x), lxml (5.x), httpx, mint_python.core.style,
-#     mint_python.core.section, mint_python.validate, mint_python.fix.
+#     mint_python.core.section, mint_python.validate, mint_python.fix,
+#     mint_python.grace (lazy via inject_grace).
 #     NO sibling import of MP-CONTENT/MP-TABLE — we reach those types only
 #     transitively via Section.render.
 #   LINKS: docs/development-plan.xml#MP-DOCUMENT,
@@ -39,7 +40,7 @@
 #   Document.validate                   - Phase-9: validates via MP-VALIDATE
 #   Document.fix                        - Phase-9: auto-fixes via MP-FIX
 #   Document.to_pdf                     - Gotenberg PDF render; emits BLOCK_RENDER_PDF
-#   Document._resolve_severity_mode     - str → SeverityMode helper
+#   _resolve_severity_mode - str → SeverityMode helper
 #   DocumentError                       - base error
 #   DocumentFormatUnsupportedError      - format != 'docx'
 #   DocumentPresetNotFoundError         - wraps STYLE_PRESET_NOT_FOUND
