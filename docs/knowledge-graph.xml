@@ -520,6 +520,24 @@
       </annotations>
     </MP-SDK>
 
+    <MP-RULES NAME="Pure Python OOXML Rule Engine" TYPE="CORE_LOGIC" STATUS="done" ADDED_AT="2026-05-09">
+      <purpose>Load OOXML validation rules from shared YAML (rules/*.yaml) and evaluate via lxml XPath. Pure Python successor to M-RULES (src/mint/rules/engine.py).</purpose>
+      <path>src/mint_python/rules/__init__.py</path>
+      <depends>pyyaml, lxml, logging (stdlib)</depends>
+      <verification-ref>V-MP-RULES</verification-ref>
+      <annotations>
+        <type-Rule PURPOSE="Validation rule dataclass: id, format, severity, xpath, check, fix_category, hint, description" />
+        <type-Violation PURPOSE="Violation result dataclass: rule_id, severity, fix_category, message, hint, location" />
+        <type-Severity PURPOSE="Enum: HARD, SOFT" />
+        <type-FixCategory PURPOSE="Enum: SAFE, VISUAL, DESTRUCTIVE" />
+        <type-RuleLoadError PURPOSE="Raised on broken or missing YAML" />
+        <fn-evaluate PURPOSE="Evaluate a single Rule against an lxml-parsed document XML tree; returns Violation or None" />
+        <fn-all_rules PURPOSE="Load all YAML rules for a given document format (docx/pptx) from rules_dir" />
+        <fn-classify_severity PURPOSE="Return (Severity, FixCategory) tuple for a Violation" />
+        <fn-get_hint PURPOSE="Return educational hint dict for a rule_id; fallback for unknown IDs" />
+      </annotations>
+    </MP-RULES>
+
     <CrossLink from="MP-CONTENT" to="MP-STYLE" relation="Paragraph and Run consume Style for typography/color/spacing" />
     <CrossLink from="MP-TABLE" to="MP-STYLE" relation="Table.apply_style and the financial/comparison factories consume Style" />
     <CrossLink from="MP-TABLE" to="MP-CONTENT" relation="Table cells embed Paragraph instances for rich-text content" />
