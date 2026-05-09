@@ -4,7 +4,7 @@
 #   PURPOSE: Load YAML OOXML validation rules (D-H*, D-S*, P-H*) and evaluate via lxml XPath.
 #   SCOPE: YAML parsing, Rule/Violation dataclasses, Severity/FixCategory enums,
 #     evaluate via XPath, all_rules registry.
-#   DEPENDS: pyyaml (yaml.safe_load), lxml (etree), logging (stdlib), signal (stdlib) — NO MP-* production deps.
+#   DEPENDS: pyyaml, lxml (etree), logging, signal — NO MP-* production deps.
 #   LINKS: docs/knowledge-graph.xml#MP-RULES, docs/verification-plan.xml#V-MP-RULES
 # END_MODULE_CONTRACT
 #
@@ -119,7 +119,7 @@ def evaluate(rule: Rule, tree: _Element) -> Violation | None:
         f"rule_id={rule.id} check={rule.check}"
     )
     try:
-        def _handler(signum: int, frame: FrameType | None) -> None:  # pragma: no cover — signal-based, untestable in CI
+        def _handler(signum: int, frame: FrameType | None) -> None:  # pragma: no cover  # noqa: E501
             raise XPathTimeoutError("XPath evaluation timed out")
 
         old_handler = signal.signal(signal.SIGALRM, _handler)
