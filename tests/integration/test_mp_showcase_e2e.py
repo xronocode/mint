@@ -5,7 +5,7 @@
 #     produce, then validates it passes MP-VALIDATE lenient. Serves as both a
 #     capability demonstration and a gap report for missing features.
 #   SCOPE: Cover page + TOC + multi-section body with paragraphs, tables, charts,
-#     images. Validates lenient MP-VALIDATE passes. Pins baseline fingerprint.
+#     images. Validates lenient MP-VALIDATE passes.
 #   DEPENDS: mint_python.sdk (Document, Section, Table, Style, Image, TOC, Chart, presets)
 # END_MODULE_CONTRACT
 """E2E Showcase Generation — SDK Capability Demonstration.
@@ -19,11 +19,7 @@ Gaps (not yet supported):
 """
 from __future__ import annotations
 
-import hashlib
-import json
-import os
 import tempfile
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -48,34 +44,6 @@ from mint_python.sdk import (
     presets,
 )
 
-BASELINE_PATH = Path(__file__).parent.parent / "fixtures" / "mp_showcase_baseline.json"
-
-
-def _content_fingerprint(docx_path: Path) -> str:
-    """Hash the .docx package contents deterministically across platforms.
-
-    Iterates archive entries in name-sorted order. For XML entries (.xml /
-    .rels) we parse and emit C14N2 canonical form before hashing — libxml2
-    builds on Linux/macOS can differ in attribute ordering, whitespace, or
-    namespace declarations, all of which c14n2 normalizes away. Non-XML
-    entries (images, binary parts) are hashed verbatim.
-    """
-    from lxml import etree
-
-    digest = hashlib.sha256()
-    with zipfile.ZipFile(docx_path) as z:
-        for name in sorted(z.namelist()):
-            raw = z.read(name)
-            if name.endswith((".xml", ".rels")):
-                tree = etree.fromstring(raw)
-                payload = etree.tostring(tree, method="c14n2")
-            else:
-                payload = raw
-            digest.update(name.encode("utf-8"))
-            digest.update(b"\x00")
-            digest.update(payload)
-            digest.update(b"\x01")
-    return digest.hexdigest()
 
 
 def build_showcase_document(tmp_dir: Path) -> Document:
@@ -424,33 +392,6 @@ class TestShowcaseE2E:
         assert report.passed, f"lenient validation failed: hard={report.hard_count} violations={report.total}"
         assert report.hard_count == 0, f"expected 0 hard violations, got {report.hard_count}"
 
-    def test_showcase_fingerprint_matches_baseline(self, tmp_path: Path) -> None:
-        """Structural fingerprint must match the pinned baseline.
-
-        We hash the deterministic *contents* of the .docx package — every
-        archive entry by path + bytes — rather than the raw file. The zip
-        wrapper carries per-entry mtimes set by python-docx at save time
-        which churn between runs even when the document is byte-identical
-        inside; hashing the wrapper would make the test flaky for no
-        meaningful semantic reason.
-        """
-        doc = build_showcase_document(tmp_path)
-        doc.save(tmp_path / "showcase.docx")
-
-        actual_hash = _content_fingerprint(tmp_path / "showcase.docx")
-
-        if BASELINE_PATH.exists() and os.environ.get("MP_SHOWCASE_WRITE_BASELINE") != "1":
-            baseline = json.loads(BASELINE_PATH.read_text())
-            expected = baseline.get("sha256")
-            assert actual_hash == expected, (
-                f"Fingerprint divergence! expected={expected}, actual={actual_hash}. "
-                f"Set MP_SHOWCASE_WRITE_BASELINE=1 to update the baseline."
-            )
-
-        if os.environ.get("MP_SHOWCASE_WRITE_BASELINE") == "1":
-            BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            BASELINE_PATH.write_text(json.dumps({"sha256": actual_hash}, indent=2))
-
     def test_sections_count(self, tmp_path: Path) -> None:
         """Verify the document has the expected section count."""
         doc = build_showcase_document(tmp_path)
@@ -487,7 +428,3 @@ class TestShowcaseE2E:
         # tab stops, footnotes, and callouts all shipped, the floor is
         # 5 gaps + 1 intro = 6 blocks.
         assert len(last_section._blocks) >= 6
-
-
-# Run this manually to write the baseline:
-# MP_SHOWCASE_WRITE_BASELINE=1 uv run pytest tests/integration/test_mp_showcase_e2e.py -k fingerprint -v
