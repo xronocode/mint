@@ -1,5 +1,5 @@
 # FILE: src/mint_python/sdk/__init__.py
-# VERSION: 0.3.0
+# VERSION: 0.4.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Public SDK surface for prompt-style document construction.
 #     Re-exports the §3 type set so users write
@@ -20,6 +20,7 @@
 #   Document - re-export of mint_python.core.document.Document
 #   Section - re-export of mint_python.core.section.Section
 #   Table - re-export of mint_python.core.table.Table
+#   Cell - re-export of mint_python.core.table.Cell (carries colspan/rowspan)
 #   Style - re-export of mint_python.core.style.Style
 #   Image - re-export of mint_python.core.content.Image
 #   Chart - re-export of mint_python.core.chart.Chart (Phase-8)
@@ -32,7 +33,10 @@
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.3.0 - add List + ListKind to the public re-export surface
+#   LAST_CHANGE: v0.4.0 - add Cell to the public re-export surface so
+#     callers can build merged-cell tables without importing from
+#     mint_python.core.table directly.
+#   PRIOR: v0.3.0 - add List + ListKind to the public re-export surface
 #     (MP-LIST). Bulleted, numbered, and checklist sequences become a
 #     first-class block alongside Paragraph/Table/Image/Chart.
 #   PRIOR: v0.2.0 - Wave-8-2 (MP-SDK): add Chart to the public re-export
@@ -53,7 +57,7 @@ from mint_python.core.style import (
     BUILTIN_PRESETS as presets,  # noqa: N811 - public alias per handover §3
 )
 from mint_python.core.style import ColorPalette, Pt, Style
-from mint_python.core.table import Table
+from mint_python.core.table import Cell, Table
 
 
 class TOC:
@@ -67,6 +71,7 @@ class TOC:
 
 __all__ = [
     "TOC",
+    "Cell",
     "Chart",
     "ColorPalette",
     "Document",

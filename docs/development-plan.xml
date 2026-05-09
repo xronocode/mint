@@ -972,14 +972,16 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-CONTENT</verification-ref>
     </MP-CONTENT>
 
-    <MP-TABLE NAME="Pure Python Table" TYPE="CORE_LOGIC" LAYER="1" ORDER="12" STATUS="done">
+    <MP-TABLE NAME="Pure Python Table" TYPE="CORE_LOGIC" LAYER="1" ORDER="12" STATUS="done" VERSION="0.1.0">
       <contract>
-        <purpose>Table class with multiple factory constructors (from_list, from_markdown, from_list_of_dicts, financial, comparison) and post-construction shaping (apply_style, set_column_widths, autofit) per handover §3.3.</purpose>
+        <purpose>Table class with multiple factory constructors (from_list, from_markdown, from_list_of_dicts, financial, comparison), post-construction shaping (apply_style, set_column_widths, autofit), and merged-cells rendering. Cell.colspan/rowspan drive python-docx merge() calls during render; covered cells' content is silently dropped (top-left wins).</purpose>
         <inputs>
           <param name="rows" type="list[list[str | Cell]]" />
           <param name="markdown_pipe_table" type="str" />
           <param name="dicts" type="list[dict]" />
           <param name="style_preset" type="str | None" />
+          <param name="cell_colspan" type="int" desc="N >= 1 — merge with the next N-1 cells in the same row" />
+          <param name="cell_rowspan" type="int" desc="M >= 1 — merge with the corresponding cells in the next M-1 rows" />
         </inputs>
         <outputs>
           <param name="Table_instance" type="Table" />
@@ -988,12 +990,14 @@ writeFileSync('output.docx', buffer);
           <error code="TABLE_RAGGED_ROWS" />
           <error code="TABLE_MARKDOWN_PARSE_ERROR" />
           <error code="TABLE_INVALID_DICT_KEYS" />
+          <error code="TABLE_MERGE_INVALID_SPAN" />
+          <error code="TABLE_MERGE_OUT_OF_BOUNDS" />
         </errors>
       </contract>
       <interface>
         <export-Table PURPOSE="Table model + .render(parent_doc) -&gt; python-docx Table" />
-        <export-Cell PURPOSE="Cell value with optional Style override and merge directives" />
-        <fn-from_list PURPOSE="Table.from_list(rows: list[list]) — first row optional header" />
+        <export-Cell PURPOSE="Cell value with optional Style override and colspan/rowspan merge directives (validated >= 1 at construction)" />
+        <fn-from_list PURPOSE="Table.from_list(rows: list[list]) — first row optional header; Cell(value, colspan=N, rowspan=M) merges at render" />
         <fn-from_markdown PURPOSE="Table.from_markdown(text) — parses standard pipe-table syntax" />
         <fn-from_list_of_dicts PURPOSE="Table.from_list_of_dicts(rows) — keys = headers, values = cells" />
         <fn-financial PURPOSE="Table.financial(rows) — right-aligns numerics, applies thousands separator" />

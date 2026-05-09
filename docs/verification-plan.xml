@@ -1154,7 +1154,7 @@
       <autonomy-assessment>SWARM-SAFE — render() target is a per-test python-docx Document instance; no shared mutable state</autonomy-assessment>
     </V-MP-CONTENT>
 
-    <V-MP-TABLE MODULE="MP-TABLE" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2">
+    <V-MP-TABLE MODULE="MP-TABLE" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2" VERSION="0.1.0">
       <test-files>
         <file status="active" activated-at="Wave-7-2">tests/unit/test_mp_table.py</file>
       </test-files>
@@ -1164,15 +1164,20 @@
         <check-3>mypy src/mint_python/core/table.py</check-3>
       </module-checks>
       <scenarios>
-        <scenario-1 kind="success" evidence="deterministic">Table.from_list([['a','b'],['1','2']]).render(doc) creates 2 rows × 2 cols; first row treated as header when header=True (default)</scenario-1>
+        <scenario-1 kind="success" evidence="deterministic">Table.from_list([['a','b'],['1','2']]).render(doc) creates 2 rows x 2 cols; first row treated as header when header=True (default)</scenario-1>
         <scenario-2 kind="success" evidence="deterministic">Table.from_markdown('| a | b |\n|---|---|\n| 1 | 2 |') produces equivalent table</scenario-2>
-        <scenario-3 kind="success" evidence="deterministic">Table.from_list_of_dicts([{'a':1,'b':2},{'a':3,'b':4}]) emits 3 rows × 2 cols (header + 2 data rows); column order follows insertion order of first dict</scenario-3>
-        <scenario-4 kind="success" evidence="deterministic">Table.financial(rows) right-aligns numeric cells AND applies thousands separator (1000 → '1,000')</scenario-4>
+        <scenario-3 kind="success" evidence="deterministic">Table.from_list_of_dicts([{'a':1,'b':2},{'a':3,'b':4}]) emits 3 rows x 2 cols (header + 2 data rows); column order follows insertion order of first dict</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">Table.financial(rows) right-aligns numeric cells AND applies thousands separator (1000 -> '1,000')</scenario-4>
         <scenario-5 kind="success" evidence="deterministic">Table.comparison(left='Q1', right='Q2', rows=[...]) produces a 2-column table with left/right headers</scenario-5>
         <scenario-6 kind="success" evidence="deterministic">apply_style(preset_table) overrides cell style; set_column_widths([2,3]) sets column widths in inches; autofit=True sets the python-docx table autofit flag</scenario-6>
         <scenario-7 kind="failure" evidence="deterministic">Table.from_list([['a','b'],['1']]) raises TABLE_RAGGED_ROWS naming the bad row index</scenario-7>
         <scenario-8 kind="failure" evidence="deterministic">Table.from_markdown('not a markdown table') raises TABLE_MARKDOWN_PARSE_ERROR</scenario-8>
         <scenario-9 kind="failure" evidence="deterministic">Table.from_list_of_dicts([{'a':1},{'b':2}]) raises TABLE_INVALID_DICT_KEYS naming the diverging keys (rows must share the same key set)</scenario-9>
+        <scenario-10 kind="success" evidence="deterministic">Cell(value, colspan=N) on a row with N+ columns merges the primary cell with the next N-1 cells; merged python-docx cells share a single _tc element; top-left content survives (covered cells' content is silently dropped per python-docx merge semantics)</scenario-10>
+        <scenario-11 kind="success" evidence="deterministic">Cell(value, rowspan=M) on row r merges (r,c) with (r+M-1,c); python-docx _tc identity test confirms the merge</scenario-11>
+        <scenario-12 kind="success" evidence="deterministic">Cell(value, rowspan=M, colspan=N) merges the M x N rectangle; all M*N python-docx cells share the same _tc; cells outside the region remain independent</scenario-12>
+        <scenario-13 kind="failure" evidence="deterministic">Cell(value, colspan=0) or Cell(value, rowspan=-1) raises TABLE_MERGE_INVALID_SPAN at construction</scenario-13>
+        <scenario-14 kind="failure" evidence="deterministic">Cell(rowspan=2) on the last row, or Cell(colspan=N+1) at column c with c+N >= col_count, raises TABLE_MERGE_OUT_OF_BOUNDS at render time naming the offending grid coordinates</scenario-14>
       </scenarios>
       <required-log-markers>
         <marker-1>[MP-Table][render][BLOCK_RENDER_TABLE] — fires once per Table.render() call; payload: row_count, col_count</marker-1>
@@ -1180,6 +1185,7 @@
       <forbidden-behaviors>
         <forbidden-1>Factories must validate row shape before constructing Table — never return a partially-built Table that would raise mid-render</forbidden-1>
         <forbidden-2>financial() must not silently coerce non-numeric cells; non-numerics keep their raw value and skip thousands separator</forbidden-2>
+        <forbidden-3>Render-time merge validation must NEVER produce malformed OOXML — out-of-bounds spans must raise BEFORE writing the merge, leaving the in-progress python-docx Table in a state the caller can discard</forbidden-3>
       </forbidden-behaviors>
       <autonomy-assessment>SWARM-SAFE — pure construction + render onto per-test Document; no shared state</autonomy-assessment>
     </V-MP-TABLE>

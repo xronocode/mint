@@ -1,5 +1,5 @@
 # FILE: src/mint_python/core/table.py
-# VERSION: 0.0.0
+# VERSION: 0.1.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Table model + 5 factory constructors + post-construction shaping +
 #     .render(parent_doc) -> python-docx Table for the Pure Python Edition.
@@ -36,12 +36,18 @@
 #   TableRaggedRowsError          - TABLE_RAGGED_ROWS
 #   TableMarkdownParseError       - TABLE_MARKDOWN_PARSE_ERROR
 #   TableInvalidDictKeysError     - TABLE_INVALID_DICT_KEYS
+#   TableMergeOutOfBoundsError    - TABLE_MERGE_OUT_OF_BOUNDS
+#   TableMergeInvalidSpanError    - TABLE_MERGE_INVALID_SPAN
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-7-2 (MP-TABLE): initial implementation per V-MP-TABLE
-#     scenarios 1-9. Cells are str-based; Phase-2 wave can refactor to
-#     Paragraph once MP-CONTENT is available without racing this worker.
+#   LAST_CHANGE: v0.1.0 — merged-cells render path. Cell.colspan/rowspan
+#     (already on the data class) now drive python-docx merge() calls
+#     during render. Validates span >= 1 at construction, in-grid bounds
+#     at render. Covered cells' content is silently dropped per
+#     python-docx semantics (top-left wins).
+#   PRIOR: Wave-7-2 (MP-TABLE): initial implementation per V-MP-TABLE
+#     scenarios 1-9.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -83,6 +89,14 @@ class TableInvalidDictKeysError(TableError):
     """Raised when from_list_of_dicts rows have differing key sets (TABLE_INVALID_DICT_KEYS)."""
 
 
+class TableMergeOutOfBoundsError(TableError):
+    """Raised when a cell's colspan/rowspan extends past the grid (TABLE_MERGE_OUT_OF_BOUNDS)."""
+
+
+class TableMergeInvalidSpanError(TableError):
+    """Raised when colspan or rowspan < 1 (TABLE_MERGE_INVALID_SPAN)."""
+
+
 # ---------------------------------------------------------------------------
 # Cell
 # ---------------------------------------------------------------------------
@@ -109,6 +123,14 @@ class Cell:
         # dataclass is frozen.
         if not isinstance(self.value, str):
             object.__setattr__(self, "value", str(self.value))
+        if self.colspan < 1:
+            raise TableMergeInvalidSpanError(
+                f"Cell.colspan must be >= 1, got {self.colspan!r}"
+            )
+        if self.rowspan < 1:
+            raise TableMergeInvalidSpanError(
+                f"Cell.rowspan must be >= 1, got {self.rowspan!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +536,26 @@ class Table:
                 if self._has_header and r_idx == 0 and effective_style is None:
                     run.font.bold = True
 
+        # Merge phase: walk every cell with span > 1 and merge the rectangle
+        # (r..r+rowspan-1, c..c+colspan-1). python-docx's Cell.merge keeps the
+        # top-left cell's content; covered cells' values are silently dropped.
+        # We validate in-grid bounds here so users get a deterministic error
+        # rather than a malformed OOXML output.
+        for r_idx, row in enumerate(self._rows):
+            for c_idx, cell in enumerate(row):
+                if cell.colspan == 1 and cell.rowspan == 1:
+                    continue
+                end_r = r_idx + cell.rowspan - 1
+                end_c = c_idx + cell.colspan - 1
+                if end_r >= row_count or end_c >= col_count:
+                    raise TableMergeOutOfBoundsError(
+                        f"merge at ({r_idx},{c_idx}) with rowspan={cell.rowspan} "
+                        f"colspan={cell.colspan} exceeds grid {row_count}x{col_count}"
+                    )
+                top_left = docx_table.cell(r_idx, c_idx)
+                bottom_right = docx_table.cell(end_r, end_c)
+                top_left.merge(bottom_right)
+
         return docx_table
 
     # END_BLOCK_RENDER_TABLE
@@ -525,5 +567,7 @@ __all__ = [
     "TableError",
     "TableInvalidDictKeysError",
     "TableMarkdownParseError",
+    "TableMergeInvalidSpanError",
+    "TableMergeOutOfBoundsError",
     "TableRaggedRowsError",
 ]

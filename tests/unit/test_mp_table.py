@@ -41,6 +41,8 @@ from mint_python.core.table import (
     Table,
     TableInvalidDictKeysError,
     TableMarkdownParseError,
+    TableMergeInvalidSpanError,
+    TableMergeOutOfBoundsError,
     TableRaggedRowsError,
 )
 from tests.unit._mp_helpers import extract_marker
@@ -411,3 +413,103 @@ def test_marker_counter_is_a_counter_instance(caplog_at_info, marker_counter):
     Table.from_list([["a"], ["1"]]).render(doc)
     counts = marker_counter(caplog_at_info)
     assert isinstance(counts, Counter)
+
+
+# ---------------------------------------------------------------------------
+# scenario-10: colspan=2 merges two horizontally adjacent cells
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_10_colspan_2_merges_horizontally() -> None:
+    rows = [
+        [Cell("Header", colspan=3), Cell(""), Cell("")],
+        [Cell("a"), Cell("b"), Cell("c")],
+    ]
+    doc = Document()
+    Table.from_list(rows, header=False).render(doc)
+    docx_table = doc.tables[-1]
+    # python-docx exposes merged cells as the same Cell._tc element.
+    top_row = docx_table.rows[0]
+    assert top_row.cells[0]._tc is top_row.cells[1]._tc
+    assert top_row.cells[1]._tc is top_row.cells[2]._tc
+    # Top-left content survives. python-docx merge concatenates paragraphs
+    # from every merged cell, so empty covered cells contribute trailing
+    # newlines — strip for the equality check.
+    assert top_row.cells[0].text.strip() == "Header"
+    # Second row is untouched.
+    second_row = docx_table.rows[1]
+    assert second_row.cells[0].text == "a"
+    assert second_row.cells[1].text == "b"
+    assert second_row.cells[2].text == "c"
+
+
+# ---------------------------------------------------------------------------
+# scenario-11: rowspan=2 merges two vertically adjacent cells
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_11_rowspan_2_merges_vertically() -> None:
+    rows = [
+        [Cell("Side", rowspan=2), Cell("a")],
+        [Cell(""), Cell("b")],
+    ]
+    doc = Document()
+    Table.from_list(rows, header=False).render(doc)
+    docx_table = doc.tables[-1]
+    # cell(0, 0) and cell(1, 0) share the same tc element after merge.
+    assert docx_table.cell(0, 0)._tc is docx_table.cell(1, 0)._tc
+    assert docx_table.cell(0, 0).text.strip() == "Side"
+
+
+# ---------------------------------------------------------------------------
+# scenario-12: rowspan + colspan = 2x2 region
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_12_rowspan_and_colspan_merge_2x2() -> None:
+    rows = [
+        [Cell("Block", rowspan=2, colspan=2), Cell(""), Cell("X")],
+        [Cell(""), Cell(""), Cell("Y")],
+    ]
+    doc = Document()
+    Table.from_list(rows, header=False).render(doc)
+    docx_table = doc.tables[-1]
+    # All four cells in the 2x2 region share the same tc.
+    base_tc = docx_table.cell(0, 0)._tc
+    assert docx_table.cell(0, 1)._tc is base_tc
+    assert docx_table.cell(1, 0)._tc is base_tc
+    assert docx_table.cell(1, 1)._tc is base_tc
+    # Block content survives in the merged cell (top-left wins; trailing
+    # newlines accumulate from covered empty cells).
+    assert docx_table.cell(0, 0).text.strip().startswith("Block")
+    # Outside the region remains independent.
+    assert docx_table.cell(0, 2)._tc is not base_tc
+    assert docx_table.cell(0, 2).text == "X"
+    assert docx_table.cell(1, 2).text == "Y"
+
+
+# ---------------------------------------------------------------------------
+# scenario-13: span < 1 raises at construction
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_13_invalid_span_raises_at_construction() -> None:
+    with pytest.raises(TableMergeInvalidSpanError, match=">= 1"):
+        Cell("x", colspan=0)
+    with pytest.raises(TableMergeInvalidSpanError, match=">= 1"):
+        Cell("x", rowspan=-1)
+
+
+# ---------------------------------------------------------------------------
+# scenario-14: out-of-bounds merge raises at render
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_14_out_of_bounds_merge_raises() -> None:
+    # 1 row, 3 cols. Cell(rowspan=2) on row 0 would need row 1 (absent).
+    rows_bad = [
+        [Cell("over", rowspan=2), Cell("ok"), Cell("ok")],
+    ]
+    doc = Document()
+    with pytest.raises(TableMergeOutOfBoundsError, match="exceeds grid"):
+        Table.from_list(rows_bad, header=False).render(doc)

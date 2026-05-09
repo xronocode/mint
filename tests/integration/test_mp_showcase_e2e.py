@@ -14,11 +14,10 @@ Generates the richest document the Pure Python Edition SDK can produce,
 then validates it against MP-VALIDATE on lenient mode.
 
 Gaps (not yet supported):
-  a) Merged table cells                                     — grid-only tables
-  b) Hyperlinks, bookmarks, footnotes, tab stops            — no API
-  c) Multi-column, per-section headers/footers, page breaks — no section API
-  d) Callout boxes (info/warning/code block)                — no component
-  e) Landscape orientation, custom margins                  — no page API
+  a) Hyperlinks, bookmarks, footnotes, tab stops            — no API
+  b) Multi-column, per-section headers/footers, page breaks — no section API
+  c) Callout boxes (info/warning/code block)                — no component
+  d) Landscape orientation, custom margins                  — no page API
 """
 from __future__ import annotations
 
@@ -32,6 +31,7 @@ import pytest
 
 from mint_python.core.content import Paragraph
 from mint_python.sdk import (
+    Cell,
     Chart,
     Document,
     Image,
@@ -157,6 +157,20 @@ def build_showcase_document(tmp_dir: Path) -> Document:
         ["PDF Export", "✓ (Gotenberg)", "—", "—"],
     ]))
 
+    # Merged-cells demo (MP-TABLE v0.1.0): a 3-col header that spans the
+    # whole row plus a 2x2 region in the body.
+    table_section.add_paragraph("Merged cells (colspan + rowspan):")
+    table_section.add_table(Table.from_list(
+        [
+            [Cell("Quarterly Performance Summary", colspan=3),
+             Cell(""), Cell("")],
+            [Cell("Period", rowspan=2), Cell("Revenue"), Cell("Growth %")],
+            [Cell(""), Cell("$1.3M"), Cell("+30%")],
+            [Cell("Q3"), Cell("$1.6M"), Cell("+23%")],
+        ],
+        header=False,
+    ))
+
     doc.add_section(table_section)
 
     # ---------- §4: Charts ----------
@@ -278,14 +292,13 @@ def build_showcase_document(tmp_dir: Path) -> Document:
     gap_section = Section("Known Gaps & Future Work", level=1)
     gap_section.add_paragraph("The following features are not yet supported by the Pure Python Edition SDK:")
     gaps = [
-        "a) Merged table cells — Table assumes regular grid; no merge API",
-        "b) Hyperlinks, bookmarks, footnotes, tab stops — no corresponding block types",
-        "c) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
-        "d) Callout components (info, warning, code block) — no component library",
-        "e) Landscape orientation, custom page margins — page-level properties not exposed",
-        "f) Watermarks, text boxes, WordArt — artistic elements deferred",
-        "g) Track changes, comments, document protection — collaboration features deferred",
-        "h) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
+        "a) Hyperlinks, bookmarks, footnotes, tab stops — no corresponding block types",
+        "b) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
+        "c) Callout components (info, warning, code block) — no component library",
+        "d) Landscape orientation, custom page margins — page-level properties not exposed",
+        "e) Watermarks, text boxes, WordArt — artistic elements deferred",
+        "f) Track changes, comments, document protection — collaboration features deferred",
+        "g) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
     ]
     for gap in gaps:
         gap_section.add_paragraph(gap)
