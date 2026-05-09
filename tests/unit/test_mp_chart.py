@@ -24,7 +24,9 @@
 #   test_gantt_smoke                     - V-MP-CHART scenario-7
 #   test_from_matplotlib_wraps_figure    - V-MP-CHART scenario-8
 #   test_from_seaborn_*                  - V-MP-CHART scenario-9 (3 cases)
-#   test_from_plotly_phase_guard         - V-MP-CHART scenario-10
+#   test_from_plotly_creates_chart        - V-MP-CHART scenario-10a (mocked)
+#   test_from_plotly_no_plotly_raises      - V-MP-CHART scenario-10b (mocked)
+#   test_from_plotly_no_kaleido_raises     - V-MP-CHART scenario-10c (mocked)
 #   test_factory_marker_count            - V-MP-CHART scenario-11
 #   test_render_marker_payload           - V-MP-CHART scenario-12
 #   test_render_inline_shape_emu         - V-MP-CHART scenario-13
@@ -37,12 +39,14 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-8-1 (MP-CHART): initial test surface for V-MP-CHART
-#     scenarios 1-16 + coverage gap closures.
+#   LAST_CHANGE: Phase-12 — replace from_plotly phase-guard test with 3
+#     mock-based tests for the concrete from_plotly implementation
+#     (with-mock, no-plotly, no-kaleido). Previous: Wave-8-1 initial tests.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
 
+import builtins
 import sys
 from typing import Any
 
@@ -54,13 +58,11 @@ from mint_python.core.chart import (
     Chart,
     ChartFigureRenderFailedError,
     ChartInvalidDataError,
-    PhaseGuardNotImplementedError,
     _apply_corporate_theme,
 )
 from mint_python.core.style import Style
 from tests.unit._mp_helpers import (
     assert_matplotlib_backend_is_agg,
-    extract_marker,
 )
 
 # ---------------------------------------------------------------------------
@@ -299,23 +301,52 @@ def test_from_seaborn_raises_with_install_hint_when_missing(
 
 
 # ---------------------------------------------------------------------------
-# Scenario 10: Chart.from_plotly phase guard
+# Scenario 10: Chart.from_plotly (Phase-12 concrete, mock-based)
 # ---------------------------------------------------------------------------
 
 
-def test_from_plotly_emits_block_phase_guard_then_raises(
-    caplog_at_info: pytest.LogCaptureFixture,
-) -> None:
-    with pytest.raises(PhaseGuardNotImplementedError) as excinfo:
-        Chart.from_plotly(object())
+class TestFromPlotly:
+    def test_from_plotly_creates_chart(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """from_plotly wraps plotly Figure into Chart."""
+        from unittest.mock import MagicMock
 
-    msg = str(excinfo.value)
-    assert "Phase 9" in msg
-    assert "plotly" in msg
+        mock_fig = MagicMock()
+        mock_fig.to_image.return_value = b"fake_png_bytes"
+        monkeypatch.setitem(sys.modules, "plotly", MagicMock())
 
-    # The emit must happen BEFORE the raise; verify the marker is in caplog.
-    markers = [extract_marker(r.getMessage()) for r in caplog_at_info.records]
-    assert "BLOCK_PHASE_GUARD" in markers
+        chart = Chart.from_plotly(mock_fig, caption="Plot", width_inches=5.0)
+        assert chart.chart_type == "plotly"
+        assert chart._png_bytes == b"fake_png_bytes"
+        assert chart.caption == "Plot"
+        mock_fig.to_image.assert_called_once_with(format="png", scale=2)
+
+    def test_from_plotly_no_plotly_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Missing plotly → ImportError with install hint."""
+        from unittest.mock import MagicMock
+
+        mock_fig = MagicMock()
+        original_import = builtins.__import__
+
+        def _fail_plotly(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "plotly":
+                raise ImportError("no plotly")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _fail_plotly)
+
+        with pytest.raises(ImportError, match="pip install plotly kaleido"):
+            Chart.from_plotly(mock_fig)
+
+    def test_from_plotly_no_kaleido_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Plotly installed but kaleido missing → ImportError."""
+        from unittest.mock import MagicMock
+
+        mock_fig = MagicMock()
+        mock_fig.to_image.side_effect = ValueError("kaleido required")
+        monkeypatch.setitem(sys.modules, "plotly", MagicMock())
+
+        with pytest.raises(ImportError, match="kaleido"):
+            Chart.from_plotly(mock_fig)
 
 
 # ---------------------------------------------------------------------------

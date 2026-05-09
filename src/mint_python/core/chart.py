@@ -1,12 +1,14 @@
 # FILE: src/mint_python/core/chart.py
-# VERSION: 0.0.0
+# VERSION: 1.2.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Chart class with 7 factory constructors (bar, line, stacked_bar,
 #     pie, heatmap, waterfall, gantt) plus from_matplotlib / from_seaborn /
-#     from_plotly channels. Renders matplotlib Figures to PNG @ 300 DPI and
-#     embeds via python-docx add_picture. Corporate theming is applied per-
-#     construction via `matplotlib.rc_context(...)` so global rcParams never
-#     leak (V-MP-CHART forbidden-5). Phase-8 unblocks Section.add_chart stub.
+#     from_plotly channels. from_plotly converts plotly Figures to PNG via
+#     plotly.io.to_image + kaleido and wraps via the from_matplotlib pattern.
+#     Renders matplotlib Figures to PNG @ 300 DPI and embeds via python-docx
+#     add_picture. Corporate theming is applied per-construction via
+#     `matplotlib.rc_context(...)` so global rcParams never leak
+#     (V-MP-CHART forbidden-5).
 #   SCOPE: Public surface = Chart (dataclass with factories + render),
 #     ChartError, ChartInvalidDataError, ChartFigureRenderFailedError,
 #     PhaseGuardNotImplementedError. PNG bytes are cached on the instance;
@@ -27,7 +29,7 @@
 #   Chart.waterfall / gantt            - composed bars with cumulative offsets
 #   Chart.from_matplotlib              - wraps a user-supplied Figure
 #   Chart.from_seaborn                 - lazy-imports seaborn; aliases to from_matplotlib
-#   Chart.from_plotly                  - PHASE GUARD STUB (Phase 9+)
+#   Chart.from_plotly                  - wraps a plotly Figure via to_image (kaleido)
 #   Chart.render                       - emits w:drawing via add_picture
 #   _apply_corporate_theme             - builds rcParams override dict from Style
 #   _CORPORATE_RC                      - chartjunk-free rcParams baseline
@@ -36,12 +38,10 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-8-1 (MP-CHART): initial implementation per
-#     V-MP-CHART scenarios 1-16 + forbidden-1..5; matplotlib backend pinned to
-#     'Agg' via canonical 3-line import order (after the unavoidable
-#     `from __future__ import annotations` compile-time directive); rcParams
-#     isolated via rc_context; seaborn lazy-imported; from_plotly raises
-#     Phase-9 stub.
+#   LAST_CHANGE: Phase-12 — unstub from_plotly via plotly.io.to_image + kaleido.
+#     Method now does lazy import of plotly, calls fig.to_image(format="png",
+#     scale=2), and wraps PNG bytes in Chart. Imports kaleido hint on failure.
+#     Previous: Wave-8-1 (MP-CHART) initial implementation.
 # END_CHANGE_SUMMARY
 
 # `from __future__ import annotations` MUST precede all runtime imports per
@@ -672,25 +672,49 @@ class Chart:
         return chart
 
     # ==================================================================
-    # from_plotly (Phase-9+ stub)
+    # from_plotly (Phase-12 — concrete via plotly.io.to_image + kaleido)
     # ==================================================================
 
     @classmethod
     def from_plotly(cls, fig: Any, **kwargs: Any) -> Chart:
-        """PHASE GUARD: plotly support is deferred to Phase 9+.
+        """Wrap a plotly Figure.
 
-        Plotly is a separate render pipeline (HTML interactive; not PNG via
-        matplotlib). This stub emits BLOCK_PHASE_GUARD before raising so the
-        trace shows the explicit defer rather than a silent NotImplementedError.
+        Converts plotly Figure to PNG bytes via plotly.io.to_image (requires
+        kaleido package: ``pip install kaleido``). Then wraps via
+        from_matplotlib pattern — stores PNG bytes in Chart._png_bytes.
+
+        Raises ImportError with hint if plotly or kaleido is missing.
         """
-        # START_BLOCK_PHASE_GUARD_FROM_PLOTLY
+        try:
+            import plotly  # type: ignore[import-not-found]  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "plotly is optional — install with `pip install plotly kaleido` "
+                "to use Chart.from_plotly"
+            ) from exc
+
+        try:
+            png_bytes = fig.to_image(format="png", scale=2)
+        except Exception as exc:
+            raise ImportError(
+                "kaleido is required for plotly PNG export — "
+                "install with `pip install kaleido`"
+            ) from exc
+
+        caption = kwargs.pop("caption", None)
+        width_inches = kwargs.pop("width_inches", None)
+        height_inches = kwargs.pop("height_inches", None)
+
+        chart = cls(
+            chart_type="plotly",
+            _png_bytes=png_bytes,
+            caption=caption,
+            width_inches=width_inches or 6.0,
+            height_inches=height_inches or 4.0,
+        )
         logger.info(
-            "[MP-Chart][from_plotly][BLOCK_PHASE_GUARD] "
-            "method=from_plotly target_phase=Phase 9",
+            "[MP-Chart][from_plotly][BLOCK_BUILD_CHART_PLOTLY] "
+            "chart_type=plotly size=%d bytes",
+            len(png_bytes),
         )
-        # END_BLOCK_PHASE_GUARD_FROM_PLOTLY
-        raise PhaseGuardNotImplementedError(
-            "Chart.from_plotly is a Phase 9+ stub: plotly is a separate render "
-            "pipeline (HTML interactive; not PNG via matplotlib). Defer to "
-            "handover Phase 9+ for native plotly support."
-        )
+        return chart
