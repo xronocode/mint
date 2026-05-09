@@ -51,8 +51,20 @@ def mp_clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     if sdk_module is not None and hasattr(sdk_module, "presets"):
         snapshot = dict(sdk_module.presets)
         yield
-        sdk_module.presets.clear()
-        sdk_module.presets.update(snapshot)
+        # Phase-7 Wave-7-5: presets is a MappingProxyType alias to
+        # BUILTIN_PRESETS (V-MP-SDK scenario-2 mandates read-only). It cannot
+        # be cleared/updated. The snapshot/restore is a no-op safety net that
+        # only meaningfully runs if a future regression replaces presets with
+        # a mutable Mapping. Verify identity preservation as the actual guard.
+        if hasattr(sdk_module.presets, "clear") and hasattr(
+            sdk_module.presets, "update"
+        ):
+            sdk_module.presets.clear()
+            sdk_module.presets.update(snapshot)
+        else:
+            assert dict(sdk_module.presets) == snapshot, (
+                "mint_python.sdk.presets mutated during test (read-only contract)"
+            )
     else:
         yield
 # END_BLOCK_MP_CLEAN_ENV

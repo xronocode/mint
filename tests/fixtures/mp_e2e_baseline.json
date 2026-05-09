@@ -1,0 +1,26 @@
+{
+  "audit_violations": [],
+  "committed_at": "2026-05-09",
+  "counts": {
+    "audit_hard": 0,
+    "audit_soft": 0,
+    "audit_total": 0,
+    "has_content_types": true,
+    "has_numbering_xml": true,
+    "has_styles_xml": true,
+    "zip_entry_count": 17
+  },
+  "document_spec": "tests/unit/_mp_helpers.py::build_golden_document",
+  "generator": "mint_python 0.1.0 + python-docx",
+  "hard_violation_count": 0,
+  "schema_validation": {
+    "ecma376_validated": false,
+    "lxml_parses": true
+  },
+  "schema_version": "1.0",
+  "structural_fingerprint_sha256": "6d9d449c9e51fe42a621d9d1f2eadf98ac9646a5419196d1f8da095396d63ff0",
+  "xml_sources": [
+    "word/styles.xml",
+    "word/numbering.xml"
+  ]
+}
