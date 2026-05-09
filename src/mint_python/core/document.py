@@ -1,23 +1,25 @@
 # FILE: src/mint_python/core/document.py
-# VERSION: 0.0.0
+# VERSION: 1.1.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Document facade per handover §3.1 — full API surface (cover,
-#     sections, TOC, header/footer, save) for the Pure Python Edition. Save
-#     uses python-docx as the backbone with a small lxml drop-down for the
-#     Word TOC field (python-docx has no first-class TOC support). Stubs
-#     inject_grace, validate, fix, to_pdf with PhaseGuardNotImplementedError
-#     pointing at later phases so plan-driven callers fail loud at the
-#     boundary instead of silently no-op'ing.
+#     sections, TOC, header/footer, save, validate, fix) for the Pure
+#     Python Edition. Save uses python-docx as the backbone with a small
+#     lxml drop-down for the Word TOC field. validate() and fix() delegate
+#     to MP-VALIDATE and MP-FIX via temp-file save. Stubs inject_grace and
+#     to_pdf with PhaseGuardNotImplementedError pointing at later phases.
 #   SCOPE: Public surface = Document (@dataclass facade) + 4 errors
 #     (DocumentError, DocumentFormatUnsupportedError, DocumentPresetNotFoundError,
 #     DocumentSaveIOError) + PhaseGuardNotImplementedError. Sibling-only deps:
-#     MP-STYLE (load_preset; STYLE_PRESET_NOT_FOUND), MP-SECTION (Section).
-#     save() emits exactly one BLOCK_SAVE_DOCX before serialization; pins
-#     core.xml dcterms:created/modified to DOCUMENT_FIXED_TIMESTAMP so two
-#     saves of the same Document produce the same fingerprint hash.
+#     MP-STYLE (load_preset; STYLE_PRESET_NOT_FOUND), MP-SECTION (Section),
+#     MP-VALIDATE (run_checks, SeverityMode, ValidationReport), MP-FIX
+#     (fix as mp_fix, FixReport). save() emits exactly one BLOCK_SAVE_DOCX
+#     before serialization; pins core.xml dcterms:created/modified to
+#     DOCUMENT_FIXED_TIMESTAMP so two saves of the same Document produce
+#     the same fingerprint hash.
 #   DEPENDS: python-docx (1.1.x), lxml (5.x), mint_python.core.style,
-#     mint_python.core.section. NO sibling import of MP-CONTENT/MP-TABLE —
-#     we reach those types only transitively via Section.render.
+#     mint_python.core.section, mint_python.validate, mint_python.fix.
+#     NO sibling import of MP-CONTENT/MP-TABLE — we reach those types only
+#     transitively via Section.render.
 #   LINKS: docs/development-plan.xml#MP-DOCUMENT,
 #     docs/verification-plan.xml#V-MP-DOCUMENT,
 #     docs/knowledge-graph.xml#MP-DOCUMENT
@@ -34,9 +36,10 @@
 #   Document.set_footer                 - document-wide footer text
 #   Document.save                       - serialize to .docx; emits BLOCK_SAVE_DOCX
 #   Document.inject_grace               - Phase-5 STUB; emits BLOCK_PHASE_GUARD
-#   Document.validate                   - Phase-3 STUB; emits BLOCK_PHASE_GUARD
-#   Document.fix                        - Phase-3 STUB; emits BLOCK_PHASE_GUARD
+#   Document.validate                   - Phase-9: validates via MP-VALIDATE
+#   Document.fix                        - Phase-9: auto-fixes via MP-FIX
 #   Document.to_pdf                     - Phase-5 STUB; emits BLOCK_PHASE_GUARD
+#   Document._resolve_severity_mode     - str → SeverityMode helper
 #   DocumentError                       - base error
 #   DocumentFormatUnsupportedError      - format != 'docx'
 #   DocumentPresetNotFoundError         - wraps STYLE_PRESET_NOT_FOUND
@@ -46,7 +49,9 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-7-4 (MP-DOCUMENT): initial implementation per V-MP-DOCUMENT
+#   LAST_CHANGE: Wave-9-4 — unstub Document.validate and Document.fix via
+#     temp-file delegation to MP-VALIDATE + MP-FIX.
+#   PRIOR: Wave-7-4 (MP-DOCUMENT): initial implementation per V-MP-DOCUMENT
 #     scenarios 1-9 + BLOCK_SAVE_DOCX + BLOCK_PHASE_GUARD trace assertions.
 # END_CHANGE_SUMMARY
 
@@ -68,6 +73,9 @@ from lxml import etree
 
 from mint_python.core.section import Section
 from mint_python.core.style import STYLE_PRESET_NOT_FOUND, load_preset
+from mint_python.fix import FixReport
+from mint_python.fix import fix as mp_fix
+from mint_python.validate import SeverityMode, ValidationReport, run_checks
 
 logger = logging.getLogger("mint_python.core.document")
 
@@ -118,6 +126,20 @@ class PhaseGuardNotImplementedError(NotImplementedError):
     ``except NotImplementedError`` keep working; carries the target phase
     + delegation target in the message for diagnosability.
     """
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+
+def _resolve_severity_mode(level: str) -> SeverityMode:
+    """Resolve a human-readable level to SeverityMode."""
+    if level in ("lenient",):
+        return SeverityMode.LENIENT
+    if level in ("strict",):
+        return SeverityMode.STRICT
+    return SeverityMode.AUDIT
 
 
 # ---------------------------------------------------------------------------
@@ -338,33 +360,41 @@ class Document:
             "(planned). Phase-7 ships the API surface only."
         )
 
-    def validate(self, *args: Any, **kwargs: Any) -> Any:
-        """Phase-3 stub: emit BLOCK_PHASE_GUARD then raise.
+    def validate(self, level: str = "lenient") -> ValidationReport:
+        """Validate the document via MP-VALIDATE (pure Python).
 
-        The pure-Python MP-VALIDATE successor to the legacy js-engine
-        validator lands with handover §6 Phase 3.
+        Delegation pattern: saves to a temp .docx, then calls
+        MP-VALIDATE.run_checks on the saved file. The temp file is
+        cleaned up after the call returns.
         """
-        logger.info(
-            "[MP-Document][stub][BLOCK_PHASE_GUARD] "
-            "method=validate target_phase=Phase 3"
-        )
-        raise PhaseGuardNotImplementedError(
-            "Document.validate is a Phase 3 stub: pure-Python MP-VALIDATE "
-            "successor to the legacy js-engine validator lands with "
-            "handover §6 Phase 3. Phase-7 ships the API surface only."
-        )
+        import tempfile
+        from pathlib import Path
 
-    def fix(self, *args: Any, **kwargs: Any) -> Any:
-        """Phase-3 stub: emit BLOCK_PHASE_GUARD then raise."""
-        logger.info(
-            "[MP-Document][stub][BLOCK_PHASE_GUARD] "
-            "method=fix target_phase=Phase 3"
-        )
-        raise PhaseGuardNotImplementedError(
-            "Document.fix is a Phase 3 stub: pure-Python MP-FIX successor to "
-            "the legacy fixer lands with handover §6 Phase 3. Phase-7 ships "
-            "the API surface only."
-        )
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:
+            tmp_path = Path(tf.name)
+        try:
+            self.save(tmp_path)
+            severity = _resolve_severity_mode(level)
+            return run_checks(tmp_path, severity)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def fix(self, strategy: str = "safe_first") -> FixReport:
+        """Auto-fix the document via MP-FIX (pure Python).
+
+        Delegation pattern: saves to a temp .docx, then calls
+        MP-FIX.fix on the saved file. The temp file is cleaned up.
+        """
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:
+            tmp_path = Path(tf.name)
+        try:
+            self.save(tmp_path)
+            return mp_fix(tmp_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def to_pdf(self, *args: Any, **kwargs: Any) -> Any:
         """Phase-5 stub: emit BLOCK_PHASE_GUARD then raise.

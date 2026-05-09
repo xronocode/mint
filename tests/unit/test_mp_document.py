@@ -30,7 +30,10 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-7-4 (MP-DOCUMENT): initial test suite.
+#   LAST_CHANGE: Wave-9-4 — retire Phase-7 BLOCK_PHASE_GUARD assertions for
+#     validate/fix; add tests that validate returns ValidationReport and
+#     fix returns FixReport.
+#   PRIOR: Wave-7-4 (MP-DOCUMENT): initial test suite.
 # END_CHANGE_SUMMARY
 from __future__ import annotations
 
@@ -150,8 +153,6 @@ def test_scenario_5_unknown_preset_raises_document_preset_not_found() -> None:
     "method_name,target_phase",
     [
         ("inject_grace", "Phase 5"),
-        ("validate", "Phase 3"),
-        ("fix", "Phase 3"),
         ("to_pdf", "Phase 5"),
     ],
 )
@@ -167,7 +168,6 @@ def test_scenario_6_stubs_emit_phase_guard_then_raise(
     msg = str(exc_info.value)
     assert target_phase in msg
 
-    # Marker counter sees BLOCK_PHASE_GUARD exactly once for this stub call.
     counts = marker_counter(caplog_at_info)
     assert counts["BLOCK_PHASE_GUARD"] == 1
 
@@ -319,3 +319,37 @@ def test_with_style_from_path_loads_preset(tmp_path: Path) -> None:
     assert doc._preset is not None
     # _preset_name reflects the path stem per the documented fallback.
     assert doc._preset_name == preset_path.stem
+
+
+# ---------------------------------------------------------------------------
+# Wave-9-4: validate() and fix() are unstubbed — they return real reports
+# ---------------------------------------------------------------------------
+
+
+def test_validate_returns_validation_report(tmp_docx_path: Path) -> None:
+    from mint_python.validate import ValidationReport
+
+    doc = (
+        Document(format="docx", title="Test")
+        .with_style_preset("alga_corporate")
+        .add_section(Section("S1", level=1).add_paragraph("Content"))
+    )
+    report = doc.validate()
+    assert isinstance(report, ValidationReport)
+    assert hasattr(report, "passed")
+    # lenient default: golden doc shape passes
+    assert report.passed is True
+
+
+def test_fix_returns_fix_report(tmp_docx_path: Path) -> None:
+    from mint_python.fix import FixReport
+
+    doc = (
+        Document(format="docx", title="Test")
+        .with_style_preset("alga_corporate")
+        .add_section(Section("S1", level=1).add_paragraph("Content"))
+    )
+    report = doc.fix()
+    assert isinstance(report, FixReport)
+    assert hasattr(report, "applied_fixes")
+    assert len(report.applied_fixes) == 0
