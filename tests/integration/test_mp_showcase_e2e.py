@@ -52,18 +52,28 @@ BASELINE_PATH = Path(__file__).parent.parent / "fixtures" / "mp_showcase_baselin
 
 
 def _content_fingerprint(docx_path: Path) -> str:
-    """Hash the .docx package contents (entry path + bytes) deterministically.
+    """Hash the .docx package contents deterministically across platforms.
 
-    Iterates archive entries in name-sorted order so the fingerprint is
-    invariant under zip-wrapper mtimes and central-directory ordering —
-    those are not part of the document's semantic state.
+    Iterates archive entries in name-sorted order. For XML entries (.xml /
+    .rels) we parse and emit C14N2 canonical form before hashing — libxml2
+    builds on Linux/macOS can differ in attribute ordering, whitespace, or
+    namespace declarations, all of which c14n2 normalizes away. Non-XML
+    entries (images, binary parts) are hashed verbatim.
     """
+    from lxml import etree
+
     digest = hashlib.sha256()
     with zipfile.ZipFile(docx_path) as z:
         for name in sorted(z.namelist()):
+            raw = z.read(name)
+            if name.endswith((".xml", ".rels")):
+                tree = etree.fromstring(raw)
+                payload = etree.tostring(tree, method="c14n2")
+            else:
+                payload = raw
             digest.update(name.encode("utf-8"))
             digest.update(b"\x00")
-            digest.update(z.read(name))
+            digest.update(payload)
             digest.update(b"\x01")
     return digest.hexdigest()
 
