@@ -538,6 +538,24 @@
       </annotations>
     </MP-RULES>
 
+    <MP-VALIDATE NAME="Pure Python Validation Engine" TYPE="CORE_LOGIC" STATUS="done" ADDED_AT="2026-05-09">
+      <purpose>Open saved OOXML documents, parse XML via lxml, run all applicable MP-RULES, classify violations by severity+fix_category, produce ValidationReport with mode-based pass/fail. Pure Python successor to M-VALIDATE (src/mint/validate.py).</purpose>
+      <path>src/mint_python/validate.py</path>
+      <depends>MP-RULES, lxml, zipfile, logging (stdlib)</depends>
+      <verification-ref>V-MP-VALIDATE</verification-ref>
+      <annotations>
+        <type-ValidationReport PURPOSE="Report dataclass: violations, totals by severity, mode string, passed boolean, document_format, filter properties (hard_violations, soft_violations, hard_reject, safe_fixable, visual_fixable, destructive, soft_warn)" />
+        <type-SeverityMode PURPOSE="Self-defined StrEnum: AUDIT, LENIENT, STRICT — decoupled from mint.config.SeverityMode" />
+        <type-InvalidDocumentError PURPOSE="Raised by _open_document_xml on file/ZIP/XML errors; caught by run_checks → XML-001 pseudo-rule report" />
+        <fn-run_checks PURPOSE="Open docx/pptx, parse XML, evaluate all rules, classify, return ValidationReport. Catches InvalidDocumentError → XML-001 report (never raises at top level)" />
+        <fn-validate PURPOSE="Legacy-compatible alias: calls run_checks(doc_path, severity_mode, rules_dir)" />
+        <fn-_detect_format PURPOSE="Detect format from file extension: .docx→docx, .pptx→pptx, else InvalidDocumentError" />
+        <fn-_get_main_xml_path PURPOSE="Map format to ZIP entry path: docx→word/document.xml, pptx→ppt/slides/slide1.xml" />
+        <fn-_open_document_xml PURPOSE="Open ZIP, read main XML, parse via lxml → (tree, format); raises InvalidDocumentError on any failure" />
+        <fn-classify_violations PURPOSE="Group violations by severity+fix_category → dict; empty list → empty groups" />
+      </annotations>
+    </MP-VALIDATE>
+
     <CrossLink from="MP-CONTENT" to="MP-STYLE" relation="Paragraph and Run consume Style for typography/color/spacing" />
     <CrossLink from="MP-TABLE" to="MP-STYLE" relation="Table.apply_style and the financial/comparison factories consume Style" />
     <CrossLink from="MP-TABLE" to="MP-CONTENT" relation="Table cells embed Paragraph instances for rich-text content" />
