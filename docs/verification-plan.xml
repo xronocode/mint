@@ -1,4 +1,4 @@
-<VerificationPlan VERSION="0.6.0">
+<VerificationPlan VERSION="0.7.0">
   <GlobalPolicy>
     <log-format>[Module][function][BLOCK_NAME] message</log-format>
     <deterministic-first>true</deterministic-first>
@@ -1812,7 +1812,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
     </open-gaps>
   </SwarmExecutionReadiness>
 
-  <SwarmFixtures UPDATED="2026-05-09" SCOPE="Phase-7 (MP-*) and forward">
+  <SwarmFixtures UPDATED="2026-05-09" SCOPE="Phase-7 (MP-*) and forward; Phase-8 chart additions documented inline">
     <intent>Per-module subagent execution requires a stable, controller-owned shared-fixture surface. Workers do NOT invent fixtures; they import what is documented here. This block is the contract between the controller (who provisions fixtures) and Wave-7-* workers (who consume them).</intent>
 
     <ownership>
@@ -1862,6 +1862,21 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <api>factory(violation_kind: str) -&gt; dict where violation_kind ∈ {"missing-color-palette-primary", "bad-hex-format", "size-pt-as-string", "alignment-out-of-enum", "dangling-palette-token", "version-mismatch-major"}</api>
         <implementation-hint>Internal dict template per violation_kind; raises ValueError on unknown kind.</implementation-hint>
       </fixture-7>
+
+      <fixture-8 name="mpl_figure_cleanup" scope="function" autouse="true" added-in="Phase-8">
+        <purpose>Force-close all matplotlib Figures after each test to prevent memory accumulation under long pytest runs (matplotlib retains Figure refs in pyplot's internal registry until explicit close). Autouse so any test that touches matplotlib (directly or via Chart) benefits without opt-in.</purpose>
+        <implementation-hint>Try-import matplotlib.pyplot as plt INSIDE the fixture (not at conftest import time — that would force matplotlib import even for tests that don't need it); on ImportError, skip the cleanup (Phase-7 tests don't need matplotlib). Yield, then `plt.close('all')` at teardown if matplotlib was importable.</implementation-hint>
+      </fixture-8>
+
+      <fixture-9 name="mpl_rcparams_snapshot" scope="function" added-in="Phase-8">
+        <purpose>Snapshot matplotlib.rcParams at fixture entry, restore at teardown. Asserts no rcParams leak across test boundaries. Used by V-MP-CHART scenarios that verify corporate theming applies WITHIN a chart construction without polluting global state. Opt-in (NOT autouse) — only tests that exercise theming need it.</purpose>
+        <implementation-hint>Try-import matplotlib; on ImportError, skip with pytest.skip("matplotlib not installed"). Snapshot via `dict(matplotlib.rcParams)`; yield; assert at teardown that rcParams equals snapshot OR restore via `matplotlib.rcParams.update(snapshot)` and assert. Choice: STRICT (assert equality, fail on leak) — V-MP-CHART forbidden-5 makes this the contract.</implementation-hint>
+      </fixture-9>
+
+      <fixture-10 name="chart_baseline_path" scope="session" added-in="Phase-8">
+        <purpose>Path to tests/fixtures/mp_chart_e2e_baseline.json, parallel to mp_e2e_baseline.json. Encapsulates the path resolution so VF-014 tests don't reach across the repo with `Path(__file__).parents[2] / ...` patterns.</purpose>
+        <implementation-hint>Returns `Path(__file__).resolve().parent.parent / "fixtures" / "mp_chart_e2e_baseline.json"` — symmetric to load_audit_baseline path resolution in _mp_helpers.</implementation-hint>
+      </fixture-10>
     </conftest-spec>
 
     <helpers-spec PATH="tests/unit/_mp_helpers.py" KIND="new-file">
@@ -1904,6 +1919,38 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <signature>write_audit_baseline(data: dict) -&gt; None</signature>
         <purpose>Write `tests/fixtures/mp_e2e_baseline.json` ONLY when MP_E2E_WRITE_BASELINE=1. Otherwise raises RuntimeError with the rotation protocol from V-MP-DOCUMENT/baseline-update-protocol.</purpose>
       </helper-6>
+
+      <helper-7 name="build_chart_golden_document" added-in="Phase-8">
+        <signature>build_chart_golden_document(out_path: Path) -&gt; Path</signature>
+        <purpose>VF-014 chart golden document builder — single source of truth for the Phase-8 e2e fixture. Pre-Wave-8-2 STUB raises NotImplementedError naming the activating wave; Wave-8-2 worker replaces the body per VF-014 golden-document-spec (alga_corporate; 2 sections each with 1 paragraph + 1 chart of different type — bar + line; both width_inches=5.0).</purpose>
+        <reproducibility>Mirror the build_golden_document pattern (helper-1) — single function, no inline construction in test bodies. The golden-document-spec is normative.</reproducibility>
+      </helper-7>
+
+      <helper-8 name="assert_chart_inline_shape_emu" added-in="Phase-8">
+        <signature>assert_chart_inline_shape_emu(doc, expected_widths_inches: list[float]) -&gt; None</signature>
+        <purpose>Open the saved .docx via python-docx, walk doc.inline_shapes, assert each .width.emu == round(expected_widths_inches[i] × 914400). On failure, AssertionError lists actual vs expected per index.</purpose>
+        <usage-hint>Used by VF-014 inv-3 (EMU PRECISION) — verifies python-docx Inches() conversion has no rounding drift across versions.</usage-hint>
+      </helper-8>
+
+      <helper-9 name="assert_seaborn_not_imported" added-in="Phase-8">
+        <signature>assert_seaborn_not_imported() -&gt; None</signature>
+        <purpose>Assert `'seaborn' not in sys.modules`. Used by V-MP-CHART forbidden-3 (seaborn lazy-import contract) — failures indicate someone added a module-level `import seaborn` somewhere in the import graph reaching from `mint_python.core.chart` or test infrastructure.</purpose>
+      </helper-9>
+
+      <helper-10 name="load_chart_audit_baseline" added-in="Phase-8">
+        <signature>load_chart_audit_baseline() -&gt; dict</signature>
+        <purpose>Read tests/fixtures/mp_chart_e2e_baseline.json with the same first-run-hint pattern as load_audit_baseline. Raises FileNotFoundError naming MP_CHART_E2E_WRITE_BASELINE=1 when missing.</purpose>
+      </helper-10>
+
+      <helper-11 name="write_chart_audit_baseline" added-in="Phase-8">
+        <signature>write_chart_audit_baseline(data: dict) -&gt; None</signature>
+        <purpose>Write tests/fixtures/mp_chart_e2e_baseline.json gated by MP_CHART_E2E_WRITE_BASELINE=1 — parallel to write_audit_baseline.</purpose>
+      </helper-11>
+
+      <helper-12 name="assert_matplotlib_backend_is_agg" added-in="Phase-8">
+        <signature>assert_matplotlib_backend_is_agg() -&gt; None</signature>
+        <purpose>Lazy-import matplotlib (or skip if missing); assert `matplotlib.get_backend().lower() == 'agg'`. V-MP-CHART forbidden-2 — fails if a test or module has switched the backend.</purpose>
+      </helper-12>
     </helpers-spec>
 
     <fixture-dependency-matrix>
@@ -1928,6 +1975,12 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <VF-013 depends="mp_clean_env, tmp_docx_path, mp_minimal_config, caplog_at_info, marker_counter, golden_doc_builder, plus _mp_helpers.{assert_marker_sequence, assert_no_legacy_markers, load_audit_baseline, write_audit_baseline}">
         <usage>Heaviest fixture consumer: builds golden doc via builder, validates with mp_minimal_config, asserts trace via assert_marker_sequence, guards against legacy-engine markers via assert_no_legacy_markers, pins/rotates baseline via load/write helpers gated by MP_E2E_WRITE_BASELINE.</usage>
       </VF-013>
+      <V-MP-CHART depends="mp_clean_env, mpl_figure_cleanup (autouse), caplog_at_info, marker_counter, mpl_rcparams_snapshot (opt-in for theming tests), tmp_path, plus _mp_helpers.{assert_seaborn_not_imported, assert_matplotlib_backend_is_agg, extract_marker}" added-in="Phase-8">
+        <usage>Module-local tests for the 7 factories + from_matplotlib/seaborn/plotly + render. mpl_rcparams_snapshot wraps theming-assertion tests so corporate rcParams modifications don't leak. assert_seaborn_not_imported runs after each from_matplotlib test to confirm lazy-import contract holds. mpl_figure_cleanup is autouse so the worker doesn't have to remember plt.close('all') in every test body.</usage>
+      </V-MP-CHART>
+      <VF-014 depends="mp_clean_env, mpl_figure_cleanup, tmp_docx_path, mp_minimal_config, caplog_at_info, marker_counter, chart_baseline_path, plus _mp_helpers.{build_chart_golden_document, assert_chart_inline_shape_emu, assert_no_legacy_markers, load_chart_audit_baseline, write_chart_audit_baseline, assert_seaborn_not_imported, assert_matplotlib_backend_is_agg, build_golden_document (for VF-013 non-regression rerun)}" added-in="Phase-8">
+        <usage>Heaviest Phase-8 consumer: builds chart golden doc; asserts trace marker counts (BLOCK_BUILD_CHART=2, BLOCK_RENDER_CHART=2, BLOCK_PHASE_GUARD=0); validates EMU widths via assert_chart_inline_shape_emu; runs M-VALIDATE lenient via mp_minimal_config; pins baseline via load_chart_audit_baseline (gated by MP_CHART_E2E_WRITE_BASELINE env); RE-RUNS build_golden_document and asserts its fingerprint still matches mp_e2e_baseline.json — the VF-013 non-regression invariant.</usage>
+      </VF-014>
     </fixture-dependency-matrix>
   </SwarmFixtures>
 
@@ -1962,12 +2015,34 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <rule-5>If a worker discovers it needs a new fixture or helper not in SwarmFixtures, it MUST stop and report — the controller updates SwarmFixtures + provisions the fixture in conftest.py before re-dispatching. Workers NEVER add fixtures locally to test files.</rule-5>
     </subagent-isolation-policy>
 
+    <pre-wave-8-1-controller-checklist added-in="Phase-8">
+      <item-1>uv add matplotlib&gt;=3.7,&lt;4 — adds matplotlib as a hard pyproject dep BEFORE Wave-8-1 worker dispatches. This deviates from the dev-plan step-4 placement (which puts pyproject + uv.lock under Wave-8-2) but reduces the deviation pattern that hit Phase-7 Wave-7-2 worker B (where matplotlib's absence forced an in-flight pyproject edit). matplotlib is KNOWN to be needed by chart.py at module import time; pre-installing avoids the Wave-8-1 worker hitting an ImportError on `import matplotlib.pyplot as plt`. The dev-plan Phase-8/step-4 description should be amended in the Wave-8-1 controller-sync commit to reflect "matplotlib pre-installed in pre-Wave-8-1; step-4 covers seaborn-optional documentation + uv.lock refresh after MP-CHART code lands".</item-1>
+      <item-2>Update tests/unit/conftest.py: add fixture-8 (mpl_figure_cleanup autouse — try-import matplotlib, plt.close('all') on teardown), fixture-9 (mpl_rcparams_snapshot opt-in — try-import + snapshot/restore + assert no leak), fixture-10 (chart_baseline_path session-scoped path resolver). Existing 7 fixtures unchanged.</item-2>
+      <item-3>Update tests/unit/_mp_helpers.py: add helper-7 (build_chart_golden_document — STUB raising NotImplementedError naming Wave-8-2 until that wave activates it), helper-8 (assert_chart_inline_shape_emu), helper-9 (assert_seaborn_not_imported), helper-10/11 (load/write_chart_audit_baseline pair gated by MP_CHART_E2E_WRITE_BASELINE), helper-12 (assert_matplotlib_backend_is_agg). Existing 6 helpers unchanged.</item-3>
+      <item-4>Smoke: `uv run pytest tests/ --collect-only -q | tail -3` returns "419 tests collected" (current Phase-7 baseline + 0 new tests yet); confirms conftest extensions don't break collection. Then `uv run python -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; print(matplotlib.get_backend())"` prints "agg".</item-4>
+      <item-5>Single grace(meta) commit covering items 1-3: `grace(meta): provision matplotlib + Phase-8 fixtures and helpers ahead of Wave-8-1 dispatch`. Push BEFORE Wave-8-1 worker A starts.</item-5>
+    </pre-wave-8-1-controller-checklist>
+
     <pre-wave-7-1-controller-checklist>
       <item-1>Provision tests/unit/conftest.py with the 7 fixtures defined in SwarmFixtures/conftest-spec. Each fixture body is small (1-5 lines); all bodies live in conftest.py.</item-1>
       <item-2>Provision tests/unit/_mp_helpers.py with the 6 helpers defined in SwarmFixtures/helpers-spec. Note: helper-1 (build_golden_document) DEPENDS on mint_python.sdk being importable — its body uses lazy import and raises a clear error if mint_python is not yet populated. Implementation only completes after Wave-7-5; Wave-7-1..7-4 workers receive a stub that raises NotImplementedError naming the activating wave.</item-2>
       <item-3>Run `uv run pytest tests/unit/ -x --collect-only` to verify the new conftest does not break existing test collection.</item-3>
       <item-4>Commit: `grace(meta): provision tests/unit/conftest.py + _mp_helpers.py for Phase-7 worker fixtures`. Single commit BEFORE dispatching Wave-7-1 worker A.</item-4>
     </pre-wave-7-1-controller-checklist>
+
+    <packet-example MODULE="MP-CHART" WAVE="Wave-8-1" added-in="Phase-8">
+      <field-1>MP-CHART</field-1>
+      <field-2>Wave-8-1</field-2>
+      <field-3>balanced</field-3>
+      <field-4>src/mint_python/core/chart.py, tests/unit/test_mp_chart.py — and ONLY these. matplotlib is pre-installed by the controller (commit BEFORE Wave-8-1 dispatch); chart.py MUST `import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt` at module top in that exact order. seaborn is NOT imported at module level — only lazy-imported inside Chart.from_seaborn. pyproject.toml is OFF-LIMITS for this worker; tech updates land in Wave-8-2 step-4 (seaborn-optional documentation + uv.lock refresh).</field-4>
+      <field-9>mp_clean_env (autouse), mpl_figure_cleanup (autouse — added Phase-8), caplog_at_info, marker_counter, mpl_rcparams_snapshot (opt-in for theming tests), tmp_path. DO NOT redefine.</field-9>
+      <field-10>extract_marker (used internally by marker_counter); assert_seaborn_not_imported (V-MP-CHART forbidden-3); assert_matplotlib_backend_is_agg (V-MP-CHART forbidden-2).</field-10>
+      <field-11>3 trace markers per V-MP-CHART required-log-markers: `[MP-Chart][&lt;factory&gt;][BLOCK_BUILD_CHART] chart_type=%s data_shape=%s` (per factory call); `[MP-Chart][render][BLOCK_RENDER_CHART] chart_type=%s emu_width=%d` (per render); `[MP-Chart][from_plotly][BLOCK_PHASE_GUARD] method=from_plotly target_phase=Phase 9` (stub touch). Wrap each emit site in `# START_BLOCK_*` / `# END_BLOCK_*` source comments.</field-11>
+      <field-12>pytest tests/unit/test_mp_chart.py -x; ruff check src/mint_python/core/chart.py tests/unit/test_mp_chart.py; mypy src/mint_python/core/chart.py; python -c "import sys; import mint_python.core.chart; assert 'seaborn' not in sys.modules"</field-12>
+      <field-14>knowledge-graph.xml MP-CHART STATUS planned→done (controller flips post-wave). NO new annotations beyond what the Phase-8 plan registered.</field-14>
+      <field-15>V-MP-CHART scenarios 1-16 status planned→done; check-1..3 status planned→done. V-MP-SECTION + V-MP-SDK NOT touched in Wave-8-1 — those updates land in Wave-8-2.</field-15>
+      <field-16>`grace(MP-CHART): add Chart factories + render for Phase-8\n\n... (per development-plan.xml ExecutionPolicy commit format)`</field-16>
+    </packet-example>
 
     <packet-example MODULE="MP-STYLE" WAVE="Wave-7-1">
       <field-1>MP-STYLE</field-1>
@@ -2044,6 +2119,42 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <first-divergent-block>Recent change to MP-STYLE typography defaults rotated the heading1 color from "#0F4C81" to "#0F4D81" (one-char drift); the change was not intentional</first-divergent-block>
       <next-action>If the change is unintentional: revert MP-STYLE color, re-run VF-013, hash returns to baseline. If intentional: bump baseline by setting MP_E2E_WRITE_BASELINE=1, re-run, commit the new baseline JSON IN THE SAME PR with rationale per V-MP-DOCUMENT baseline-update-protocol step-3.</next-action>
     </packet-example>
+    <packet-example added-in="Phase-8">
+      <scenario>V-MP-CHART forbidden-2: matplotlib backend leak</scenario>
+      <expected-evidence>`assert_matplotlib_backend_is_agg()` after `import mint_python.core.chart` returns silently (backend == 'agg')</expected-evidence>
+      <observed-evidence>AssertionError: backend is 'TkAgg' — chart.py module-level forced 'Agg' but a sibling test file imported matplotlib.pyplot earlier in the test order, and matplotlib's import-once-set-once semantics held the prior backend</observed-evidence>
+      <first-divergent-block>src/mint_python/core/chart.py top — `import matplotlib; matplotlib.use('Agg')` MUST occur BEFORE `import matplotlib.pyplot as plt`. If chart.py uses `from matplotlib import pyplot as plt` first, the backend is locked before .use('Agg') has a chance.</first-divergent-block>
+      <next-action>Reorder chart.py imports: line 1 `import matplotlib`, line 2 `matplotlib.use('Agg')`, line 3 `import matplotlib.pyplot as plt`. If a sibling test imports matplotlib.pyplot before chart.py loads, fix the ordering in that test (push the import inside the test function OR add `matplotlib.use('Agg')` to a session-scope conftest fixture). Verify by running tests in deterministic order: `pytest -p no:randomly tests/unit/`.</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-8">
+      <scenario>V-MP-CHART forbidden-3: seaborn imported at module level</scenario>
+      <expected-evidence>`'seaborn' not in sys.modules` after `import mint_python.core.chart` (lazy-import contract)</expected-evidence>
+      <observed-evidence>seaborn IS in sys.modules — V-MP-CHART check-4 fails ("python -c 'import sys; import mint_python.core.chart; assert seaborn not in sys.modules'")</observed-evidence>
+      <first-divergent-block>src/mint_python/core/chart.py top — somebody added `import seaborn` at module level OR a transitive dependency (one of the factory helpers) imports seaborn. Greppable: `grep -n 'import seaborn' src/mint_python/core/chart.py` returns the offending line.</first-divergent-block>
+      <next-action>Remove the module-level `import seaborn`. Move the import inside Chart.from_seaborn body (after the `try:` block that catches ImportError → re-raises with the "pip install seaborn" hint). Re-run check-4. seaborn must remain optional per technology.xml.</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-8">
+      <scenario>V-MP-CHART forbidden-5: rcParams leak across tests</scenario>
+      <expected-evidence>mpl_rcparams_snapshot fixture asserts `dict(matplotlib.rcParams) == snapshot` at teardown</expected-evidence>
+      <observed-evidence>AssertionError at teardown: rcParams['font.family'] != snapshot value — Chart factory modified rcParams without restoring</observed-evidence>
+      <first-divergent-block>chart.py factory body — corporate theming applies rcParams DIRECTLY (`matplotlib.rcParams['font.family'] = ...`) instead of inside a `with mpl.rc_context(...):` block. The modification leaks to the next test.</first-divergent-block>
+      <next-action>Wrap theming application in `with mpl.rc_context({...}):` (matplotlib's stdlib context manager). All factory savefig calls must happen INSIDE the context block. Verify with: write a test that builds 3 charts in sequence and asserts rcParams identical before/after each.</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-8">
+      <scenario>VF-014 non-regression: VF-013 broke after Phase-8 in-place edit</scenario>
+      <expected-evidence>VF-013 e2e re-run after Phase-8 produces a fingerprint matching tests/fixtures/mp_e2e_baseline.json (chart-free golden doc unchanged)</expected-evidence>
+      <observed-evidence>fingerprint(VF-013 saved doc).hash differs from baseline — Wave-8-2 in-place edit to MP-SECTION accidentally changed Section.render block-iteration order or introduced spurious paragraph emit</observed-evidence>
+      <first-divergent-block>src/mint_python/core/section.py — Section.add_chart unstub touched more lines than the contract allowed. Wave-8-2 worker scope said "in-place add_chart unstub ONLY — preserve all other methods"; the worker likely refactored Section.render or _blocks initialization as a side effect.</first-divergent-block>
+      <next-action>Diff section.py against the pre-Wave-8-2 commit; revert any unrelated changes. The Wave-8-2 surgical edit should ONLY touch the body of add_chart (3-5 lines: drop the BLOCK_PHASE_GUARD logger.info + raise; replace with `self._blocks.append(chart); return self`). Re-run both VF-013 e2e and VF-014 e2e — both must pass.</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-8">
+      <scenario>VF-014 inv-3: EMU width drift</scenario>
+      <expected-evidence>doc.inline_shapes[i].width.emu == round(width_inches[i] × 914400) for each chart</expected-evidence>
+      <observed-evidence>shape[0].width.emu == 4571999 — off by 1 from expected 4572000 (5.0 inches × 914400)</observed-evidence>
+      <first-divergent-block>chart.py Chart.render — width converted to EMU via float arithmetic that loses precision: `int(width_inches * 914400)` instead of `round(width_inches * 914400)`. python-docx's Inches() helper does the right thing; bypassing it loses precision.</first-divergent-block>
+      <next-action>Pass width via `docx.shared.Inches(self.width_inches)` directly to add_picture (NOT a hand-computed EMU value). Inches converts via 914400 multiplication then int-rounds. Re-run VF-014 inv-3.</next-action>
+    </packet-example>
+
     <packet-example>
       <scenario>SwarmFixtures rule-5: worker added a local fixture</scenario>
       <expected-evidence>Worker E packet result lists fixtures consumed via pytest auto-injection from tests/unit/conftest.py (mp_clean_env, caplog_at_info, marker_counter); no @pytest.fixture definitions in tests/unit/test_mp_*.py</expected-evidence>
