@@ -284,7 +284,7 @@
       <swarm-safety>Comparison runs are independent processes by construction; no shared mutable state across engines. SWARM-SAFE for parallel execution.</swarm-safety>
     </VF-012>
 
-    <VF-013 NAME="PurePythonDocFlow" USE_CASES="UC-001" DATA_FLOW="DF-009,DF-010" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-7-5">
+    <VF-013 NAME="PurePythonDocFlow" USE_CASES="UC-001" DATA_FLOW="DF-009,DF-010" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-5">
       <scenario>Phase-7 acceptance: a 3-section golden document built via mint_python.sdk (Document.with_style_preset → add_cover → add_section × 2 with paragraph + table content → add_toc → save) produces a .docx that lxml parses cleanly AND passes M-VALIDATE on lenient mode (zero hard violations; aggregated soft violations stable against tests/fixtures/mp_e2e_baseline.json).</scenario>
       <golden-document-spec>
         <preset>alga_corporate</preset>
@@ -1105,7 +1105,7 @@
     <V-MP-DOCUMENT MODULE="MP-DOCUMENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-4">
       <test-files>
         <file status="active" activated-at="Wave-7-4">tests/unit/test_mp_document.py</file>
-        <file status="planned" activates-at="Wave-7-5">tests/integration/test_mp_e2e.py</file>
+        <file status="active" activated-at="Wave-7-5">tests/integration/test_mp_e2e.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_mp_document.py -x</check-1>
@@ -1162,9 +1162,9 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE — save() targets tmp_path per test; no shared mutable state. e2e wave (Wave-7-5) reads-only against M-VALIDATE; baseline assertion is deterministic. Worker-write to tests/fixtures/mp_e2e_baseline.json is gated by MP_E2E_WRITE_BASELINE env so concurrent workers cannot race-overwrite.</autonomy-assessment>
     </V-MP-DOCUMENT>
 
-    <V-MP-SDK MODULE="MP-SDK" PRIORITY="medium" STATUS="planned" ACTIVATES_AT="Wave-7-5">
+    <V-MP-SDK MODULE="MP-SDK" PRIORITY="medium" STATUS="done" ACTIVATED_AT="Wave-7-5">
       <test-files>
-        <file status="planned" activates-at="Wave-7-5">tests/unit/test_mp_sdk.py</file>
+        <file status="active" activated-at="Wave-7-5">tests/unit/test_mp_sdk.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_mp_sdk.py -x</check-1>
@@ -1463,7 +1463,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Wave-7-4>
 
-    <Wave-7-5 PHASE="Phase-7" SCOPE="MP-SDK + VF-013 e2e" STATUS="planned">
+    <Wave-7-5 PHASE="Phase-7" SCOPE="MP-SDK + VF-013 e2e" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Land SDK re-exports + VF-013 end-to-end test: 3-section golden document built via mint_python.sdk passes M-VALIDATE on lenient mode (zero hard violations). Closes Phase-7.</goal>
       <commands>
         <command-1>pytest tests/unit/test_mp_sdk.py tests/integration/test_mp_e2e.py -x --timeout=120</command-1>
@@ -1552,7 +1552,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Gate-Phase-4>
 
-    <Gate-Phase-7 PHASE="Phase-7" STATUS="planned" ACTIVATES_AT="Wave-7-5 completion">
+    <Gate-Phase-7 PHASE="Phase-7" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Pure Python Edition Phase 1 (handover §6 Phase 1) lands: Document/Section/Table/Style stack works end-to-end via mint_python.sdk; a 3-section golden document passes M-VALIDATE on lenient mode; stubs (inject_grace/validate/fix/to_pdf, Section.add_chart) cleanly point to later phases. Foundation ready for Phase-2 (Chart + matplotlib).</goal>
       <commands>
         <command-1>pytest tests/ -x --timeout=120</command-1>
@@ -1619,7 +1619,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <evidence>Phase-6 engine-dispatch contract is implemented and verified end-to-end. Wave-6-1 landed under commits 7ece0df (MP-PKG), 2baab4a (M-CONFIG), 73ae169 (M-CLI), 5cc23b9 (infra), 832912e (V-MP-FLAG tests). 309 unit/integration tests + 1 skipped pass; ruff and mypy clean across the touched surface; uv build wheel includes 9 mint_python __init__.py entries.</evidence>
         <commands>pytest tests/unit/test_engine_flag.py tests/integration/test_cli.py -x</commands>
       </target-6>
-      <target-7 MODULES="MP-STYLE,MP-CONTENT,MP-TABLE,MP-SECTION,MP-DOCUMENT,MP-SDK" STATUS="swarm-safe-with-isolated-fixtures" PLANNED_AT="2026-05-09">
+      <target-7 MODULES="MP-STYLE,MP-CONTENT,MP-TABLE,MP-SECTION,MP-DOCUMENT,MP-SDK" STATUS="swarm-safe-with-isolated-fixtures" COMPLETED_AT="2026-05-09">
         <evidence>Phase-7 modules are deterministic and tmp_path-isolated. Wave-7-1 (MP-STYLE) is pure deterministic with read-only registry. Wave-7-2 dispatches MP-CONTENT and MP-TABLE in parallel — disjoint files, both depend only on MP-STYLE, no shared state. Wave-7-3 (MP-SECTION), Wave-7-4 (MP-DOCUMENT) are solo. Wave-7-5 closes with MP-SDK + VF-013 e2e — the e2e harness writes to tmp_path; baseline JSON write is gated by MP_E2E_WRITE_BASELINE env. Each MP-* module is forbidden from introducing a module-level mutable singleton (V-MP-* forbidden-3 across the family).</evidence>
         <commands>pytest tests/unit/test_mp_style.py tests/unit/test_mp_content.py tests/unit/test_mp_table.py tests/unit/test_mp_section.py tests/unit/test_mp_document.py tests/unit/test_mp_sdk.py tests/integration/test_mp_e2e.py -x --timeout=120</commands>
         <wave-dependencies>Wave-7-1 unlocks Wave-7-2; Wave-7-2 unlocks Wave-7-3; Wave-7-3 unlocks Wave-7-4; Wave-7-4 unlocks Wave-7-5. Within Wave-7-2, MP-CONTENT and MP-TABLE are parallel-safe (disjoint write scopes).</wave-dependencies>

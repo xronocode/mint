@@ -482,7 +482,7 @@
       </annotations>
     </MP-DOCUMENT>
 
-    <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" STATUS="planned">
+    <MP-SDK NAME="Pure Python SDK Façade" TYPE="UTILITY" STATUS="done">
       <purpose>Public re-exports of all §3 types + named-preset registry + with_style_from(path) loader</purpose>
       <path>src/mint_python/sdk/__init__.py</path>
       <depends>MP-DOCUMENT, MP-TABLE, MP-CONTENT, MP-STYLE</depends>
