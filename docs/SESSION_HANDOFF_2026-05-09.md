@@ -2,7 +2,7 @@
 
 **Дата:** 2026-05-09
 **Branch:** `main`
-**Status:** Phase-7 + Phase-8 + Phase-9 + Phase-11 shipped (Phase-10 = handover §6 Phase 4 Execution tiers + RestrictedPython, skipped per roadmap; deferred TBD). Active stubs: ONLY `Chart.from_plotly` (Phase-12+; separate render pipeline). Document API surface complete: validate/fix/inject_grace/to_pdf all functional via delegation.
+**Status:** Phase-7 + Phase-8 + Phase-9 + Phase-11 + Phase-12 shipped. v0.3.0 wheel built. ZERO active stubs. All Document API + Chart API surface complete. Pure Python Edition matches handover §6 scope.
 
 ## Project context
 
@@ -64,11 +64,7 @@ doc.save("memo.docx")
 
 ## Active stubs (NotImplementedError + BLOCK_PHASE_GUARD)
 
-After Phase-11 closeout, only ONE stub remains:
-
-| Stub | Target Phase | Notes |
-|---|---|---|
-| `Chart.from_plotly` | Phase-12+ | separate render pipeline (plotly is HTML/JS interactive, not PNG/EMF via matplotlib) |
+After Phase-12 closeout, ZERO active stubs remain. All Blockers retired:
 
 **Retired stubs (chronological):**
 
@@ -76,6 +72,7 @@ After Phase-11 closeout, only ONE stub remains:
 - Phase-9 commit `f021046`: `Document.validate` + `Document.fix` (were Phase-3 stubs; delegate via temp-file save → MP-VALIDATE/MP-FIX)
 - Phase-11 commit `3ed23fd`: `Document.inject_grace` (was Phase-5 stub; delegates to MP-GRACE.bootstrap)
 - Phase-11 commit `4e682d7`: `Document.to_pdf` (was Phase-5 stub; delegates to Gotenberg HTTP adapter)
+- Phase-12: `Chart.from_plotly` (was Phase-9+ stub; delegates to plotly.io.to_image + kaleido)
 
 ## Pre-Phase-N reading list (general convention for any new phase)
 
