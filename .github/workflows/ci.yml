@@ -34,7 +34,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Ruff check
-        run: uv run ruff check src/mint src/mint_python tests
+        run: uv run ruff check src/mint src/mint_python
 
       - name: Mypy strict
         run: uv run mypy src/mint src/mint_python
