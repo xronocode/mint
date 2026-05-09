@@ -1214,13 +1214,13 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE — save() targets tmp_path per test; no shared mutable state. e2e wave (Wave-7-5) reads-only against M-VALIDATE; baseline assertion is deterministic. Worker-write to tests/fixtures/mp_e2e_baseline.json is gated by MP_E2E_WRITE_BASELINE env so concurrent workers cannot race-overwrite.</autonomy-assessment>
     </V-MP-DOCUMENT>
 
-    <V-MP-CHART MODULE="MP-CHART" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-8-1">
+    <V-MP-CHART MODULE="MP-CHART" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-8-1">
       <implementation-path>
         <source>src/mint_python/core/chart.py — Chart class definition + 7 factories + from_matplotlib/seaborn/plotly + render. The class lives in CORE per repo convention (Phase-7 established this with Document/Section/Table/Style/Image). MP-SDK re-exports Chart in src/mint_python/sdk/__init__.py (Phase-8 Wave-8-2 step-3); users write `from mint_python.sdk import Chart` but the class identity is `mint_python.core.chart.Chart`.</source>
         <forbidden-paths>src/mint/* (legacy js engine — V-MP-PKG forbidden-2 invariant); src/mint_python/sdk/__init__.py (Wave-8-2 worker scope, NOT Wave-8-1); any other src/mint_python/core/* file (Phase-8 doesn't modify sibling modules).</forbidden-paths>
       </implementation-path>
       <test-files>
-        <file status="planned" activates-at="Wave-8-1">tests/unit/test_mp_chart.py</file>
+        <file status="active" activated-at="Wave-8-1">tests/unit/test_mp_chart.py</file>
         <file status="planned" activates-at="Wave-8-2">tests/integration/test_mp_chart_e2e.py</file>
       </test-files>
       <module-checks>
@@ -1562,7 +1562,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Wave-7-4>
 
-    <Wave-8-1 PHASE="Phase-8" SCOPE="MP-CHART (all 7 factories + from_matplotlib + from_seaborn lazy + from_plotly stub + render + corporate theming)" STATUS="planned">
+    <Wave-8-1 PHASE="Phase-8" SCOPE="MP-CHART (all 7 factories + from_matplotlib + from_seaborn lazy + from_plotly stub + render + corporate theming)" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Land MP-CHART module with all factories + render + corporate theming. Chart.from_plotly is a stub raising NotImplementedError naming Phase-9+. Chart cells in Section.add_chart still raise BLOCK_PHASE_GUARD during this wave (Wave-8-2 unstubs Section).</goal>
       <commands>
         <command-1>pytest tests/unit/test_mp_chart.py -x</command-1>

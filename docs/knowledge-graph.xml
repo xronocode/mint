@@ -482,7 +482,7 @@
       </annotations>
     </MP-DOCUMENT>
 
-    <MP-CHART NAME="Pure Python Chart factories + render" TYPE="CORE_LOGIC" STATUS="planned">
+    <MP-CHART NAME="Pure Python Chart factories + render" TYPE="CORE_LOGIC" STATUS="done">
       <purpose>Chart class + 7 factory constructors per handover §3.4 + from_matplotlib/seaborn/plotly channels; matplotlib Figure → PNG @ 300 DPI → python-docx add_picture embed; corporate theming + chartjunk removal applied via matplotlib rcParams</purpose>
       <path>src/mint_python/core/chart.py</path>
       <depends>MP-STYLE, MP-CONTENT</depends>
