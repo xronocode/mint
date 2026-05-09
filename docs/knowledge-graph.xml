@@ -556,6 +556,24 @@
       </annotations>
     </MP-VALIDATE>
 
+    <MP-FIX NAME="Pure Python Auto-Fix Engine" TYPE="CORE_LOGIC" STATUS="done" ADDED_AT="2026-05-09">
+      <purpose>Apply safe/visual auto-fixes to OOXML documents with backup, cascade detection (max 3 iterations), destructive rejection. Pure Python successor to M-FIX (src/mint/fix.py). D-H09 newline fix only in Phase-9 scope.</purpose>
+      <path>src/mint_python/fix.py</path>
+      <depends>MP-VALIDATE (run_checks, SeverityMode, ValidationReport, InvalidDocumentError), MP-RULES (Violation, FixCategory, Severity), zipfile, lxml, shutil, hashlib, io</depends>
+      <verification-ref>V-MP-FIX</verification-ref>
+      <annotations>
+        <type-FixReport PURPOSE="Report dataclass: fixed_path, backup_path, iterations, applied_fixes, remaining_violations, diff summary" />
+        <type-FixError PURPOSE="Base exception for fix failures" />
+        <type-CascadeDetectedError PURPOSE="Raised when fixes oscillate without converging within max_iterations" />
+        <type-BackupFailedError PURPOSE="Raised when create_backup fails (permission/IO error)" />
+        <type-DestructiveRejectedError PURPOSE="Raised when fix attempt includes DESTRUCTIVE-category violations" />
+        <fn-create_backup PURPOSE="Create .docx.bak with identical SHA256 content; raises BackupFailedError on failure" />
+        <fn-apply_fixes PURPOSE="Filter destructive → backup → iterate safe/visual fixes → re-validate → cascade check → return FixReport" />
+        <fn-fix PURPOSE="Convenience: calls run_checks → apply_fixes → returns FixReport" />
+        <fn-_apply_simple_fix PURPOSE="Apply D-H09 newline fix only (w:t \n → &#10;); returns False for all other rule_ids (no fix logic in Phase-9 scope)" />
+      </annotations>
+    </MP-FIX>
+
     <CrossLink from="MP-CONTENT" to="MP-STYLE" relation="Paragraph and Run consume Style for typography/color/spacing" />
     <CrossLink from="MP-TABLE" to="MP-STYLE" relation="Table.apply_style and the financial/comparison factories consume Style" />
     <CrossLink from="MP-TABLE" to="MP-CONTENT" relation="Table cells embed Paragraph instances for rich-text content" />
