@@ -1215,6 +1215,10 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
     </V-MP-DOCUMENT>
 
     <V-MP-CHART MODULE="MP-CHART" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-8-1">
+      <implementation-path>
+        <source>src/mint_python/core/chart.py — Chart class definition + 7 factories + from_matplotlib/seaborn/plotly + render. The class lives in CORE per repo convention (Phase-7 established this with Document/Section/Table/Style/Image). MP-SDK re-exports Chart in src/mint_python/sdk/__init__.py (Phase-8 Wave-8-2 step-3); users write `from mint_python.sdk import Chart` but the class identity is `mint_python.core.chart.Chart`.</source>
+        <forbidden-paths>src/mint/* (legacy js engine — V-MP-PKG forbidden-2 invariant); src/mint_python/sdk/__init__.py (Wave-8-2 worker scope, NOT Wave-8-1); any other src/mint_python/core/* file (Phase-8 doesn't modify sibling modules).</forbidden-paths>
+      </implementation-path>
       <test-files>
         <file status="planned" activates-at="Wave-8-1">tests/unit/test_mp_chart.py</file>
         <file status="planned" activates-at="Wave-8-2">tests/integration/test_mp_chart_e2e.py</file>
@@ -1886,6 +1890,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <signature>build_golden_document(out_path: Path) -&gt; Path</signature>
         <purpose>Single source of truth for the VF-013 golden document construction (see VF-013 golden-document-spec). Builds via mint_python.sdk; calls Document.save(out_path); returns out_path.</purpose>
         <reproducibility>This function is the ONLY way Phase-7+ code constructs the golden doc for verification. Inlining the doc-construction in test bodies is forbidden — VF-013 reproducibility invariant.</reproducibility>
+        <activation-gate>Activated at Wave-7-5 — replaces the pre-Wave-7-5 NotImplementedError stub with the concrete construction. Status: ACTIVE since 2026-05-09 (commit 9793ff4).</activation-gate>
         <body-hint>Mirrors VF-013 golden-document-spec/body-spec exactly: alga_corporate preset, cover (Q2 Memo / Phase-7 acceptance fixture), 2 sections (Summary + Details) with paragraph + table content, add_toc(max_level=2), save.</body-hint>
       </helper-1>
 
@@ -1924,6 +1929,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <signature>build_chart_golden_document(out_path: Path) -&gt; Path</signature>
         <purpose>VF-014 chart golden document builder — single source of truth for the Phase-8 e2e fixture. Pre-Wave-8-2 STUB raises NotImplementedError naming the activating wave; Wave-8-2 worker replaces the body per VF-014 golden-document-spec (alga_corporate; 2 sections each with 1 paragraph + 1 chart of different type — bar + line; both width_inches=5.0).</purpose>
         <reproducibility>Mirror the build_golden_document pattern (helper-1) — single function, no inline construction in test bodies. The golden-document-spec is normative.</reproducibility>
+        <activation-gate>Activated at Wave-8-2 step-5 (test surface). Pre-condition for activation: VF-014 golden-document-spec frozen + MP-CHART (Wave-8-1) shipped + MP-SECTION add_chart unstub (Wave-8-2 step-2) + MP-SDK Chart re-export (Wave-8-2 step-3) all complete. STUB body MUST raise NotImplementedError naming "Wave-8-2" verbatim so a worker that imports this helper before activation gets a clear "wrong wave" signal.</activation-gate>
       </helper-7>
 
       <helper-8 name="assert_chart_inline_shape_emu" added-in="Phase-8">
