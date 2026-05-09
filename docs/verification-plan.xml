@@ -1118,7 +1118,7 @@
       <autonomy-assessment>SWARM-SAFE — pure deterministic; no I/O beyond JSON file reads in tmp; no env reads; module-level state is read-only registry</autonomy-assessment>
     </V-MP-STYLE>
 
-    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2">
+    <V-MP-CONTENT MODULE="MP-CONTENT" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-7-2" VERSION="0.1.0">
       <test-files>
         <file status="active" activated-at="Wave-7-2">tests/unit/test_mp_content.py</file>
       </test-files>
@@ -1135,6 +1135,13 @@
         <scenario-5 kind="failure" evidence="deterministic">Image.from_path('/nonexistent.png') raises IMAGE_FILE_NOT_FOUND</scenario-5>
         <scenario-6 kind="failure" evidence="deterministic">Image.from_bytes(b'\x00bad', format='png') raises IMAGE_FORMAT_UNSUPPORTED OR a pillow-derived error wrapped with the path/format context</scenario-6>
         <scenario-7 kind="success" evidence="deterministic">Image width=Inches(3) sets the OOXML extent in EMU correctly (3 * 914400)</scenario-7>
+        <scenario-9 kind="success" evidence="deterministic">add_run(text, bold=True) on a paragraph styled with body (bold=False) emits a run whose font.bold is True; surrounding runs inherit body unchanged</scenario-9>
+        <scenario-10 kind="success" evidence="deterministic">add_run(text, italic=True, color='#FF0000', font_size_pt=18.0) emits a run with italic + color FF0000 + size 18pt; the unstyled neighbor inherits the body Style intact</scenario-10>
+        <scenario-11 kind="success" evidence="deterministic">add_run(text, underline=True) emits an underlined run; runs without an underline override are not underlined (Style has no underline field, so None means no underline)</scenario-11>
+        <scenario-12 kind="success" evidence="deterministic">Per-run override of bool=False beats Style.bold=True: explicit Run.bold=False wins over inherited heading1 Style.bold=True</scenario-12>
+        <scenario-13 kind="success" evidence="deterministic">Paragraph.add_run kwargs (bold/italic/underline/color/font_size_pt) reach the resulting Run instance via construction unchanged</scenario-13>
+        <scenario-14 kind="failure" evidence="deterministic">Run(text, color='red') and Run(text, color='#GGHHII') raise ValueError mentioning '#RRGGBB' or 'hex digits'</scenario-14>
+        <scenario-15 kind="failure" evidence="deterministic">Run(text, font_size_pt=0) and Run(text, font_size_pt=-1.5) raise ValueError mentioning '> 0'</scenario-15>
       </scenarios>
       <required-log-markers>
         <marker-1>[MP-Content][render][BLOCK_RENDER_CONTENT] — fires per Paragraph or Image .render() call</marker-1>
@@ -1142,6 +1149,7 @@
       <forbidden-behaviors>
         <forbidden-1>Paragraph or Image must NEVER write to the filesystem during render — only into the python-docx Document object</forbidden-1>
         <forbidden-2>Run must not be re-used across Paragraphs (would corrupt OOXML). Render() may consume the Run; subsequent renders raise.</forbidden-2>
+        <forbidden-3>Per-run overrides set to None must NOT clobber the inherited Style. Only an explicit non-None override value reaches python-docx font properties.</forbidden-3>
       </forbidden-behaviors>
       <autonomy-assessment>SWARM-SAFE — render() target is a per-test python-docx Document instance; no shared mutable state</autonomy-assessment>
     </V-MP-CONTENT>

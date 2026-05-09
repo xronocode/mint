@@ -14,13 +14,12 @@ Generates the richest document the Pure Python Edition SDK can produce,
 then validates it against MP-VALIDATE on lenient mode.
 
 Gaps (not yet supported):
-  a) Per-run bold/italic/underline/color/font_size          — Run.text only
-  b) Bulleted/numbered/checklist lists                      — no List type
-  c) Merged table cells                                     — grid-only tables
-  d) Hyperlinks, bookmarks, footnotes, tab stops            — no API
-  e) Multi-column, per-section headers/footers, page breaks — no section API
-  f) Callout boxes (info/warning/code block)                — no component
-  g) Landscape orientation, custom margins                  — no page API
+  a) Bulleted/numbered/checklist lists                      — no List type
+  b) Merged table cells                                     — grid-only tables
+  c) Hyperlinks, bookmarks, footnotes, tab stops            — no API
+  d) Multi-column, per-section headers/footers, page breaks — no section API
+  e) Callout boxes (info/warning/code block)                — no component
+  f) Landscape orientation, custom margins                  — no page API
 """
 from __future__ import annotations
 
@@ -32,6 +31,7 @@ from pathlib import Path
 
 import pytest
 
+from mint_python.core.content import Paragraph
 from mint_python.sdk import (
     Chart,
     Document,
@@ -70,8 +70,22 @@ def build_showcase_document(tmp_dir: Path) -> Document:
         "images, and style presets (alga_corporate, minimal, compact)."
     )
     sec.add_paragraph(
-        "Gaps documented at end of this guide: per-run formatting, lists, merged "
-        "cells, hyperlinks, footnotes, callout components, multi-column layouts."
+        "Gaps documented at end of this guide: lists, merged cells, hyperlinks, "
+        "footnotes, callout components, multi-column layouts."
+    )
+    # Per-run formatting demo (added in MP-CONTENT v0.1.0).
+    sec.add_paragraph(
+        Paragraph("Per-run formatting demo: ")
+        .add_run("bold", bold=True)
+        .add_run(", ")
+        .add_run("italic", italic=True)
+        .add_run(", ")
+        .add_run("underlined", underline=True)
+        .add_run(", ")
+        .add_run("colored", color="#C0392B")
+        .add_run(", and ")
+        .add_run("larger", font_size_pt=16.0)
+        .add_run(" — all in one paragraph without derived Style objects.")
     )
     doc.add_section(sec)
 
@@ -239,16 +253,15 @@ def build_showcase_document(tmp_dir: Path) -> Document:
     gap_section = Section("Known Gaps & Future Work", level=1)
     gap_section.add_paragraph("The following features are not yet supported by the Pure Python Edition SDK:")
     gaps = [
-        "a) Per-run text formatting (bold, italic, underline, color, font size) — Run currently carries only text + Style",
-        "b) Bulleted, numbered, and checklist lists — no List block type",
-        "c) Merged table cells — Table assumes regular grid; no merge API",
-        "d) Hyperlinks, bookmarks, footnotes, tab stops — no corresponding block types",
-        "e) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
-        "f) Callout components (info, warning, code block) — no component library",
-        "g) Landscape orientation, custom page margins — page-level properties not exposed",
-        "h) Watermarks, text boxes, WordArt — artistic elements deferred",
-        "i) Track changes, comments, document protection — collaboration features deferred",
-        "j) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
+        "a) Bulleted, numbered, and checklist lists — no List block type",
+        "b) Merged table cells — Table assumes regular grid; no merge API",
+        "c) Hyperlinks, bookmarks, footnotes, tab stops — no corresponding block types",
+        "d) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
+        "e) Callout components (info, warning, code block) — no component library",
+        "f) Landscape orientation, custom page margins — page-level properties not exposed",
+        "g) Watermarks, text boxes, WordArt — artistic elements deferred",
+        "h) Track changes, comments, document protection — collaboration features deferred",
+        "i) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
     ]
     for gap in gaps:
         gap_section.add_paragraph(gap)

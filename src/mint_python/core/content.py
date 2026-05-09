@@ -1,10 +1,11 @@
 # FILE: src/mint_python/core/content.py
-# VERSION: 0.0.0
+# VERSION: 0.1.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Inline content building blocks for the Pure Python Edition: Run
-#     (frozen data carrier), Paragraph (composed of runs, .render emits w:p),
-#     Image (file-or-bytes embed via python-docx + pillow). Direct emitters
-#     of <w:p>, <w:r>, <w:drawing> OOXML through python-docx primitives.
+#     (frozen data carrier with optional per-run formatting overrides),
+#     Paragraph (composed of runs, .render emits w:p), Image (file-or-bytes
+#     embed via python-docx + pillow). Direct emitters of <w:p>, <w:r>,
+#     <w:drawing> OOXML through python-docx primitives.
 #   SCOPE: Public surface = Run, Paragraph, Image, ImageFileNotFoundError,
 #     ImageFormatUnsupportedError, ContentError. All render() methods take a
 #     python-docx Document and write into it; never to disk.
@@ -16,7 +17,9 @@
 # END_MODULE_CONTRACT
 #
 # START_MODULE_MAP
-#   Run                          - frozen dataclass; (text, style|None)
+#   Run                          - frozen dataclass; text + optional style
+#                                  + per-run overrides
+#                                  (bold/italic/underline/color/font_size_pt)
 #   Paragraph                    - styled paragraph + .add_run + .render
 #   Image                        - .from_path / .from_bytes / .render
 #   ContentError                 - base error
@@ -25,8 +28,11 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-7-2 (MP-CONTENT): initial implementation per
-#     V-MP-CONTENT scenarios 1-7 + BLOCK_RENDER_CONTENT trace assertion.
+#   LAST_CHANGE: v0.1.0 — Run gains per-run formatting overrides
+#     (bold, italic, underline, color, font_size_pt). All optional, default
+#     None = inherit from effective Style. Run-field precedence wins over
+#     Style. add_run mirrors the same kwargs. New V-MP-CONTENT
+#     scenarios 9-13 + showcase E2E mixed-formatting paragraph.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -83,6 +89,20 @@ _ALIGNMENT_MAP: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 
+_HEX_COLOR_LEN = 7  # "#RRGGBB"
+
+
+def _validate_run_color(value: str) -> None:
+    if len(value) != _HEX_COLOR_LEN or not value.startswith("#"):
+        raise ValueError(
+            f"Run.color must be 7-char #RRGGBB hex, got {value!r}"
+        )
+    try:
+        int(value[1:], 16)
+    except ValueError as exc:
+        raise ValueError(f"Run.color hex digits invalid: {value!r}") from exc
+
+
 @dataclass(frozen=True)
 class Run:
     """Inline styled fragment within a Paragraph.
@@ -97,12 +117,37 @@ class Run:
 
     Attributes:
         text: literal string content for this run.
-        style: optional :class:`Style` override; ``None`` means
-            "inherit the enclosing Paragraph.style at render time".
+        style: optional :class:`Style`; ``None`` means "inherit the
+            enclosing Paragraph.style at render time".
+        bold: per-run bold override. ``None`` = inherit effective Style.
+        italic: per-run italic override. ``None`` = inherit.
+        underline: per-run underline override. Style has no underline
+            field, so ``None`` here = no underline applied.
+        color: per-run text color as ``#RRGGBB`` hex; ``None`` = inherit
+            effective Style.color_hex. Validated at construction.
+        font_size_pt: per-run font size in points (float > 0); ``None``
+            = inherit effective Style.size_pt.
+
+    Override precedence at render time: ``Run.<field>`` > effective
+    ``Style.<field>``. Setting an override to a literal value (including
+    ``False`` or ``0.0``) is intentional and beats the inherited value.
     """
 
     text: str
     style: Style | None = None
+    bold: bool | None = None
+    italic: bool | None = None
+    underline: bool | None = None
+    color: str | None = None
+    font_size_pt: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.color is not None:
+            _validate_run_color(self.color)
+        if self.font_size_pt is not None and self.font_size_pt <= 0:
+            raise ValueError(
+                f"Run.font_size_pt must be > 0, got {self.font_size_pt!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -145,12 +190,36 @@ class Paragraph:
             # list[Run] — store as-is. Frozen Runs are safe to share.
             self._runs = list(text_or_runs)
 
-    def add_run(self, text: str, style: Style | None = None) -> Paragraph:
+    def add_run(
+        self,
+        text: str,
+        style: Style | None = None,
+        *,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        underline: bool | None = None,
+        color: str | None = None,
+        font_size_pt: float | None = None,
+    ) -> Paragraph:
         """Append a Run; ``style=None`` inherits paragraph style at render.
+
+        Per-run override kwargs (bold/italic/underline/color/font_size_pt)
+        mirror :class:`Run`'s formatting fields. ``None`` = inherit from
+        the effective :class:`Style`; an explicit value wins.
 
         Returns self to enable fluent chaining per V-MP-CONTENT scenario-2.
         """
-        self._runs.append(Run(text, style))
+        self._runs.append(
+            Run(
+                text,
+                style,
+                bold=bold,
+                italic=italic,
+                underline=underline,
+                color=color,
+                font_size_pt=font_size_pt,
+            )
+        )
         return self
 
     # START_BLOCK_RENDER_CONTENT_PARAGRAPH
@@ -189,9 +258,8 @@ class Paragraph:
 
         for run in self._runs:
             docx_run = docx_paragraph.add_run(run.text)
-            effective_style = run.style if run.style is not None else self.style
-            if effective_style is not None:
-                self._apply_run_style(docx_run, effective_style)
+            base_style = run.style if run.style is not None else self.style
+            self._apply_run_style(docx_run, run, base_style)
 
         return docx_paragraph
 
@@ -208,14 +276,57 @@ class Paragraph:
         pf.keep_with_next = style.keep_with_next
 
     @staticmethod
-    def _apply_run_style(docx_run: Any, style: Style) -> None:
+    def _apply_run_style(
+        docx_run: Any, run: Run, base_style: Style | None
+    ) -> None:
+        """Resolve per-run override > base Style > python-docx default.
+
+        Each formatting attribute is applied only when the resolved value
+        is not ``None``. ``Run.<field>`` set to a literal value (including
+        ``False`` or ``0.0``) takes precedence over ``base_style.<field>``.
+        ``Run.underline`` has no Style fallback; ``None`` = no underline.
+        """
         font = docx_run.font
-        font.name = style.font
-        font.size = DocxPt(style.size_pt)
-        font.bold = style.bold
-        font.italic = style.italic
-        # color_hex is guaranteed literal #RRGGBB post load_preset.
-        font.color.rgb = RGBColor.from_string(style.color_hex.lstrip("#"))
+
+        # Font name: Style only (Run has no font field in v0.1.0).
+        if base_style is not None:
+            font.name = base_style.font
+
+        size_pt = (
+            run.font_size_pt
+            if run.font_size_pt is not None
+            else (base_style.size_pt if base_style is not None else None)
+        )
+        if size_pt is not None:
+            font.size = DocxPt(size_pt)
+
+        bold = (
+            run.bold
+            if run.bold is not None
+            else (base_style.bold if base_style is not None else None)
+        )
+        if bold is not None:
+            font.bold = bold
+
+        italic = (
+            run.italic
+            if run.italic is not None
+            else (base_style.italic if base_style is not None else None)
+        )
+        if italic is not None:
+            font.italic = italic
+
+        # Underline: Run-only override; Style has no underline field.
+        if run.underline is not None:
+            font.underline = run.underline
+
+        color_hex = (
+            run.color
+            if run.color is not None
+            else (base_style.color_hex if base_style is not None else None)
+        )
+        if color_hex is not None:
+            font.color.rgb = RGBColor.from_string(color_hex.lstrip("#"))
     # END_BLOCK_RENDER_CONTENT_PARAGRAPH
 
 

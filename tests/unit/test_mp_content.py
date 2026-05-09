@@ -25,10 +25,20 @@
 #   test_block_render_content_marker_payload
 #   test_run_immutability_and_reuse
 #   test_paragraph_render_no_filesystem_writes
+#   test_per_run_style_overrides_paragraph_style
+#   test_scenario_9_run_bold_override
+#   test_scenario_10_run_italic_color_size_overrides
+#   test_scenario_11_run_underline_no_style_fallback
+#   test_scenario_12_run_explicit_false_beats_style_true
+#   test_scenario_13_add_run_kwargs_mirror_run_fields
+#   test_run_color_validation_rejects_bad_hex
+#   test_run_font_size_pt_validation_rejects_nonpositive
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-7-2 (MP-CONTENT): initial test suite.
+#   LAST_CHANGE: v0.1.0 — added scenarios 9-13 covering per-run
+#     formatting overrides (bold/italic/underline/color/font_size_pt) +
+#     2 validation tests for Run.color hex and Run.font_size_pt > 0.
 # END_CHANGE_SUMMARY
 from __future__ import annotations
 
@@ -293,3 +303,121 @@ def test_per_run_style_overrides_paragraph_style(alga_styles) -> None:
     assert runs[0].bold in (False, None)
     # Run 1 has explicit heading1 -> bold.
     assert runs[1].bold is True
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-9: Run.bold override beats inherited Style.bold=False
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_9_run_bold_override(alga_styles) -> None:
+    doc = Document()
+    # body Style has bold=False. add_run(bold=True) must produce bold run
+    # without needing a derived Style.
+    (
+        Paragraph("plain ", style=alga_styles.body)
+        .add_run("BOLD", bold=True)
+        .add_run(" tail")
+        .render(doc)
+    )
+    runs = doc.paragraphs[-1].runs
+    assert runs[0].bold in (False, None)  # inherits body
+    assert runs[1].bold is True            # override
+    assert runs[2].bold in (False, None)  # inherits body
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-10: italic + color + font_size overrides on one Run
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_10_run_italic_color_size_overrides(alga_styles) -> None:
+    doc = Document()
+    Paragraph("base ", style=alga_styles.body).add_run(
+        "fancy",
+        italic=True,
+        color="#FF0000",
+        font_size_pt=18.0,
+    ).render(doc)
+    runs = doc.paragraphs[-1].runs
+
+    # Run 0 inherits body unchanged.
+    assert runs[0].italic in (False, None)
+    expected_body_hex = alga_styles.body.color_hex.lstrip("#").upper()
+    assert str(runs[0].font.color.rgb) == expected_body_hex
+    assert runs[0].font.size.pt == pytest.approx(alga_styles.body.size_pt)
+
+    # Run 1 overrides italic, color, size.
+    assert runs[1].italic is True
+    assert str(runs[1].font.color.rgb) == "FF0000"
+    assert runs[1].font.size.pt == pytest.approx(18.0)
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-11: underline override has no Style fallback
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_11_run_underline_no_style_fallback(alga_styles) -> None:
+    doc = Document()
+    Paragraph("plain ", style=alga_styles.body).add_run(
+        "under", underline=True
+    ).render(doc)
+    runs = doc.paragraphs[-1].runs
+    # Run 0 has no underline (Style has no underline → None passthrough).
+    assert runs[0].underline in (False, None)
+    # Run 1 explicitly underlines.
+    assert runs[1].underline is True
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-12: explicit Run.bold=False beats Style.bold=True
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_12_run_explicit_false_beats_style_true(alga_styles) -> None:
+    doc = Document()
+    # heading1 has bold=True; per-run bold=False must win.
+    Paragraph(style=alga_styles.heading1).add_run(
+        "not bold here", bold=False
+    ).render(doc)
+    docx_run = doc.paragraphs[-1].runs[0]
+    assert docx_run.bold is False
+
+
+# ---------------------------------------------------------------------------
+# V-MP-CONTENT scenario-13: add_run kwargs reach Run via construction
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_13_add_run_kwargs_mirror_run_fields() -> None:
+    para = Paragraph().add_run(
+        "x",
+        bold=True,
+        italic=True,
+        underline=True,
+        color="#0F4C81",
+        font_size_pt=14.0,
+    )
+    # add_run returns the Paragraph; inspect the appended Run via repr.
+    last = para._runs[-1]
+    assert last.text == "x"
+    assert last.bold is True
+    assert last.italic is True
+    assert last.underline is True
+    assert last.color == "#0F4C81"
+    assert last.font_size_pt == 14.0
+
+
+def test_run_color_validation_rejects_bad_hex() -> None:
+    with pytest.raises(ValueError, match="#RRGGBB"):
+        Run("x", color="red")
+    with pytest.raises(ValueError, match="hex digits"):
+        Run("x", color="#GGHHII")
+
+
+def test_run_font_size_pt_validation_rejects_nonpositive() -> None:
+    with pytest.raises(ValueError, match="> 0"):
+        Run("x", font_size_pt=0)
+    with pytest.raises(ValueError, match="> 0"):
+        Run("x", font_size_pt=-1.5)

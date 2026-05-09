@@ -936,12 +936,13 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-STYLE</verification-ref>
     </MP-STYLE>
 
-    <MP-CONTENT NAME="Pure Python Content Primitives (Paragraph / Run / Image)" TYPE="CORE_LOGIC" LAYER="1" ORDER="11" STATUS="done">
+    <MP-CONTENT NAME="Pure Python Content Primitives (Paragraph / Run / Image)" TYPE="CORE_LOGIC" LAYER="1" ORDER="11" STATUS="done" VERSION="0.1.0">
       <contract>
-        <purpose>Inline content building blocks placed inside a Section: styled text Paragraph (composed of Run instances) and Image embedded via python-docx + pillow. Direct emitters of `&lt;w:p&gt;`, `&lt;w:r&gt;`, `&lt;w:drawing&gt;` OOXML.</purpose>
+        <purpose>Inline content building blocks placed inside a Section: styled text Paragraph (composed of Run instances with optional per-run formatting overrides) and Image embedded via python-docx + pillow. Direct emitters of `&lt;w:p&gt;`, `&lt;w:r&gt;`, `&lt;w:drawing&gt;` OOXML.</purpose>
         <inputs>
           <param name="text_or_runs" type="str | list[Run]" />
           <param name="style" type="Style | None" />
+          <param name="run_overrides" type="bool | str | float | None" desc="Per-run override kwargs: bold, italic, underline, color (#RRGGBB hex), font_size_pt (float &gt; 0). None = inherit effective Style." />
           <param name="image_path_or_bytes" type="Path | bytes" />
         </inputs>
         <outputs>
@@ -951,11 +952,13 @@ writeFileSync('output.docx', buffer);
         <errors>
           <error code="IMAGE_FILE_NOT_FOUND" />
           <error code="IMAGE_FORMAT_UNSUPPORTED" />
+          <error code="RUN_COLOR_INVALID" />
+          <error code="RUN_FONT_SIZE_INVALID" />
         </errors>
       </contract>
       <interface>
-        <export-Paragraph PURPOSE="Styled paragraph; .add_run(text, style=None) returns self for chaining; .render(parent_doc) writes to python-docx Document" />
-        <export-Run PURPOSE="Inline styled text fragment within a Paragraph; carries Style override or inherits paragraph default" />
+        <export-Paragraph PURPOSE="Styled paragraph; .add_run(text, style=None, *, bold/italic/underline/color/font_size_pt) returns self for chaining; .render(parent_doc) writes to python-docx Document" />
+        <export-Run PURPOSE="Inline styled text fragment with optional per-run formatting overrides (bold, italic, underline, color, font_size_pt). Run-field precedence wins over inherited Style at render time." />
         <export-Image PURPOSE="Image embed: Image.from_path(path, width=None, height=None) | Image.from_bytes(data, format='png'); .render(parent_doc) emits w:drawing with auto rId" />
       </interface>
       <depends>MP-STYLE</depends>
