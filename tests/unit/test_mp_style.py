@@ -377,10 +377,12 @@ def test_version_mismatch_major_raises_invalid_schema(
 # ---------------------------------------------------------------------------
 
 
-def test_registry_contains_exactly_three_phase7_presets():
-    assert frozenset(BUILTIN_PRESETS.keys()) == frozenset(
-        {"alga_corporate", "minimal", "compact"}
-    )
+def test_registry_includes_phase7_baseline_presets():
+    """Phase-7 shipped the three baseline presets; later additions extend
+    the registry without removing them, so we assert ⊇ rather than ==.
+    """
+    baseline = frozenset({"alga_corporate", "minimal", "compact"})
+    assert baseline.issubset(BUILTIN_PRESETS.keys())
 
 
 def test_every_builtin_preset_validates_and_populates_required_styles():

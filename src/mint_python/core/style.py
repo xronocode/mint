@@ -97,8 +97,35 @@ BUILTIN_PRESETS: Mapping[str, Path] = MappingProxyType(
         "alga_corporate": _PRESETS_DIR / "alga_corporate.json",
         "minimal": _PRESETS_DIR / "minimal.json",
         "compact": _PRESETS_DIR / "compact.json",
+        "klawd": _PRESETS_DIR / "klawd.yaml",
     }
 )
+
+
+def _parse_preset_text(source_path: Path, raw: str) -> Any:
+    """Parse a preset's raw text; dispatch by file extension.
+
+    Supports JSON (.json) and YAML (.yaml / .yml). Both formats resolve to
+    the same dict shape and feed into the same _validate_preset schema
+    check downstream — the only difference is the parser. YAML support
+    lets callers author themes with comments and looser quoting (the
+    klawd preset takes advantage of this).
+    """
+    suffix = source_path.suffix.lower()
+    if suffix in (".yaml", ".yml"):
+        import yaml
+
+        try:
+            return yaml.safe_load(raw)
+        except yaml.YAMLError as exc:
+            raise _fail("", f"invalid YAML: {exc}") from exc
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise _fail(
+            "",
+            f"invalid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})",
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +216,10 @@ class ColorPalette:
         # forcing every caller to load the JSON first.
         colors_arg = self.colors
         if not colors_arg and self.name in BUILTIN_PRESETS:
-            json_path = BUILTIN_PRESETS[self.name]
-            data = json.loads(json_path.read_text(encoding="utf-8"))
+            preset_path = BUILTIN_PRESETS[self.name]
+            data = _parse_preset_text(
+                preset_path, preset_path.read_text(encoding="utf-8")
+            )
             colors_arg = data.get("color_palette", {})
         # Snapshot the colors dict into a read-only mapping so callers can't
         # mutate a palette through a leaked dict reference.
@@ -441,13 +470,13 @@ def load_preset(
             raise STYLE_PRESET_NOT_FOUND(
                 f"preset {name!r} not in built-in registry; available: {available}"
             )
-        json_path: Path = BUILTIN_PRESETS[name]
+        preset_path: Path = BUILTIN_PRESETS[name]
         try:
-            raw = json_path.read_text(encoding="utf-8")
+            raw = preset_path.read_text(encoding="utf-8")
         except FileNotFoundError as exc:  # pragma: no cover
             # Should be unreachable for built-ins; guarded for completeness.
             raise STYLE_PRESET_NOT_FOUND(
-                f"built-in preset file missing on disk: {json_path}"
+                f"built-in preset file missing on disk: {preset_path}"
             ) from exc
     else:
         # path-load branch — guaranteed non-None by the gate above.
@@ -456,14 +485,12 @@ def load_preset(
         if not path.exists():
             raise STYLE_PRESET_NOT_FOUND(f"preset path does not exist: {path}")
         raw = path.read_text(encoding="utf-8")
+        preset_path = path
         # preset_name reflects the on-disk content; falls back to filename if
-        # the JSON is malformed and we never reach the dict.
+        # the parsed dict has no name field.
         preset_name = path.stem
 
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise _fail("", f"invalid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})") from exc
+    data = _parse_preset_text(preset_path, raw)
 
     typography = _validate_preset(data)
     # Use the preset's declared name for the marker payload when present.

@@ -68,11 +68,17 @@ def test_scenario_1_all_section_3_names_import() -> None:
 
 
 # START_BLOCK_TEST_SCENARIO_2
-def test_scenario_2_presets_registry_contains_phase7_three() -> None:
-    """V-MP-SDK scenario-2: presets is the Phase-7 three and is read-only."""
+def test_scenario_2_presets_registry_includes_baseline_set() -> None:
+    """V-MP-SDK scenario-2: presets is read-only and includes the baseline set.
+
+    Phase-7 shipped the original three (alga_corporate, minimal, compact).
+    Later additions (klawd, …) extend the registry without removing the
+    baseline, so we assert ⊇ rather than ==.
+    """
     from mint_python.sdk import presets
 
-    assert frozenset(presets.keys()) == {"alga_corporate", "minimal", "compact"}
+    baseline = {"alga_corporate", "minimal", "compact"}
+    assert baseline.issubset(presets.keys())
 
     # MappingProxyType disallows mutation.
     with pytest.raises(TypeError):
