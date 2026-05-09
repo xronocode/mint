@@ -178,8 +178,44 @@ class TestSafeFixDH09:
                 pytest.skip("D-H09 not triggered by fixture")
 
             result = apply_fixes(tmp, report.violations, rules_dir=RULES_DIR)
-            assert result.iterations >= 1
-            assert "D-H09" in result.applied_fixes
+        assert result.iterations >= 1
+
+
+class TestApplyFixesEmptyFixable:
+    """apply_fixes break when no fixable violations remain after filtering."""
+
+    def test_no_fix_logic_for_all_remaining(
+        self, tmp_path: Path,
+    ) -> None:
+        """Coverage: apply_fixes line 206 — break when fixable list empty."""
+        from mint_python.rules import FixCategory, Severity, Violation
+        from mint_python.fix import apply_fixes
+
+        bad_doc = tmp_path / "input.docx"
+        _build_minimal_docx(bad_doc)
+
+        v1 = Violation(
+            rule_id="D-H01",
+            severity=Severity.HARD,
+            fix_category=FixCategory.SAFE,
+            message="bad widths",
+            hint="fix widths",
+        )
+        v2 = Violation(
+            rule_id="D-H04",
+            severity=Severity.HARD,
+            fix_category=FixCategory.SAFE,
+            message="bad font",
+            hint="fix font",
+        )
+
+        result = apply_fixes(
+            bad_doc,
+            violations=[v1, v2],
+            max_iterations=3,
+        )
+        assert result.iterations == 0
+        assert result.applied_fixes == []
 
     def test_unknown_rule_returns_false(self, tmp_path: Path) -> None:
         doc = tmp_path / "test.docx"

@@ -122,3 +122,22 @@ def test_temp_file_cleanup(tmp_path: Path) -> None:
     after = set(Path(tempfile.gettempdir()).glob("*.docx"))
     # no new permanent temp files leaked
     assert before == after
+
+
+def test_validate_strict_mode(tmp_path: Path) -> None:
+    """Coverage: _resolve_severity_mode(strict) path."""
+    doc = Document(format="docx", title="Test")
+    doc.add_section(Section("S1", level=1).add_paragraph("Content"))
+    doc.save(tmp_path / "pre.docx")
+    report = doc.validate(level="strict")
+    assert isinstance(report, ValidationReport)
+
+
+def test_validate_audit_mode(tmp_path: Path) -> None:
+    """Coverage: _resolve_severity_mode(audit) and default path."""
+    doc = Document(format="docx", title="Test")
+    doc.add_section(Section("S1", level=1).add_paragraph("Content"))
+    doc.save(tmp_path / "pre.docx")
+    report = doc.validate(level="audit")
+    assert isinstance(report, ValidationReport)
+    assert report.passed  # AUDIT always passes

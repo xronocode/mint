@@ -517,3 +517,13 @@ class TestSeverityModeEnum:
 
     def test_strict_value(self) -> None:
         assert SeverityMode.STRICT == "strict"
+
+
+class TestDefaultRulesDir:
+    def test_resolves_project_rules_dir(self) -> None:
+        from mint_python.validate import _default_rules_dir
+
+        p = _default_rules_dir()
+        assert p.is_dir()
+        assert (p / "d-hard.yaml").is_file()
+        assert (p / "p-hard.yaml").is_file()
