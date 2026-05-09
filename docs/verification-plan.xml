@@ -1232,6 +1232,33 @@
       <autonomy-assessment>SWARM-SAFE — pure construction and per-test render</autonomy-assessment>
     </V-MP-SECTION>
 
+    <V-MP-CALLOUT MODULE="MP-CALLOUT" PRIORITY="medium" STATUS="done" VERSION="0.1.0">
+      <test-files>
+        <file status="active">tests/unit/test_mp_callout.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_callout.py -x</check-1>
+        <check-2>ruff check src/mint_python/core/callout.py</check-2>
+        <check-3>mypy src/mint_python/core/callout.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">Callout(text, kind=INFO).render emits a 1x1 python-docx Table; cell shading fill = "EBF5FB"; cell left border color = "2E75B6"; default title "Info" appears in cell text</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">Callout(text, kind=WARNING).render uses the amber palette: shading "FFF8E1", left border "E8A838"; default title "Warning"</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">Callout(text, kind=CODE).render uses grey palette ("F5F5F5" shading, "DDDDDD" border) and switches the body run's font to Courier New</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">Explicit title kwarg overrides the kind default — the default title is NOT emitted when title is provided</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic">render emits exactly one [MP-Callout][render][BLOCK_RENDER_CALLOUT] marker carrying kind and has_title</scenario-5>
+        <scenario-6 kind="success" evidence="integration">Section.add_callout(callout) appends to _blocks, returns self; Section.render walks Callout.render so the callout's table appears in document order</scenario-6>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-Callout][render][BLOCK_RENDER_CALLOUT] — fires once per Callout.render call; payload: kind, has_title</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>render() must NEVER write to the filesystem — only into the python-docx Document object</forbidden-1>
+        <forbidden-2>The python-docx-seeded empty paragraph in the new cell must be removed before our managed paragraphs are added — leaving it produces a leading blank line above the title</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — render() target is a per-test python-docx Document instance; no shared mutable state</autonomy-assessment>
+    </V-MP-CALLOUT>
+
     <V-MP-LIST MODULE="MP-LIST" PRIORITY="medium" STATUS="done" VERSION="0.1.0">
       <test-files>
         <file status="active">tests/unit/test_mp_list.py</file>

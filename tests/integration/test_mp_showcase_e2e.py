@@ -15,8 +15,7 @@ then validates it against MP-VALIDATE on lenient mode.
 
 Gaps (not yet supported):
   a) Multi-column, per-section headers/footers, page breaks — no section API
-  b) Callout boxes (info/warning/code block)                — no component
-  c) Landscape orientation, custom margins                  — no page API
+  b) Landscape orientation, custom margins                  — no page API
 """
 from __future__ import annotations
 
@@ -30,6 +29,8 @@ import pytest
 
 from mint_python.core.content import Paragraph
 from mint_python.sdk import (
+    Callout,
+    CalloutKind,
     Cell,
     Chart,
     Document,
@@ -142,6 +143,22 @@ def build_showcase_document(tmp_dir: Path) -> Document:
         )
         .add_run(".")
     )
+    # Callouts demo (added in MP-CALLOUT v0.1.0).
+    sec.add_callout(Callout(
+        "All four block types — info, warning, code, and standard paragraphs — "
+        "compose freely inside any Section.",
+        kind=CalloutKind.INFO,
+    ))
+    sec.add_callout(Callout(
+        "Treat showcase outputs as gitignored local artifacts; tracked "
+        "references live under docs/reference/.",
+        kind=CalloutKind.WARNING,
+    ))
+    sec.add_callout(Callout(
+        "doc = Document(format='docx').with_style_preset('alga_corporate')",
+        kind=CalloutKind.CODE,
+        title="Quick start",
+    ))
     doc.add_section(sec)
 
     # ---------- §2: Style System ----------
@@ -355,11 +372,10 @@ def build_showcase_document(tmp_dir: Path) -> Document:
     )
     gaps = [
         "a) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
-        "b) Callout components (info, warning, code block) — no component library",
-        "c) Landscape orientation, custom page margins — page-level properties not exposed",
-        "d) Watermarks, text boxes, WordArt — artistic elements deferred",
-        "e) Track changes, comments, document protection — collaboration features deferred",
-        "f) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
+        "b) Landscape orientation, custom page margins — page-level properties not exposed",
+        "c) Watermarks, text boxes, WordArt — artistic elements deferred",
+        "d) Track changes, comments, document protection — collaboration features deferred",
+        "e) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
     ]
     for gap in gaps:
         gap_section.add_paragraph(gap)
@@ -434,9 +450,9 @@ class TestShowcaseE2E:
         assert "Known Gaps" in last_section.title
         # Threshold tracks shipped scope: each closed gap reduces the list
         # by one. After per-run, lists, merged cells, hyperlinks/bookmarks,
-        # tab stops, and footnotes all shipped, the floor is 6 gaps + 1
-        # intro = 7 blocks.
-        assert len(last_section._blocks) >= 7
+        # tab stops, footnotes, and callouts all shipped, the floor is
+        # 5 gaps + 1 intro = 6 blocks.
+        assert len(last_section._blocks) >= 6
 
 
 # Run this manually to write the baseline:

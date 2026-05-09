@@ -1,5 +1,5 @@
 # FILE: src/mint_python/core/section.py
-# VERSION: 0.2.0
+# VERSION: 0.3.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Fluent Section node per handover §3.2 — heading + ordered list of
 #     content blocks (Paragraph, Table, Image, Chart). Phase-8 unstubs
@@ -26,6 +26,7 @@
 #   Section.add_image                - Image; returns self
 #   Section.add_chart                - appends Chart to _blocks; returns self for fluent chain
 #   Section.add_list                 - appends List to _blocks; returns self for fluent chain
+#   Section.add_callout              - appends Callout to _blocks; returns self for fluent chain
 #   Section.render                   - heading + ordered block render
 #   SectionError                     - base error
 #   SectionLevelOutOfRangeError      - SECTION_LEVEL_OUT_OF_RANGE
@@ -33,9 +34,10 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.2.0 — add_list / List block support. Section._blocks
-#     type union widened to include MP-LIST.List. Sibling-only dep on
-#     mint_python.core.list_block.
+#   LAST_CHANGE: v0.3.0 — add_callout / Callout block support. Section._blocks
+#     widened to include MP-CALLOUT.Callout. Sibling-only dep on
+#     mint_python.core.callout.
+#   PRIOR: v0.2.0 — add_list / List block support.
 #   PRIOR: Wave-8-2 (MP-SECTION): unstub add_chart.
 #   PRIOR: Wave-7-3 (MP-SECTION): initial implementation per V-MP-SECTION
 #     scenarios 1-6 + BLOCK_PHASE_GUARD trace assertion.
@@ -47,6 +49,7 @@ from dataclasses import dataclass, field
 
 from docx.document import Document as DocxDocument
 
+from mint_python.core.callout import Callout
 from mint_python.core.chart import Chart
 from mint_python.core.content import Image, Paragraph
 from mint_python.core.list_block import List
@@ -106,7 +109,7 @@ class Section:
 
     title: str
     level: int  # 1..6
-    _blocks: list[Paragraph | Table | Image | Chart | List] = field(
+    _blocks: list[Paragraph | Table | Image | Chart | List | Callout] = field(
         default_factory=list
     )
 
@@ -164,6 +167,15 @@ class Section:
         marker — no Section-side marker.
         """
         self._blocks.append(list_block)
+        return self
+
+    def add_callout(self, callout: Callout) -> Section:
+        """Append a Callout block (info / warning / code); returns self.
+
+        The Callout instance owns its kind, body text, and optional title.
+        Callout.render emits its own BLOCK_RENDER_CALLOUT trace marker.
+        """
+        self._blocks.append(callout)
         return self
 
     def render(self, parent_doc: DocxDocument) -> None:

@@ -1,5 +1,5 @@
 # FILE: src/mint_python/sdk/__init__.py
-# VERSION: 0.5.0
+# VERSION: 0.6.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Public SDK surface for prompt-style document construction.
 #     Re-exports the §3 type set so users write
@@ -26,6 +26,8 @@
 #   Chart - re-export of mint_python.core.chart.Chart (Phase-8)
 #   List - re-export of mint_python.core.list_block.List
 #   ListKind - re-export of mint_python.core.list_block.ListKind
+#   Callout - re-export of mint_python.core.callout.Callout
+#   CalloutKind - re-export of mint_python.core.callout.CalloutKind
 #   TabStop - re-export of mint_python.core.content.TabStop
 #   TabAlignment - re-export of mint_python.core.content.TabAlignment enum
 #   TabLeader - re-export of mint_python.core.content.TabLeader enum
@@ -36,7 +38,10 @@
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.5.0 - add TabStop, TabAlignment, TabLeader to the public
+#   LAST_CHANGE: v0.6.0 - add Callout + CalloutKind to the public
+#     re-export surface (MP-CALLOUT). Info/warning/code boxes become a
+#     first-class block alongside Paragraph/Table/List/Image/Chart.
+#   PRIOR: v0.5.0 - add TabStop, TabAlignment, TabLeader to the public
 #     re-export surface so callers can attach paragraph tab stops without
 #     importing from mint_python.core.content directly.
 #   PRIOR: v0.4.0 - add Cell to the public re-export surface so
@@ -54,6 +59,7 @@
 
 from __future__ import annotations
 
+from mint_python.core.callout import Callout, CalloutKind
 from mint_python.core.chart import Chart
 from mint_python.core.content import Image, TabAlignment, TabLeader, TabStop
 from mint_python.core.document import Document
@@ -77,6 +83,8 @@ class TOC:
 
 __all__ = [
     "TOC",
+    "Callout",
+    "CalloutKind",
     "Cell",
     "Chart",
     "ColorPalette",

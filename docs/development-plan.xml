@@ -1045,7 +1045,7 @@ writeFileSync('output.docx', buffer);
         <fn-add_image PURPOSE="Append Image; returns self" />
         <fn-add_chart PURPOSE="STUB — raises NotImplementedError naming Phase 2 (matplotlib chart impl); emits BLOCK_PHASE_GUARD log marker" />
       </interface>
-      <depends>MP-CONTENT, MP-TABLE, MP-CHART, MP-LIST</depends>
+      <depends>MP-CONTENT, MP-TABLE, MP-CHART, MP-LIST, MP-CALLOUT</depends>
       <target>
         <source>src/mint_python/core/section.py</source>
         <tests>tests/unit/test_mp_section.py</tests>
@@ -1055,6 +1055,33 @@ writeFileSync('output.docx', buffer);
       </observability>
       <verification-ref>V-MP-SECTION</verification-ref>
     </MP-SECTION>
+
+    <MP-CALLOUT NAME="Pure Python Callout Block" TYPE="CORE_LOGIC" LAYER="1" ORDER="13.6" STATUS="done" VERSION="0.1.0">
+      <contract>
+        <purpose>Callout block — visually distinct info / warning / code box rendered as a single-cell python-docx Table with kind-specific shading + thick left accent border + inner cell margins. CODE kind switches to Courier New monospace.</purpose>
+        <inputs>
+          <param name="text" type="str" />
+          <param name="kind" type="CalloutKind" desc="INFO (default) | WARNING | CODE" />
+          <param name="title" type="str | None" desc="Optional bold heading; None = use kind default ('Info' / 'Warning' / '' for code)" />
+        </inputs>
+        <outputs>
+          <param name="Callout_instance" type="Callout" />
+        </outputs>
+      </contract>
+      <interface>
+        <export-Callout PURPOSE="Callout block: text + kind + optional title; .render(parent_doc) emits a 1x1 python-docx Table styled with kind-specific palette" />
+        <export-CalloutKind PURPOSE="StrEnum: INFO | WARNING | CODE" />
+      </interface>
+      <depends>(none — direct python-docx + lxml drop-down for tcPr/shd/tcBorders/tcMar)</depends>
+      <target>
+        <source>src/mint_python/core/callout.py</source>
+        <tests>tests/unit/test_mp_callout.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Callout</log-prefix>
+      </observability>
+      <verification-ref>V-MP-CALLOUT</verification-ref>
+    </MP-CALLOUT>
 
     <MP-LIST NAME="Pure Python List Block" TYPE="CORE_LOGIC" LAYER="1" ORDER="13.5" STATUS="done" VERSION="0.1.0">
       <contract>
