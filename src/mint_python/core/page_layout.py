@@ -131,7 +131,7 @@ def apply_to_docx_section(docx_section: DocxSection, layout: PageLayout) -> None
     # back. Normalize: portrait ⇒ width < height; landscape ⇒ width > height.
     # python-docx types these as Length | None, but on any section returned by
     # add_section() / sections[0] they are always set (defaulted to letter
-    # 8.5"×11" by the underlying docx package).
+    # 8.5x11 inches by the underlying docx package).
     width = docx_section.page_width
     height = docx_section.page_height
     assert width is not None and height is not None
