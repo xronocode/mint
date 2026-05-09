@@ -342,7 +342,7 @@
       <swarm-safety>SWARM-SAFE: e2e test writes to tmp_path; no shared mutable state; M-VALIDATE and M-FINGERPRINT invocations are pure read-only on the saved file. Baseline write gated by MP_E2E_WRITE_BASELINE env so concurrent xdist workers cannot race-overwrite the baseline JSON. Module-local waves (7-1..7-4) are read-only against the rest of the repo and SAFE for pytest-xdist.</swarm-safety>
     </VF-013>
 
-    <VF-014 NAME="PurePythonChartFlow" USE_CASES="UC-001" DATA_FLOW="DF-011,DF-012" PRIORITY="high" STATUS="planned" ACTIVATES_AT="Wave-8-2">
+    <VF-014 NAME="PurePythonChartFlow" USE_CASES="UC-001" DATA_FLOW="DF-011,DF-012" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-8-2">
       <scenario>Phase-8 acceptance: a 2-section chart-bearing document built via mint_python.sdk (Document.with_style_preset → 2 sections each with a paragraph + a chart of different type, e.g. bar + line) produces a .docx that python-docx reopens cleanly AND M-VALIDATE on lenient mode reports passed=true with hard_count=0 AND each chart's inline_shape EMU width matches the requested width_inches × 914400.</scenario>
       <golden-document-spec>
         <preset>alga_corporate</preset>
@@ -1221,7 +1221,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </implementation-path>
       <test-files>
         <file status="active" activated-at="Wave-8-1">tests/unit/test_mp_chart.py</file>
-        <file status="planned" activates-at="Wave-8-2">tests/integration/test_mp_chart_e2e.py</file>
+        <file status="active" activated-at="Wave-8-2">tests/integration/test_mp_chart_e2e.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_mp_chart.py -x</check-1>
@@ -1584,7 +1584,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Wave-8-1>
 
-    <Wave-8-2 PHASE="Phase-8" SCOPE="MP-SECTION unstub + MP-SDK Chart re-export + tech updates + VF-014 e2e" STATUS="planned">
+    <Wave-8-2 PHASE="Phase-8" SCOPE="MP-SECTION unstub + MP-SDK Chart re-export + tech updates + VF-014 e2e" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Phase-8 closeout: replace Section.add_chart stub with concrete add_chart(chart: Chart); add Chart to MP-SDK __all__; add matplotlib hard dep to pyproject.toml; ship VF-014 e2e + audit baseline. VF-013 (Phase-7 chart-free golden doc) re-runs as non-regression guard.</goal>
       <commands>
         <command-1>pytest tests/ -x --timeout=120</command-1>
@@ -1698,7 +1698,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Gate-Phase-4>
 
-    <Gate-Phase-8 PHASE="Phase-8" STATUS="planned" ACTIVATES_AT="Wave-8-2 completion">
+    <Gate-Phase-8 PHASE="Phase-8" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Pure Python Edition Phase 2 (handover §6 Phase 2) lands: Chart factories functional via mint_python.sdk; Section.add_chart unstubbed; chart-bearing 2-section golden document passes M-VALIDATE on lenient mode; matplotlib pinned in pyproject. Phase-7 (chart-free) golden doc remains green — non-regression guard. Foundation ready for Phase-9 (MP-RULES + MP-VALIDATE pure-Python successors).</goal>
       <commands>
         <command-1>pytest tests/ -x --timeout=120</command-1>
@@ -1786,7 +1786,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <evidence>Phase-6 engine-dispatch contract is implemented and verified end-to-end. Wave-6-1 landed under commits 7ece0df (MP-PKG), 2baab4a (M-CONFIG), 73ae169 (M-CLI), 5cc23b9 (infra), 832912e (V-MP-FLAG tests). 309 unit/integration tests + 1 skipped pass; ruff and mypy clean across the touched surface; uv build wheel includes 9 mint_python __init__.py entries.</evidence>
         <commands>pytest tests/unit/test_engine_flag.py tests/integration/test_cli.py -x</commands>
       </target-6>
-      <target-8 MODULES="MP-CHART" STATUS="swarm-safe-with-isolated-fixtures" PLANNED_AT="2026-05-09">
+      <target-8 MODULES="MP-CHART" STATUS="swarm-safe-with-isolated-fixtures" COMPLETED_AT="2026-05-09">
         <evidence>Phase-8 module: matplotlib backend forced to 'Agg' at import (process-local; no display dep); seaborn lazy-imported (optional dep). Wave-8-1 solo (no parallelism within MP-CHART; the 7 factories share file). Wave-8-2 solo: in-place updates to MP-SECTION + MP-SDK + tests + pyproject + uv.lock + new e2e test + new baseline JSON. matplotlib rcParams modifications wrapped in `with mpl.rc_context(...):` to prevent leaks across tests. tmp_path mandate for any image writes. Mid-risk due to matplotlib version variance — pinned matplotlib&gt;=3.7,&lt;4 to stabilize.</evidence>
         <commands>pytest tests/unit/test_mp_chart.py tests/integration/test_mp_chart_e2e.py -x --timeout=120</commands>
         <wave-dependencies>Wave-8-1 unlocks Wave-8-2 (Section unstub + SDK re-export depend on Chart class existence).</wave-dependencies>
