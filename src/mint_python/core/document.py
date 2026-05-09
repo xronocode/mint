@@ -1,22 +1,22 @@
 # FILE: src/mint_python/core/document.py
-# VERSION: 1.2.0
+# VERSION: 1.3.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Document facade per handover §3.1 — full API surface (cover,
-#     sections, TOC, header/footer, save, validate, fix) for the Pure
+#     sections, TOC, header/footer, save, validate, fix, to_pdf) for the Pure
 #     Python Edition. Save uses python-docx as the backbone with a small
 #     lxml drop-down for the Word TOC field. validate() and fix() delegate
 #     to MP-VALIDATE and MP-FIX via temp-file save. inject_grace delegates to
-#     MP-GRACE via temp-file save. Stubs to_pdf with PhaseGuardNotImplementedError.
-#   SCOPE: Public surface = Document (@dataclass facade) + 4 errors
+#     MP-GRACE via temp-file save. to_pdf delegates to Gotenberg HTTP API.
+#   SCOPE: Public surface = Document (@dataclass facade) + 5 errors
 #     (DocumentError, DocumentFormatUnsupportedError, DocumentPresetNotFoundError,
-#     DocumentSaveIOError) + PhaseGuardNotImplementedError. Sibling-only deps:
-#     MP-STYLE (load_preset; STYLE_PRESET_NOT_FOUND), MP-SECTION (Section),
-#     MP-VALIDATE (run_checks, SeverityMode, ValidationReport), MP-FIX
-#     (fix as mp_fix, FixReport). save() emits exactly one BLOCK_SAVE_DOCX
-#     before serialization; pins core.xml dcterms:created/modified to
-#     DOCUMENT_FIXED_TIMESTAMP so two saves of the same Document produce
-#     the same fingerprint hash.
-#   DEPENDS: python-docx (1.1.x), lxml (5.x), mint_python.core.style,
+#     DocumentSaveIOError, GotenbergError) + PhaseGuardNotImplementedError.
+#     Sibling-only deps: MP-STYLE (load_preset; STYLE_PRESET_NOT_FOUND),
+#     MP-SECTION (Section), MP-VALIDATE (run_checks, SeverityMode,
+#     ValidationReport), MP-FIX (fix as mp_fix, FixReport). save() emits exactly
+#     one BLOCK_SAVE_DOCX before serialization; pins core.xml
+#     dcterms:created/modified to DOCUMENT_FIXED_TIMESTAMP so two saves of the
+#     same Document produce the same fingerprint hash.
+#   DEPENDS: python-docx (1.1.x), lxml (5.x), httpx, mint_python.core.style,
 #     mint_python.core.section, mint_python.validate, mint_python.fix.
 #     NO sibling import of MP-CONTENT/MP-TABLE — we reach those types only
 #     transitively via Section.render.
@@ -38,21 +38,23 @@
 #   Document.inject_grace               - delegate to MP-GRACE.bootstrap via temp-file save
 #   Document.validate                   - Phase-9: validates via MP-VALIDATE
 #   Document.fix                        - Phase-9: auto-fixes via MP-FIX
-#   Document.to_pdf                     - Phase-5 STUB; emits BLOCK_PHASE_GUARD
+#   Document.to_pdf                     - Gotenberg PDF render; emits BLOCK_RENDER_PDF
 #   Document._resolve_severity_mode     - str → SeverityMode helper
 #   DocumentError                       - base error
 #   DocumentFormatUnsupportedError      - format != 'docx'
 #   DocumentPresetNotFoundError         - wraps STYLE_PRESET_NOT_FOUND
 #   DocumentSaveIOError                 - save() OSError; partial output unlinked
+#   GotenbergError                      - Gotenberg HTTP failure (non-200 or unreachable)
 #   PhaseGuardNotImplementedError       - Phase-N stub (NotImplementedError subclass)
 #   DOCUMENT_FIXED_TIMESTAMP            - 1980-01-01 datetime; idempotency anchor
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-11-1 — unstub inject_grace via temp-file delegation to MP-GRACE
+#   LAST_CHANGE: Wave-11-2 — unstub to_pdf via Gotenberg HTTP integration
+#   PRIOR: Wave-11-1 — unstub inject_grace via temp-file delegation to MP-GRACE
 #   PRIOR: Wave-9-4 — unstub Document.validate and Document.fix via
 #     temp-file delegation to MP-VALIDATE + MP-FIX.
-#   PRIOR: Wave-7-4 (MP-DOCUMENT): initial implementation per V-MP-DOCUMENT
+#   PRIOR: Wave-7-4 (MP-Document): initial implementation per V-MP-DOCUMENT
 #     scenarios 1-9 + BLOCK_SAVE_DOCX + BLOCK_PHASE_GUARD trace assertions.
 # END_CHANGE_SUMMARY
 
@@ -60,6 +62,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -118,6 +121,10 @@ class DocumentSaveIOError(DocumentError):
     Partial output (the half-written .docx) is unlinked before re-raising so
     callers can retry without manual cleanup.
     """
+
+
+class GotenbergError(DocumentError):
+    """Raised when Gotenberg returns non-200 or is unreachable."""
 
 
 class PhaseGuardNotImplementedError(NotImplementedError):
@@ -399,21 +406,62 @@ class Document:
         finally:
             tmp_path.unlink(missing_ok=True)
 
-    def to_pdf(self, *args: Any, **kwargs: Any) -> Any:
-        """Phase-5 stub: emit BLOCK_PHASE_GUARD then raise.
+    def to_pdf(
+        self,
+        output_path: str | Path | None = None,
+        host: str = "localhost",
+        port: int = 3002,
+    ) -> Path:
+        """Convert saved document to PDF via Gotenberg.
 
-        PDF emission delegates to a Gotenberg/render integration in
-        handover §6 Phase 5.
+        Saves the current document to a temp .docx, sends it to Gotenberg,
+        and writes the resulting PDF to output_path. If output_path is None,
+        uses a temp path under /tmp.
         """
-        logger.info(
-            "[MP-Document][stub][BLOCK_PHASE_GUARD] "
-            "method=to_pdf target_phase=Phase 5"
+        import tempfile
+
+        import httpx
+
+        output = (
+            Path(output_path)
+            if output_path
+            else Path(f"/tmp/mint_pdf_output_{uuid.uuid4().hex[:8]}.pdf")
         )
-        raise PhaseGuardNotImplementedError(
-            "Document.to_pdf is a Phase 5 stub: PDF emission delegates to "
-            "the Gotenberg/render integration planned for handover §6 "
-            "Phase 5. Phase-7 ships the API surface only."
-        )
+
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tf:
+            tmp_docx = Path(tf.name)
+
+        try:
+            self.save(tmp_docx)
+            url = f"http://{host}:{port}/forms/libreoffice/convert"
+
+            with open(tmp_docx, "rb") as f:
+                files = {
+                    "files": (
+                        tmp_docx.name,
+                        f,
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                }
+                response = httpx.post(url, files=files, timeout=60.0)
+
+            if response.status_code != 200:
+                raise GotenbergError(
+                    f"Gotenberg returned {response.status_code}: {response.text[:200]}"
+                )
+
+            # START_BLOCK_RENDER_PDF
+            output.write_bytes(response.content)
+            logger.info(
+                "[MP-Document][to_pdf][BLOCK_RENDER_PDF] "
+                "Rendered PDF: output=%s size=%d bytes",
+                output,
+                len(response.content),
+            )
+            # END_BLOCK_RENDER_PDF
+            return output
+        finally:
+            tmp_docx.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------ #
     # Internal rendering helpers
@@ -533,5 +581,6 @@ __all__ = [
     "DocumentFormatUnsupportedError",
     "DocumentPresetNotFoundError",
     "DocumentSaveIOError",
+    "GotenbergError",
     "PhaseGuardNotImplementedError",
 ]

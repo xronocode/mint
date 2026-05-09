@@ -32,7 +32,8 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-11-1 — retire inject_grace from stub parametrize;
+#   LAST_CHANGE: Wave-11-2 — retire to_pdf from PhaseGuard stub parametrize
+#   PRIOR: Wave-11-1 — retire inject_grace from stub parametrize;
 #     add test that inject_grace returns GRACEManifest via MP-GRACE delegation
 #   PRIOR: Wave-9-4 — retire Phase-7 BLOCK_PHASE_GUARD assertions for
 #     validate/fix; add tests that validate returns ValidationReport and
@@ -156,9 +157,7 @@ def test_scenario_5_unknown_preset_raises_document_preset_not_found() -> None:
 
 @pytest.mark.parametrize(
     "method_name,target_phase",
-    [
-        ("to_pdf", "Phase 5"),
-    ],
+    [],
 )
 def test_scenario_6_stubs_emit_phase_guard_then_raise(
     caplog_at_info, marker_counter, method_name: str, target_phase: str
