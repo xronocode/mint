@@ -102,7 +102,7 @@ Testing rules:
 - module-local tests should stay close to the module they verify
 - wave-level and phase-level checks should be explicit in the verification plan
 
-## File Structure
+## File Structure (v0.3.0 — Pure Python Edition)
 ```
 docs/
   requirements.xml       - Product requirements and use cases
@@ -110,29 +110,49 @@ docs/
   development-plan.xml   - Modules, phases, data flows, ownership, write scopes
   verification-plan.xml  - Test strategy, trace expectations, module and phase gates
   knowledge-graph.xml    - Project-wide navigation graph
+  style-preset-schema.md - Normative JSON schema for style presets
+  SESSION_HANDOFF_*.md   - Latest session state
+  reference/             - Reference targets (Anthropic baseline, QA evolution, capabilities guide)
+  archive/               - Historical/superseded docs (concept v5, article drafts, handover v1)
 src/
-  mint/
-    config.py            - Configuration
-    sandbox/             - Node.js execution sandbox
-    rules/               - Validation rule definitions
-    validate.py          - Validation engine
-    fix.py               - Auto-fix engine
-    fingerprint.py       - StyleFingerprint hash
-    skills/              - Skill prompts per tier/format
-    templates/           - Template engine
-    extract.py           - Style extraction
-    create.py            - Create orchestrator
-    qa/                  - QA pipeline (L1 + L2)
-    grace/               - GRACE metadata injection
-    mcp_g1.py            - MCP tools: validate, fix, fingerprint
-    mcp_g2.py            - MCP tools: create, extract_style, list_templates
+  mint/                  - Legacy module (still ships in wheel; CLI entry point remains here)
+  mint_python/           - Active Pure Python implementation (v0.3.0, MP-* modules)
+    core/                - Document, Section, Table, Chart, Style, Image, TOC
+    sdk/                 - Public surface (re-exports + presets registry)
+    execution/           - Reserved for execution tiers (Phases 13+)
+    rules/               - YAML rule loader + XPath evaluator
+    grace/               - Custom XML Parts injection (urn:mint:grace:2026:manifest)
+    validate.py          - run_checks engine, AUDIT/LENIENT/STRICT severity
+    fix.py               - Auto-fix engine (safe/visual/destructive, max 3 cascade)
+    _hash.py             - SHA-256 utility shared by FIX + GRACE
 tests/
   unit/                  - Unit tests per module
   integration/           - Integration and end-to-end tests
-skills/                  - Skill prompt Markdown files
-templates/               - Builtin, extracted, custom document templates
-rules/                   - YAML rule definitions
+  fixtures/              - Pinned baseline JSON (e.g., mp_showcase_baseline.json)
+  output/                - Generated test artifacts (gitignored)
+output/                  - Default location for ad-hoc CLI/SDK runs (gitignored)
+e2e_results/_curated/    - Curated reference outputs showing product evolution (gitignored)
+rules/                   - YAML rule definitions (consumed by mint_python.rules)
 ```
+
+## Output Path Convention
+
+Generated documents (`.docx`, `.pptx`, PDF, screenshots) follow strict location rules. **Never write to `/tmp` by default** — it is opaque to users and disappears between reboots.
+
+| Context | Default output location | Source of path |
+|---|---|---|
+| **MCP server** (production) | `MINT_OUTPUT_DIR` env var, fallback `./output/` | env var; absolute paths returned in tool response |
+| **CLI ad-hoc** (`mint create ...`) | `--output` flag, fallback `./output/<timestamp>_<slug>.docx` | CLI argument |
+| **SDK direct** (`Document.save(path)`) | Caller-provided path; raise `ValueError` if absent | Required parameter |
+| **Pytest unit tests** | `tmp_path` fixture (pytest-managed) | Fixture |
+| **E2E / showcase tests** | `tests/output/<test_name>/...` (gitignored) or `tmp_path` | Explicit, never `/tmp` |
+| **Curated reference outputs** | `e2e_results/_curated/<NN>_<label>.docx` (gitignored) | Manual curation; see `e2e_results/_curated/README.md` |
+
+Rules:
+1. `Document.save()` without an explicit path must raise — no magic defaults.
+2. MCP tool responses MUST return the absolute resolved path of every artifact written.
+3. `/tmp` is reserved for transient buffers, never for user-facing output.
+4. `output/`, `tests/output/`, and `e2e_results/_curated/` are gitignored. Reference artifacts that should be tracked go to `docs/reference/`.
 
 ## Documentation Artifacts - Unique Tag Convention
 

@@ -30,11 +30,13 @@ e2e_results/
 /showcase_*.docx
 /showcase_*.pptx
 
+# Test-generated artifacts (per AGENTS.md "Output Path Convention")
+tests/output/
+
 # Agent / IDE local config
 .claude/
 .kilo/
 
 # Local scratch artifacts
 .last_assembled.js
-docs/article-draft.md
 .coverage
