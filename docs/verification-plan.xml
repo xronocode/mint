@@ -1,4 +1,4 @@
-<VerificationPlan VERSION="0.7.0">
+<VerificationPlan VERSION="0.8.0">
   <GlobalPolicy>
     <log-format>[Module][function][BLOCK_NAME] message</log-format>
     <deterministic-first>true</deterministic-first>
@@ -393,6 +393,55 @@
       <activation-gate>Wave-8-2 closes Phase-8; this VF is the headline acceptance signal alongside V-MP-CHART module-local scenarios.</activation-gate>
       <swarm-safety>SWARM-SAFE: e2e test writes to tmp_path; no shared mutable state; matplotlib uses Agg backend (forced via matplotlib.use('Agg') before any Figure construction) so no display dependencies; baseline write gated by env so xdist workers cannot race-overwrite.</swarm-safety>
     </VF-014>
+
+    <VF-015 NAME="PurePythonValidationAndFixFlow" USE_CASES="UC-003,UC-007" DATA_FLOW="DF-015,DF-016" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-4">
+      <scenario>User builds Document via mint_python.sdk → saves to .docx → validates via MP-VALIDATE on lenient → auto-fixes via MP-FIX → re-validates → baseline pinned</scenario>
+      <expected-outcome>(a) MP-VALIDATE on built golden doc returns lenient PASS with hard_count=0; (b) MP-FIX on golden doc is no-op (0 fixes applied); (c) bad_column_widths.docx validate-then-fix pipeline converges; (d) destructive violations reject cleanly; (e) baseline fingerprint matches mp_e2e_baseline.json when validate/fix are chained onto golden doc.</expected-outcome>
+      <invariants>
+        <inv-1>GOLDEN-DOC-LENIENT: fingerprint of lenient-validated golden doc unchanged from mp_e2e_baseline.json (validate MUST NOT mutate the file).</inv-1>
+        <inv-2>FIX-CONVERGENCE: D-H09 raw_newline.docx converges within max 3 iterations; post-fix D-H09 count = 0.</inv-2>
+        <inv-3>DESTRUCTIVE-REJECTION: D-H03 (percentage-width table, fix_category=destructive) on percentage_width_docx fixture → apply_fixes raises DestructiveRejectedError without mutating file. Backup still created (backup happens before destructive filter per V-MP-FIX forbidden-2 fix).</inv-3>
+        <inv-4>BACKUP-PRESERVED: after successful fix, .bak backup exists and equals pre-fix content.</inv-4>
+        <inv-5>VF-013-NON-REGRESSION: Phase-7 golden doc e2e re-runs green; fingerprint matches mp_e2e_baseline.json.</inv-5>
+        <inv-6>VF-014-NON-REGRESSION: Phase-8 chart golden doc e2e re-runs green; fingerprint matches mp_chart_e2e_baseline.json.</inv-6>
+      </invariants>
+      <required-signals>
+        <log-marker>[MP-Rules][all_rules][BLOCK_LOAD_RULES]</log-marker>
+        <log-marker>[MP-Validate][run_checks][BLOCK_RUN_CHECKS]</log-marker>
+        <log-marker>[MP-Fix][backup][BLOCK_CREATE_BACKUP]</log-marker>
+        <log-marker>[MP-Fix][apply][BLOCK_APPLY_FIX]</log-marker>
+        <trace-sequence>BLOCK_SAVE_DOCX → BLOCK_LOAD_RULES → BLOCK_RUN_CHECKS → BLOCK_CREATE_BACKUP → BLOCK_APPLY_FIX</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>[MP-Fix][apply][BLOCK_APPLY_FIX] with destructive violation in report (destructive must reject BEFORE apply)</forbidden-1>
+        <forbidden-2>BLOCK_PHASE_GUARD on Document.validate or Document.fix — these stubs retired in Wave-9-4</forbidden-2>
+      </forbidden-signals>
+      <golden-document-spec>
+        <body-spec>Reuses VF-013's build_golden_document shape (alga_corporate; cover + 2 sections with paragraph + table; TOC). VF-015 is a pipeline flow over the existing VF-013 document shape — no new document shape needed.</body-spec>
+      </golden-document-spec>
+      <baseline>
+        <path>tests/fixtures/mp_e2e_baseline.json — reused. VF-015 asserts validate+fix pipeline does not alter golden doc fingerprint.</path>
+      </baseline>
+      <activation-gate>Wave-9-4 closes Phase-9; this VF is the headline acceptance signal alongside V-MP-RULES/VALIDATE/FIX module-local scenarios.</activation-gate>
+    </VF-015>
+
+    <VF-016 NAME="DocumentValidateFixAPI" USE_CASES="UC-003,UC-007" DATA_FLOW="DF-015,DF-016" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-4">
+      <scenario>User builds Document via SDK → calls Document.validate(level="lenient") → receives ValidationReport → calls Document.fix(strategy="safe_first") → receives FixReport → calls Document.save() → output passes re-validation. BLOCK_PHASE_GUARD retired for validate/fix.</scenario>
+      <expected-outcome>(a) Document.validate(level="lenient") returns ValidationReport (no NotImplementedError); (b) Document.fix(strategy="safe_first") returns FixReport (no NotImplementedError); (c) BLOCK_PHASE_GUARD count = 0 on validate/fix paths; (d) full pipeline: build → validate → fix → save → re-validate passes.</expected-outcome>
+      <invariants>
+        <inv-1>TEMP-FILE-CLEANUP: Document.validate() and Document.fix() create temp .docx files; unlinked after call returns (or on exception). No temp file leakage.</inv-1>
+        <inv-2>STUB-RETIRED: BLOCK_PHASE_GUARD markers absent from validate() and fix() call paths.</inv-2>
+        <inv-3>DELEGATION-CORRECT: Document.validate delegates to MP-VALIDATE.validate(tmp_path); Document.fix to MP-FIX.fix(tmp_path). No duplicate logic in Document.</inv-3>
+      </invariants>
+      <required-signals>
+        <log-marker>[MP-Document][stub][BLOCK_PHASE_GUARD] — fires only for inject_grace and to_pdf (still stubs); NOT for validate/fix.</log-marker>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>BLOCK_PHASE_GUARD on method=validate or method=fix — these stubs are retired</forbidden-1>
+      </forbidden-signals>
+      <activation-gate>Wave-9-4: un-stubs Document.validate/fix; activates alongside VF-015 e2e harness.</activation-gate>
+    </VF-016>
+
   </CriticalFlows>
 
   <ModuleVerification>
@@ -1285,353 +1334,127 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </forbidden-behaviors>
       <autonomy-assessment>SWARM-SAFE — pure re-export + small registry; no I/O</autonomy-assessment>
     </V-MP-SDK>
+    <V-MP-RULES MODULE="MP-RULES" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-1">
+      <source>src/mint_python/rules/ — pure Python successor to M-RULES (src/mint/rules/engine.py). Replaces the Phase-6 empty skeleton with concrete Rule/Violation types, YAML loader, XPath evaluate engine, and all_rules registry.</source>
+      <note>Shared YAML rule files live at rules/d-hard.yaml, rules/d-soft.yaml, rules/p-hard.yaml — same path M-RULES reads. MP-RULES does NOT duplicate these files; it reads the same YAML. The ALLOWED cross-package dependency from src/mint_python/rules/ to rules/ is a documented exception to forbidden-2 (V-MP-PKG constraint-8 / V-MP-STYLE forbidden-2), justified by the shared-config contract that avoids YAML duplication across engines.</note>
+      <test-files>
+        <file status="planned" activated-at="Wave-9-1">tests/unit/test_mp_rules.py</file>
+      </test-files>
+      <forbidden-paths>src/mint/* (forbidden-2: no legacy js-engine imports); src/mint_python/core/* (MP-RULES is a leaf utility with no MP-* production deps); docs/*.xml (controller-owned); tests/unit/conftest.py; tests/unit/_mp_helpers.py.</forbidden-paths>
+      <forbidden-behaviors>
+        <forbidden-1>SILENT-XPATH-ERROR: evaluate() raises an uncaught lxml XPathError when given an invalid XPath — forbidden. Must catch etree.XPathError (any type: syntax, namespace, type error) and log at WARNING with rule_id + xpath, then return None.</forbidden-1>
+        <forbidden-2>RULE-DUPLICATION: hardcoded rule definitions inside source (vs. loaded from YAML). The single YAML source of truth at rules/*.yaml is shared between M-RULES and MP-RULES.</forbidden-2>
+        <forbidden-3>NO-LOG-ON-FAILURE: all_rules() swallows a broken YAML file without raising RuleLoadError.</forbidden-3>
+        <forbidden-4>SCALAR-RESULT-PASSTHROUGH: evaluate() returns a scalar (number, string, bool) from XPath evaluation instead of wrapping it in a list before passing to check logic. Must normalize tree.xpath() result via isinstance check (list→keep, else→[result]).</forbidden-4>
+        <forbidden-5>UNPROTECTED-ALL_RULES: all_rules() reads a YAML file without catching yaml.YAMLError — leaks raw parse exception instead of raising RuleLoadError.</forbidden-5>
+      </forbidden-behaviors>
+      <required-log-markers>
+        <marker-1>[MP-Rules][evaluate][BLOCK_EVALUATE_RULE] — fires once per evaluate() call; payload: rule_id, check kind. Wrapped via # START_BLOCK_EVALUATE_RULE / # END_BLOCK_EVALUATE_RULE.</marker-1>
+        <marker-2>[MP-Rules][all_rules][BLOCK_LOAD_RULES] — fires once per all_rules() call; payload: doc_format, rule_count. Wrapped via # START_BLOCK_LOAD_RULES / # END_BLOCK_LOAD_RULES.</marker-2>
+      </required-log-markers>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_rules.py -x</check-1>
+        <check-2>ruff check src/mint_python/rules/ tests/unit/test_mp_rules.py</check-2>
+        <check-3>mypy --strict src/mint_python/rules/</check-3>
+        <check-4>python -c "from mint_python.rules import all_rules; r = all_rules(doc_format='docx'); assert len(r) &gt; 0"</check-4>
+        <check-5>python -c "from mint_python.rules import all_rules; r = all_rules(doc_format='pptx'); assert len(r) &gt; 0"</check-5>
+        <check-6>python -c "import mint_python.rules; assert all(n in dir(mint_python.rules) for n in ['Rule','Violation','Severity','FixCategory','evaluate','all_rules','classify_severity','get_hint'])"</check-6>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">YAML loading DOCX: all_rules(doc_format='docx') returns list[Rule] from d-hard.yaml + d-soft.yaml; each Rule has id, format='docx', severity, xpath, check, fix_category, hint, description. Load from rules/ directory (same path as M-RULES).</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="planned">YAML loading PPTX: all_rules(doc_format='pptx') returns list[Rule] from p-hard.yaml. D-H* rules excluded.</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="planned">evaluate 'exists': rule D-H03 (xpath=//w:tblW[@w:type='pct'], check=exists) on docx containing percentage-width table returns Violation. On clean docx returns None (false-positive guard).</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic" status="planned">evaluate 'count_gt_zero': rule P-H03 (xpath=//p:sp[...], check=count_gt_zero) on slide XML with shapes → Violation; on slide with zero matching elements → None.</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic" status="planned">evaluate 'tbl_width_mismatch': D-H01 on bad_column_widths.docx → Violation. On minimal_valid.docx → None. Edge cases: table missing tblGrid → None; table with w:type='auto' → None; negative gridCol/@w values → filtered per lstrip('-').isdigit().</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="planned">evaluate 'sum_mismatch': on XML with mismatched sum → Violation; matching sum → None. Non-numeric text values in sum elements → None (ValueError/TypeError caught, no raise).</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic" status="planned">XPath error: evaluate() with invalid xpath (syntax, namespace, type error) logs [MP-Rules][evaluate][BLOCK_EVALUATE_RULE] at WARNING with rule_id + xpath, returns None (never raises). Mirrors M-RULES engine.py:103-108.</scenario-7>
+        <scenario-8 kind="success" evidence="deterministic" status="planned">evaluate 'exists' negative on PPTX: P-H02 (xpath=//a:rPr/a:latin[contains(@typeface,'Times')], check=exists) on bad_font.pptx → Violation. On minimal_valid.pptx → None.</scenario-8>
+        <scenario-9 kind="success" evidence="deterministic" status="planned">classify_severity + get_hint: classify_severity(Violation(severity=HARD, fix_category=DESTRUCTIVE)) → (HARD, DESTRUCTIVE); classify_severity(Violation(severity=SOFT, fix_category=VISUAL)) → (SOFT, VISUAL). get_hint('D-H01') returns dict with rule/reason/fix_instruction; get_hint('UNKNOWN-999') returns dict with reason='Unknown rule'.</scenario-9>
+        <scenario-10 kind="success" evidence="trace" status="planned">Trace: all_rules() emits BLOCK_LOAD_RULES at INFO with doc_format + rule_count. evaluate() emits BLOCK_EVALUATE_RULE at INFO (per-call, for every rule evaluated regardless of violation result — new contract for MP-RULES, distinct from M-RULES WARNING-only on error). XPath errors log at WARNING with BLOCK_EVALUATE_RULE.</scenario-10>
+        <scenario-11 kind="failure" evidence="deterministic" status="planned">Broken YAML: all_rules(rules_dir=dir_with_broken_yaml) raises RuleLoadError with the file path.</scenario-11>
+        <scenario-12 kind="failure" evidence="deterministic" status="planned">Missing rules key: YAML with no 'rules' top-level key raises RuleLoadError.</scenario-12>
+        <scenario-13 kind="edge" evidence="deterministic" status="planned">Empty rules dir: all_rules(rules_dir=empty_dir) returns empty list — no error.</scenario-13>
+        <scenario-14 kind="edge" evidence="deterministic" status="planned">evaluate result wrapping: evaluate() must wrap non-list XPath results (e.g. number, string) via isinstance check → [result]. Mirrors M-RULES engine.py:110.</scenario-14>
+      </scenarios>
+      <autonomy-assessment>SWARM-SAFE — pure deterministic utility; no mutable state; read-only shared rules/*.yaml. No MP-* production deps.</autonomy-assessment>
+    </V-MP-RULES>
+
+    <V-MP-VALIDATE MODULE="MP-VALIDATE" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-2">
+      <source>src/mint_python/validate.py — pure Python successor to M-VALIDATE (src/mint/validate.py). Validation engine: opens .docx zip, parses word/document.xml via lxml, runs all_rules, classifies violations, produces ValidationReport.</source>
+      <note>MP-VALIDATE works on saved .docx files (zip + lxml path), NOT on in-memory python-docx Document objects. This mirrors M-VALIDATE's approach and guarantees that validation checks the final serialized OOXML output. The temp-file delegation pattern (Document.validate → save temp → MP-VALIDATE.validate) is the integration bridge at Wave-9-4.</note>
+      <test-files>
+        <file status="planned" activated-at="Wave-9-2">tests/unit/test_mp_validate.py</file>
+      </test-files>
+      <depends>MP-RULES (for Rule, Violation, Severity, FixCategory, evaluate, all_rules, get_hint)</depends>
+      <forbidden-paths>src/mint/* (forbidden-2); mint.config (MP-VALIDATE defines its own SeverityMode enum — decoupled from legacy M-CONFIG); docs/*.xml; tests/unit/conftest.py; tests/unit/_mp_helpers.py.</forbidden-paths>
+      <forbidden-behaviors>
+        <forbidden-1>SILENT-PARSE-FAILURE: _open_document_xml on broken zip or missing word/document.xml returns None — forbidden. Must raise InvalidDocumentError.</forbidden-1>
+        <forbidden-2>WILDCARD-EXCEPTION-CATCH: broad except swallowing parse errors without re-raise.</forbidden-2>
+        <forbidden-3>NO-LOG-ON-REPORT: run_checks() produces report with no INFO log of mode + counts.</forbidden-3>
+      </forbidden-behaviors>
+      <required-log-markers>
+        <marker-1>[MP-Validate][run_checks][BLOCK_RUN_CHECKS] — fires once per run_checks(); payload: mode, violations, hard_count, soft_count, passed. Wrapped via # START_BLOCK_RUN_CHECKS / # END_BLOCK_RUN_CHECKS.</marker-1>
+      </required-log-markers>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_validate.py -x</check-1>
+        <check-2>ruff check src/mint_python/validate.py tests/unit/test_mp_validate.py</check-2>
+        <check-3>mypy --strict src/mint_python/validate.py</check-3>
+        <check-4>python -c "from mint_python.validate import validate; r = validate('tests/fixtures/minimal_valid.docx'); assert r.passed"</check-4>
+        <check-5>python -c "from mint_python.validate import validate; r = validate('tests/fixtures/bad_column_widths.docx'); assert len([v for v in r.violations if v.rule_id == 'D-H01']) &gt;= 1"</check-5>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">AUDIT always passes: validate(minimal_valid.docx) → report.passed=True regardless of violations. The report contains violations but AUDIT mode is observational only.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="planned">LENIENT mode: clean doc → passed=True. bad_column_widths.docx (D-H01 HARD) → passed=False. Soft violations in clean doc → still passed=True (LENIENT tolerates SOFT).</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="planned">STRICT mode: clean doc → passed=True. Any violation (hard or soft) → passed=False.</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic" status="planned">ValidationReport properties: hard_violations, soft_violations filter correctly; total matches len(violations).</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic" status="planned">classify_violations: groups by severity+fix_category. Empty violations list → all groups empty (no KeyError).</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic" status="planned">Invalid document: run_checks() catches InvalidDocumentError from _open_document_xml and returns ValidationReport with XML-001 pseudo-rule violation (passed=False, hard_count=1). The top-level validate() returns this report — does NOT propagate the exception to caller. This matches legacy M-VALIDATE contract. Document not found, bad ZIP, broken XML inside — all three failure modes produce XML-001 report.</scenario-6>
+        <scenario-7 kind="success" evidence="trace" status="planned">Trace: run_checks() emits BLOCK_RUN_CHECKS at INFO before returning. Payload: mode, violations count, hard_count, soft_count, passed boolean.</scenario-7>
+        <scenario-8 kind="success" evidence="integration" status="planned">Golden doc lenient: validate(golden_doc.docx) → passed=True, hard_count=0.</scenario-8>
+        <scenario-9 kind="edge" evidence="deterministic" status="planned">No matching rules for format: validate(pptx_file) with rules_dir containing only D-H* rules → 0 violations, passed=True.</scenario-9>
+        <scenario-10 kind="success" evidence="deterministic" status="planned">PPTX validation with matching rules: validate(minimal_valid.pptx) with rules_dir including p-hard.yaml → passed=True (AUDIT). validate(bad_font.pptx) → report contains P-H02 violation (non-embedded system font). _get_main_xml_path("pptx") returns "ppt/slides/slide1.xml".</scenario-10>
+        <scenario-11 kind="success" evidence="deterministic" status="planned">Format detection: validate(some_file.docx) detects docx format → reads word/document.xml. validate(some_file.pptx) detects pptx format → reads ppt/slides/slide1.xml. Unsupported extension (e.g. .xlsx) → InvalidDocumentError caught → XML-001 report.</scenario-11>
+      </scenarios>
+      <autonomy-assessment>SWARM-SAFE-WITH-ISOLATED-FIXTURES — tmp_path for saved docs; read-only shared rules/*.yaml.</autonomy-assessment>
+    </V-MP-VALIDATE>
+
+    <V-MP-FIX MODULE="MP-FIX" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-3">
+      <source>src/mint_python/fix.py — pure Python successor to M-FIX (src/mint/fix.py). Auto-fix engine: backup → iterate safe/visual fixes → re-validate → cascade detection. Destructive fixes rejected.</source>
+      <note>Scope limitation (known from M-FIX): _apply_simple_fix() only implements fix logic for D-H09 (raw newline replacement). All other safe/visual rules (D-H01, D-H04..D-H08, D-H10, D-S01..D-S05) have no concrete fix implementation in Phase-9 scope. _apply_simple_fix() returns False for non-D-H09 rule_ids — this is the documented contract. Extending fix coverage to other rules is a future phase task.</note>
+      <test-files>
+        <file status="planned" activated-at="Wave-9-3">tests/unit/test_mp_fix.py</file>
+      </test-files>
+      <depends>MP-VALIDATE (run_checks, ValidationReport, InvalidDocumentError, SeverityMode); MP-RULES (FixCategory, Violation, Severity)</depends>
+      <forbidden-paths>src/mint/* (forbidden-2); mint.config; docs/*.xml; tests/unit/conftest.py; tests/unit/_mp_helpers.py.</forbidden-paths>
+      <forbidden-behaviors>
+        <forbidden-1>MODIFY-WITHOUT-BACKUP: apply_fixes() modifies document without create_backup() first.</forbidden-1>
+        <forbidden-2>SILENT-DESTRUCTIVE: DESTRUCTIVE violation processed without raising DestructiveRejectedError.</forbidden-2>
+        <forbidden-3>INFINITE-LOOP: iterates beyond max_iterations without CascadeDetectedError.</forbidden-3>
+        <forbidden-4>STALE-FIX-SET: re-uses same violation list across iterations without re-validating.</forbidden-4>
+      </forbidden-behaviors>
+      <required-log-markers>
+        <marker-1>[MP-Fix][backup][BLOCK_CREATE_BACKUP] — fires once per create_backup(); payload: backup_path. Wrapped via # START_BLOCK_CREATE_BACKUP / # END_BLOCK_CREATE_BACKUP.</marker-1>
+        <marker-2>[MP-Fix][apply][BLOCK_APPLY_FIX] — fires once per apply_fixes(); payload: iterations, applied_fixes, diff. Wrapped via # START_BLOCK_APPLY_FIX / # END_BLOCK_APPLY_FIX.</marker-2>
+      </required-log-markers>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_fix.py -x</check-1>
+        <check-2>ruff check src/mint_python/fix.py tests/unit/test_mp_fix.py</check-2>
+        <check-3>mypy --strict src/mint_python/fix.py</check-3>
+        <check-4>python -c "from mint_python.fix import fix, DEFAULT_MAX_ITERATIONS; assert DEFAULT_MAX_ITERATIONS == 3"</check-4>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">Backup created: create_backup(doc) creates .bak with identical content.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="planned">Safe fix D-H09: raw_newline.docx → FixReport with iterations≥1, applied_fixes containing 'D-H09'. Post-fix re-validation shows 0 D-H09 violations.</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic" status="planned">Destructive rejected: D-H02 (symbol font, destructive) raises DestructiveRejectedError before file modification.</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic" status="planned">Cascade detected: apply_fixes with max_iterations=2 on a violation set where fix A reverses fix B across iterations (file hash oscillates: H-iter-1 ≠ H-iter-2 but H-iter-2 == H-iter-original). CascadeDetectedError raised after iteration_count exceeds max_iterations with no convergence. The detection uses original_hash comparison (M-FIX parity: engine.py:178 — `new_hash == original_hash`). MP-FIX optionally improves this to previous-iteration hash in a follow-up, but the initial ship matches M-FIX behavior.</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic" status="planned">No violations: empty violations → FixReport iterations=1, applied_fixes=[], diff="no changes".</scenario-5>
+        <scenario-6 kind="success" evidence="trace" status="planned">Trace: BLOCK_CREATE_BACKUP + BLOCK_APPLY_FIX fired with correct payloads.</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic" status="planned">fix() convenience: fix(doc_path) → run_checks → apply_fixes → FixReport.</scenario-7>
+      </scenarios>
+      <autonomy-assessment>SWARM-SAFE-WITH-ISOLATED-FIXTURES — ALL mutations target tmp_path copies; backup always first; destructive rejected; cascade bounded.</autonomy-assessment>
+    </V-MP-FIX>
+
   </ModuleVerification>
-
-  <WaveChecks>
-    <Wave-1-1 PHASE="Phase-1" SCOPE="M-CONFIG, M-SANDBOX" STATUS="done">
-      <goal>Foundation modules: config loads, sandbox executes valid code and blocks invalid</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_config.py tests/unit/test_sandbox.py -x</command-1>
-      </commands>
-      <required-evidence>
-        <evidence-1>Config loads from env vars</evidence-1>
-        <evidence-2>Sandbox produces valid DOCX from hello_world fixture</evidence-2>
-        <evidence-3>Sandbox blocks fs and net access</evidence-3>
-      </required-evidence>
-    </Wave-1-1>
-
-    <Wave-1-2 PHASE="Phase-1" SCOPE="M-RULES, M-VALIDATE, M-FIX, M-FINGERPRINT" STATUS="done">
-      <goal>Full validation pipeline: rules → validate → fix → fingerprint</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_rules/ tests/unit/test_validate.py tests/unit/test_fix.py tests/unit/test_fingerprint.py -x</command-1>
-      </commands>
-      <required-evidence>
-        <evidence-1>All D-H01..D-H10 rules detect violations in crafted fixtures</evidence-1>
-        <evidence-2>Validation report correctly classified by severity mode</evidence-2>
-        <evidence-3>Safe fixes applied, destructive rejected, cascade detected</evidence-3>
-        <evidence-4>Fingerprint deterministic for same input</evidence-4>
-      </required-evidence>
-    </Wave-1-2>
-
-    <Wave-1-3 PHASE="Phase-1" SCOPE="M-MCP-G1" STATUS="done">
-      <goal>MCP G1 tools integration: validate + fix + fingerprint via MCP protocol</goal>
-      <commands>
-        <command-1>pytest tests/integration/test_mcp_g1.py -x</command-1>
-      </commands>
-      <required-evidence>
-        <evidence-1>mint_validate returns structured violation report</evidence-1>
-        <evidence-2>mint_fix returns diff + backup path</evidence-2>
-        <evidence-3>mint_fingerprint returns hash</evidence-3>
-      </required-evidence>
-    </Wave-1-3>
-
-    <Wave-2-1 PHASE="Phase-2" SCOPE="M-SKILLS, M-TEMPLATES" STATUS="done">
-      <goal>Skill prompt selection + template engine basic fill</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_skills/ tests/unit/test_templates/ -x</command-1>
-      </commands>
-    </Wave-2-1>
-
-    <Wave-2-2 PHASE="Phase-2" SCOPE="M-EXTRACT, M-CREATE, M-MCP-G2" STATUS="done">
-      <goal>Full generation pipeline: extract → create → validate → MCP tools</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_extract.py tests/integration/test_create.py tests/integration/test_mcp_g2.py -x --timeout=60</command-1>
-      </commands>
-    </Wave-2-2>
-
-    <Wave-3-1 PHASE="Phase-3" SCOPE="M-QA, M-GRACE" STATUS="done">
-      <goal>QA pipeline (L1 programmatic + L2 structural ZIP analysis) and GRACE manifest injection ship together; existing Custom XML Parts from other vendors are preserved.</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_qa/ tests/unit/test_grace/ -x</command-1>
-        <command-2>ruff check src/mint/qa/ src/mint/grace/</command-2>
-        <command-3>mypy src/mint/qa/ src/mint/grace/</command-3>
-      </commands>
-      <required-evidence>
-        <evidence-1>L1 programmatic check on minimal_valid_docx and minimal_valid_pptx returns confidence ≥ 0.95 within 1s; trace contains [QA][l1_check][BLOCK_L1_CHECK]</evidence-1>
-        <evidence-2>L2 structural path on minimal_valid_docx inspects OOXML ZIP structure and emits [QA][l2][BLOCK_L2_STRUCTURAL]. Gotenberg render/overlap evidence is not an executable Phase-3 gate in the current codebase.</evidence-2>
-        <evidence-3>GRACE bootstrap on docx_with_vendor_xml fixture preserves the non-GRACE Custom XML Parts byte-for-byte; trace contains [GRACE][inject][BLOCK_INJECT_MANIFEST] and [GRACE][preserve][BLOCK_PRESERVE_EXISTING]</evidence-3>
-        <evidence-4>GRACE manifest namespace urn:mint:grace:2026:manifest is present in the output and readable by a fresh OOXML parser</evidence-4>
-      </required-evidence>
-      <regression-confirmed>Empirically validated during the Phase-5 plan-audit run: full pytest suite (191 tests) passes, ruff clean, mypy clean. Commands and evidence-blocks reflect actual test behavior on the merged tree.</regression-confirmed>
-    </Wave-3-1>
-
-    <Wave-4-1 PHASE="Phase-4" SCOPE="M-PLAN" STATUS="done">
-      <goal>Document planner: plan generation + plan validation</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_plan.py -x</command-1>
-        <command-2>ruff check src/mint/plan.py</command-2>
-        <command-3>mypy src/mint/plan.py</command-3>
-      </commands>
-      <required-evidence>
-        <evidence-1>Plan validation accepts valid plans and rejects invalid ones</evidence-1>
-        <evidence-2>Plan prompt includes format-specific constraints (DXA, style IDs)</evidence-2>
-        <evidence-3>Plan generation produces structured JSON with sections, styles, numbering</evidence-3>
-      </required-evidence>
-    </Wave-4-1>
-
-    <Wave-4-2 PHASE="Phase-4" SCOPE="M-SECTION" STATUS="done">
-      <goal>Section generator: per-section code generation + validation + retry</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_section.py -x</command-1>
-        <command-2>ruff check src/mint/section.py</command-2>
-        <command-3>mypy src/mint/section.py</command-3>
-      </commands>
-      <required-evidence>
-        <evidence-1>Section code validation catches imports, bracket errors, missing patterns</evidence-1>
-        <evidence-2>Section prompt includes plan context + sibling summaries</evidence-2>
-        <evidence-3>Retry logic handles failures and succeeds on retry</evidence-3>
-      </required-evidence>
-    </Wave-4-2>
-
-    <Wave-4-3 PHASE="Phase-4" SCOPE="M-ASSEMBLE" STATUS="done">
-      <goal>Document assembler: template rendering + sandbox execution</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_assemble.py -x</command-1>
-        <command-2>ruff check src/mint/assemble.py</command-2>
-        <command-3>mypy src/mint/assemble.py</command-3>
-      </commands>
-      <required-evidence>
-        <evidence-1>Styles config renders correct JS for Heading1-6 with colors/sizes</evidence-1>
-        <evidence-2>Numbering config renders bullet + decimal levels</evidence-2>
-        <evidence-3>Full assembly produces valid DOCX passing L1 validation</evidence-3>
-        <evidence-4>Postprocessor applied: no empty comments, tblLayout fixed</evidence-4>
-      </required-evidence>
-    </Wave-4-3>
-
-    <Wave-4-4 PHASE="Phase-4" SCOPE="M-CREATE, M-MCP-G2 (modular mode)" STATUS="done">
-      <goal>Full modular pipeline integration: plan → sections → assemble → validate</goal>
-      <commands>
-        <command-1>pytest tests/integration/test_create.py tests/integration/test_mcp_g2.py -x --timeout=120</command-1>
-      </commands>
-      <required-evidence>
-        <evidence-1>Modular create produces multi-section document with >10 paragraphs</evidence-1>
-        <evidence-2>MCP tools mint_plan, mint_generate_section, mint_assemble work independently</evidence-2>
-        <evidence-3>All VF-007 trace markers logged in correct sequence</evidence-3>
-      </required-evidence>
-    </Wave-4-4>
-
-    <Wave-5-1 PHASE="Phase-5" SCOPE="M-OOXML" STATUS="done">
-      <goal>Pure-Python unpack/pack round-trip is tree-stable for XML parts and byte-stable for binary parts; auto-repair fires on the documented inputs.</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_ooxml.py -x</command-1>
-        <command-2>ruff check src/mint/ooxml.py</command-2>
-        <command-3>mypy src/mint/ooxml.py</command-3>
-      </commands>
-      <required-evidence>
-        <evidence-1>unpack → pack → unpack round-trip on minimal_valid_docx, docx_with_grace, docx_with_vendor_xml: every XML part tree-equal, every binary part byte-equal, [Content_Types].xml override order preserved</evidence-1>
-        <evidence-2>Auto-repair on docx_with_durable_id_overflow regenerates the durableId; repaired_durable_ids ≥ 1 in PackResult</evidence-2>
-        <evidence-3>validate_relationships on docx_with_dangling_rel raises OOXML_RELATIONSHIP_BROKEN with the missing target named in the message</evidence-3>
-        <evidence-4>escape_smart_quotes on docx_with_quote_chars is idempotent: applying twice produces the same tree as applying once</evidence-4>
-        <evidence-5>No call site invokes LibreOffice / soffice / pandoc / any external binary. Static check: src/mint/ooxml.py imports only from {zipfile, lxml.etree, hashlib, pathlib, dataclasses, typing, logging, re, unicodedata}; the regex test asserts no occurrence of subprocess, os.system, os.popen, os.execv, os.execvp, pty.spawn, sh., or any 'shell=True' string literal. Positive framing: the only allowed external interaction is stdlib zipfile + lxml.</evidence-5>
-      </required-evidence>
-    </Wave-5-1>
-
-    <Wave-5-2 PHASE="Phase-5" SCOPE="M-EDIT" STATUS="done">
-      <goal>Typed EditPlans applied deterministically; LLM never sees OOXML; revisions and comments follow ECMA-376 with reply linkage in commentsExtended.xml.</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_edit.py -x</command-1>
-        <command-2>ruff check src/mint/edit.py</command-2>
-        <command-3>mypy src/mint/edit.py</command-3>
-      </commands>
-      <required-evidence>
-        <evidence-1>build_edit_prompt output contains no raw OOXML XML — assertion against the rendered prompt string using regex /&lt;[a-z][a-z0-9]*:[A-Za-z][A-Za-z0-9]*(\s|&gt;|\/)/ which catches any opening tag with an XML namespace prefix (w:, w14:, w15:, w16:, wp:, wps:, a:, m:, mc:, r:, pic: and any future OOXML namespace). The same regex is the executable form of VF-010.forbidden-1.</evidence-1>
-        <evidence-2>tracked_replace + tracked_delete produce ECMA-376 w:ins / w:del with author and date; w:rPr preserved on both branches; full-paragraph delete also marks w:pPr/w:rPr/w:del</evidence-2>
-        <evidence-3>add_comment with parent_id=0 produces both top-level and reply entries in word/comments.xml plus a w15:commentEx paraIdParent record in word/commentsExtended.xml; commentRange markers are siblings of w:r</evidence-3>
-        <evidence-4>accept_change and reject_change behave per matrix in V-M-EDIT scenario-12 (insertion vs deletion)</evidence-4>
-        <evidence-5>Anchor resolution against ORIGINAL tree confirmed by VF-010.inv-4 + V-M-EDIT scenario-19 + scenario-21</evidence-5>
-        <evidence-6>EditPlan JSON uses 'type' as the discriminator on both EditOp and Anchor (V-M-EDIT scenario-23)</evidence-6>
-        <evidence-7 kind="non-functional">M-EDIT.edit on fixture-21 (docx_large_5mb, ~5MB, ~100 pages, ~100 paragraphs) with a 3-op EditPlan completes within p99 ≤ 5s wall-clock on the reference machine (CI runner spec, single-process, warm filesystem). Implementation note for the worker: M-OOXML.unpack/pack must avoid full reparse-on-every-part churn; M-EDIT must avoid O(n²) anchor scans. Latency budget is per-call, excluding LLM round-trip. Track regressions via pytest --benchmark or equivalent.</evidence-7>
-      </required-evidence>
-    </Wave-5-2>
-
-    <Wave-5-3 PHASE="Phase-5" SCOPE="M-MCP-G2 (mint_edit), CLI (mint edit)" STATUS="done">
-      <goal>End-to-end edit through the MCP tool and the CLI subcommand: EditPlan JSON in, EditResult JSON out, output document validated.</goal>
-      <commands>
-        <command-1>pytest tests/integration/test_mcp_g2.py -x -k edit</command-1>
-        <command-2>pytest tests/integration/test_cli.py -x -k edit</command-2>
-      </commands>
-      <required-evidence>
-        <evidence-1>mint_edit MCP tool accepts edit_plan_json + author and returns EditResult JSON identical to direct M-EDIT.edit invocation</evidence-1>
-        <evidence-2>mint edit CLI subcommand reads EditPlan from a JSON file path and exits non-zero when EditResult.success is false</evidence-2>
-        <evidence-3>VF-010 trace-sequence emitted in correct order on a successful edit through the MCP path</evidence-3>
-      </required-evidence>
-    </Wave-5-3>
-
-    <Wave-6-1 PHASE="Phase-6" SCOPE="M-CONFIG (engine field), M-CLI (--engine, _select_engine, BLOCK_SELECT_ENGINE), MP-PKG, V-MP-FLAG" STATUS="done" COMPLETED_AT="2026-05-09">
-      <goal>Single-wave Phase-0 surface: dual-engine flag wired through M-CONFIG and M-CLI, MP-PKG skeleton importable, all V-MP-FLAG / V-MP-PKG scenarios green, every legacy DF-001..DF-007 trace sequence still passes when invoked under --engine js. Wave is intentionally small (one wave covers the whole Phase-6) because Phase 0 is scaffolding-only.</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_engine_flag.py -v</command-1>
-        <command-2>pytest tests/unit/test_config.py -x</command-2>
-        <command-3>pytest tests/integration/test_cli.py -x</command-3>
-        <command-4>ruff check src/mint/config.py src/mint/cli.py src/mint_python tests/unit/test_engine_flag.py tests/integration/test_cli.py</command-4>
-        <command-5>mypy src/mint/config.py src/mint/cli.py src/mint_python</command-5>
-      </commands>
-      <swarm-policy>
-        <isolation>Process-per-worker via pytest-xdist (-n auto) is recommended. In-process serial is acceptable ONLY if the clean_env autouse fixture in tests/unit/test_config.py has been extended to clear MINT_ENGINE; otherwise os.environ writes by main() leak between tests.</isolation>
-        <writescope-controller>docs/development-plan.xml, docs/knowledge-graph.xml, docs/verification-plan.xml — workers MUST NOT touch.</writescope-controller>
-        <writescope-worker>src/mint/config.py, src/mint/cli.py, src/mint/__init__.py, src/mint_python/**, tests/unit/test_engine_flag.py, tests/integration/test_cli.py (only the _run helper), pyproject.toml ([tool.hatch.build.targets.wheel].packages line only), .env.example (one comment line only). Any other file is out-of-scope for this wave.</writescope-worker>
-      </swarm-policy>
-      <required-evidence>
-        <evidence-1>All V-MP-FLAG scenarios 1-11 pass (default→python, env override, garbage→CONFIG_INVALID, _select_engine branches, frozen invariant, arg position, CLI overrides env via os.environ pre-load, env isolation)</evidence-1>
-        <evidence-2>All V-MP-PKG scenarios 1-2, 4 pass at module level (import smoke, version, header convention)</evidence-2>
-        <evidence-3>V-M-CONFIG scenarios 1-7 all pass (existing 1-4 unchanged, new 5-7 cover MINT_ENGINE)</evidence-3>
-        <evidence-4>V-M-CLI scenarios 1-14 all pass; scenarios 1-7 succeed only after the test_cli `_run` helper is pinned to `--engine js`; scenarios 8-14 are new Phase-6 surface</evidence-4>
-        <evidence-5>VF-011 EngineDispatch trace-sequence holds on both branches; BLOCK_SELECT_ENGINE marker present on every non-help main() call</evidence-5>
-        <evidence-6>VF-011 forbidden-signals 1-4 hold (no legacy markers on python path; no NotImplementedError on js path; no BLOCK_DISPATCH without preceding BLOCK_SELECT_ENGINE; no double BLOCK_SELECT_ENGINE)</evidence-6>
-        <evidence-7>VF-001..VF-006 trace sequences remain green when invoked via the CLI (`mint --engine js &lt;subcmd&gt;`); these are the flows that route through the chokepoint. VF-007..VF-010 are unaffected by Phase-6 by construction — their tests (test_mcp_g1.py, test_mcp_g2.py, test_create.py) use `from mint.mcp_g1 import ...` / `from mint.create import create` direct imports and bypass `_select_engine` entirely. See VF-011 chokepoint-scope.</evidence-7>
-        <evidence-8>`pyproject.toml` parses cleanly via `python -c "import tomllib; tomllib.load(open('pyproject.toml','rb'))"` AND `[tool.hatch.build.targets.wheel].packages` equals `["src/mint", "src/mint_python"]` exactly. Cheap module-level guard against typos before the phase-level `uv build` would catch them.</evidence-8>
-        <evidence-9>`.env.example` contains a commented-out `# MINT_ENGINE=js` line with an explainer comment immediately above it ("# Default is python; set js to keep the legacy Node.js sandbox path"). Greppable: `grep -E "^# *MINT_ENGINE=js" .env.example`.</evidence-9>
-        <evidence-10>USER-FACING COLLATERAL AUDIT (Phase-0 fail-closed default breaks bare `mint &lt;subcmd&gt;` examples until Phase 1 ships). Run a recursive grep for `mint ` invocations across: `README.md`, `AGENTS.md`, `docs/*.md`, `docs/pure-python/*.md`, `e2e_*.py` at repo root, any `*.sh` scripts, any `Makefile`/`justfile` targets. For EACH match: either (a) update to `mint --engine js &lt;subcmd&gt;` if the example must stay runnable today, OR (b) prefix with a clear comment "Phase-6 note: default MINT_ENGINE=python raises NotImplementedError until rollout Phase 1; set MINT_ENGINE=js or pass `--engine js` to run". Discovery command: `grep -rn -E "(^|[^a-z])(mint|uv run mint|python -m mint\.cli)\s+(serve|validate|fix|fingerprint|create|extract|edit)" README.md AGENTS.md docs/ e2e_*.py Makefile justfile *.sh scripts/*.sh 2&gt;/dev/null`. The audit MUST be performed by the worker who flips the default in M-CONFIG; the worker's PR description lists every modified file. A worker who updates only code/tests but skips this audit fails Wave-6-1 acceptance.</evidence-10>
-      </required-evidence>
-    </Wave-6-1>
-
-    <Wave-7-1 PHASE="Phase-7" SCOPE="MP-STYLE" STATUS="done" COMPLETED_AT="2026-05-09">
-      <goal>Land Style + Pt + ColorPalette + load_preset; ship initial preset registry (alga_corporate, minimal, compact); document JSON schema in docs/style-preset-schema.md.</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_mp_style.py -x</command-1>
-        <command-2>ruff check src/mint_python/core/style.py</command-2>
-        <command-3>mypy src/mint_python/core/style.py</command-3>
-      </commands>
-      <swarm-policy>
-        <isolation>Process-per-worker via pytest-xdist OK. Pure deterministic surface; no env or singleton concerns.</isolation>
-        <writescope-controller>docs/development-plan.xml, docs/knowledge-graph.xml, docs/verification-plan.xml, docs/technology.xml — workers MUST NOT touch.</writescope-controller>
-        <writescope-worker>src/mint_python/core/style.py, tests/unit/test_mp_style.py, docs/style-preset-schema.md, src/mint_python/core/presets/*.json (preset registry data).</writescope-worker>
-      </swarm-policy>
-      <required-evidence>
-        <evidence-1>All V-MP-STYLE scenarios 1-8 pass</evidence-1>
-        <evidence-2>BLOCK_LOAD_PRESET marker emitted with correct payload (asserted via caplog)</evidence-2>
-        <evidence-3>docs/style-preset-schema.md exists and documents the JSON schema; the three built-in presets validate against it</evidence-3>
-      </required-evidence>
-    </Wave-7-1>
-
-    <Wave-7-2 PHASE="Phase-7" SCOPE="MP-CONTENT, MP-TABLE" STATUS="done" COMPLETED_AT="2026-05-09">
-      <goal>Land Paragraph + Run + Image (MP-CONTENT) and Table with §3.3 factories (MP-TABLE) in parallel — both depend only on MP-STYLE.</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_mp_content.py tests/unit/test_mp_table.py -x</command-1>
-        <command-2>ruff check src/mint_python/core/content.py src/mint_python/core/table.py</command-2>
-        <command-3>mypy src/mint_python/core/content.py src/mint_python/core/table.py</command-3>
-      </commands>
-      <swarm-policy>
-        <isolation>Workers operate on disjoint files (content.py vs table.py). pytest-xdist safe.</isolation>
-        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
-        <writescope-worker>src/mint_python/core/content.py, src/mint_python/core/table.py, tests/unit/test_mp_content.py, tests/unit/test_mp_table.py.</writescope-worker>
-      </swarm-policy>
-      <required-evidence>
-        <evidence-1>All V-MP-CONTENT scenarios 1-7 pass</evidence-1>
-        <evidence-2>All V-MP-TABLE scenarios 1-9 pass</evidence-2>
-        <evidence-3>BLOCK_RENDER_CONTENT and BLOCK_RENDER_TABLE markers fire as documented</evidence-3>
-      </required-evidence>
-    </Wave-7-2>
-
-    <Wave-7-3 PHASE="Phase-7" SCOPE="MP-SECTION" STATUS="done" COMPLETED_AT="2026-05-09">
-      <goal>Land Section fluent surface + add_chart stub raising NotImplementedError naming Phase 2.</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_mp_section.py -x</command-1>
-        <command-2>ruff check src/mint_python/core/section.py</command-2>
-        <command-3>mypy src/mint_python/core/section.py</command-3>
-      </commands>
-      <swarm-policy>
-        <isolation>Solo wave; sequential after Wave-7-2.</isolation>
-        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
-        <writescope-worker>src/mint_python/core/section.py, tests/unit/test_mp_section.py.</writescope-worker>
-      </swarm-policy>
-      <required-evidence>
-        <evidence-1>All V-MP-SECTION scenarios 1-6 pass</evidence-1>
-        <evidence-2>BLOCK_PHASE_GUARD fires before NotImplementedError on add_chart</evidence-2>
-      </required-evidence>
-    </Wave-7-3>
-
-    <Wave-7-4 PHASE="Phase-7" SCOPE="MP-DOCUMENT" STATUS="done" COMPLETED_AT="2026-05-09">
-      <goal>Land Document facade with full §3.1 API: real save() via python-docx + lxml; cover/header/footer rendered via lxml direct write where python-docx APIs are insufficient; stubs (inject_grace/validate/fix/to_pdf) raise NotImplementedError naming target phase.</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_mp_document.py -x</command-1>
-        <command-2>ruff check src/mint_python/core/document.py</command-2>
-        <command-3>mypy src/mint_python/core/document.py</command-3>
-      </commands>
-      <swarm-policy>
-        <isolation>Solo wave; sequential after Wave-7-3.</isolation>
-        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
-        <writescope-worker>src/mint_python/core/document.py, tests/unit/test_mp_document.py.</writescope-worker>
-      </swarm-policy>
-      <required-evidence>
-        <evidence-1>All V-MP-DOCUMENT scenarios 1-8 pass</evidence-1>
-        <evidence-2>save() produces a valid OOXML file (lxml parses cleanly)</evidence-2>
-        <evidence-3>save() idempotency under M-FINGERPRINT structural hash</evidence-3>
-        <evidence-4>BLOCK_SAVE_DOCX fires exactly once per save</evidence-4>
-        <evidence-5>BLOCK_PHASE_GUARD fires for each stub method before NotImplementedError</evidence-5>
-      </required-evidence>
-    </Wave-7-4>
-
-    <Wave-8-1 PHASE="Phase-8" SCOPE="MP-CHART (all 7 factories + from_matplotlib + from_seaborn lazy + from_plotly stub + render + corporate theming)" STATUS="done" COMPLETED_AT="2026-05-09">
-      <goal>Land MP-CHART module with all factories + render + corporate theming. Chart.from_plotly is a stub raising NotImplementedError naming Phase-9+. Chart cells in Section.add_chart still raise BLOCK_PHASE_GUARD during this wave (Wave-8-2 unstubs Section).</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_mp_chart.py -x</command-1>
-        <command-2>ruff check src/mint_python/core/chart.py tests/unit/test_mp_chart.py</command-2>
-        <command-3>mypy src/mint_python/core/chart.py</command-3>
-        <command-4>python -c "import sys; import mint_python.core.chart; assert 'seaborn' not in sys.modules, 'seaborn must be lazy-imported'"</command-4>
-      </commands>
-      <swarm-policy>
-        <isolation>Solo wave. matplotlib backend forced to 'Agg' at chart.py import time so headless test runners work. Worker MUST NOT modify pyproject.toml — that's Wave-8-2 step-4 scope. Worker SHOULD assume matplotlib is already in the env (Wave-8-2 worker adds it; Wave-8-1 worker can request a one-shot `uv add` if env is empty, mirroring Wave-7-2 worker B's deviation pattern).</isolation>
-        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
-        <writescope-worker>src/mint_python/core/chart.py, tests/unit/test_mp_chart.py.</writescope-worker>
-      </swarm-policy>
-      <required-evidence>
-        <evidence-1>All V-MP-CHART scenarios 1-16 pass at module level</evidence-1>
-        <evidence-2>BLOCK_BUILD_CHART + BLOCK_RENDER_CHART + BLOCK_PHASE_GUARD markers fire as documented</evidence-2>
-        <evidence-3>seaborn NOT in sys.modules after `import mint_python.core.chart` (lazy-import invariant)</evidence-3>
-        <evidence-4>matplotlib backend == 'Agg' at module import (smoke: `import matplotlib; assert matplotlib.get_backend() == 'Agg'` after importing chart.py)</evidence-4>
-        <evidence-5>100% coverage maintained on src/mint_python/ (Phase-7 baseline; new chart.py at 100%)</evidence-5>
-      </required-evidence>
-    </Wave-8-1>
-
-    <Wave-8-2 PHASE="Phase-8" SCOPE="MP-SECTION unstub + MP-SDK Chart re-export + tech updates + VF-014 e2e" STATUS="done" COMPLETED_AT="2026-05-09">
-      <goal>Phase-8 closeout: replace Section.add_chart stub with concrete add_chart(chart: Chart); add Chart to MP-SDK __all__; add matplotlib hard dep to pyproject.toml; ship VF-014 e2e + audit baseline. VF-013 (Phase-7 chart-free golden doc) re-runs as non-regression guard.</goal>
-      <commands>
-        <command-1>pytest tests/ -x --timeout=120</command-1>
-        <command-2>ruff check src/mint_python tests/integration/test_mp_chart_e2e.py</command-2>
-        <command-3>mypy src/mint_python</command-3>
-        <command-4>uv build &amp;&amp; unzip -l dist/*.whl | grep -E "mint_python/(core|sdk)" | wc -l</command-4>
-      </commands>
-      <swarm-policy>
-        <isolation>Solo wave; final Phase-8 step. e2e test writes to tmp_path; M-VALIDATE invocation read-only. MP_CHART_E2E_WRITE_BASELINE env gates baseline write so xdist cannot race.</isolation>
-        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
-        <writescope-worker>src/mint_python/core/section.py (in-place add_chart unstub ONLY — preserve all other methods), src/mint_python/sdk/__init__.py (in-place add Chart to imports + __all__), tests/unit/test_mp_section.py (retire scenarios 5-6, add positive scenarios), tests/unit/test_mp_sdk.py (extend §3-import scenario with Chart), tests/integration/test_mp_chart_e2e.py (NEW), tests/fixtures/mp_chart_e2e_baseline.json (NEW first-run write), pyproject.toml (add matplotlib&gt;=3.7,&lt;4 to dependencies), uv.lock (refresh).</writescope-worker>
-      </swarm-policy>
-      <required-evidence>
-        <evidence-1>VF-014 trace-sequence holds + 6 invariants verified (non-regression of VF-013, idempotency, EMU precision, chartjunk, no plotly stub touched on happy path, baseline pin)</evidence-1>
-        <evidence-2>VF-013 e2e re-runs and stays green — chart-free golden doc fingerprint unchanged</evidence-2>
-        <evidence-3>V-MP-SECTION updated scenarios pass: add_chart returns self + appends Chart to _blocks + Section.render walks Chart.render</evidence-3>
-        <evidence-4>V-MP-SDK scenario-1 extended: Chart imports cleanly from mint_python.sdk</evidence-4>
-        <evidence-5>M-VALIDATE on chart golden doc: lenient mode passes hard_count=0; soft_count baseline captured</evidence-5>
-        <evidence-6>uv build wheel ships chart.py</evidence-6>
-        <evidence-7>matplotlib pinned in pyproject.toml [project].dependencies; uv.lock refreshed</evidence-7>
-        <evidence-8>100% coverage maintained — new e2e test + chart.py both at 100%</evidence-8>
-      </required-evidence>
-    </Wave-8-2>
-
-    <Wave-7-5 PHASE="Phase-7" SCOPE="MP-SDK + VF-013 e2e" STATUS="done" COMPLETED_AT="2026-05-09">
-      <goal>Land SDK re-exports + VF-013 end-to-end test: 3-section golden document built via mint_python.sdk passes M-VALIDATE on lenient mode (zero hard violations). Closes Phase-7.</goal>
-      <commands>
-        <command-1>pytest tests/unit/test_mp_sdk.py tests/integration/test_mp_e2e.py -x --timeout=120</command-1>
-        <command-2>ruff check src/mint_python/sdk tests/integration/test_mp_e2e.py</command-2>
-        <command-3>mypy src/mint_python/sdk</command-3>
-        <command-4>uv build &amp;&amp; unzip -l dist/*.whl | grep -E "mint_python/(core|sdk)" | wc -l</command-4>
-      </commands>
-      <swarm-policy>
-        <isolation>Solo wave; final Phase-7 step. e2e test writes to tmp_path; M-VALIDATE invocation is read-only.</isolation>
-        <writescope-controller>docs/*.xml — workers MUST NOT touch.</writescope-controller>
-        <writescope-worker>src/mint_python/sdk/__init__.py, tests/unit/test_mp_sdk.py, tests/integration/test_mp_e2e.py.</writescope-worker>
-      </swarm-policy>
-      <required-evidence>
-        <evidence-1>All V-MP-SDK scenarios 1-4 pass</evidence-1>
-        <evidence-2>VF-013 trace-sequence holds: BLOCK_LOAD_PRESET → BLOCK_RENDER_TABLE × 2 → BLOCK_SAVE_DOCX</evidence-2>
-        <evidence-3>M-VALIDATE on the saved golden document in lenient mode reports passed=true with hard_count=0; soft_count captured as audit baseline (recorded in tests/fixtures/mp_e2e_baseline.json)</evidence-3>
-        <evidence-4>Word can open the file (manual smoke OR via Gotenberg headless render — Gotenberg is optional Phase-7; manual smoke acceptable)</evidence-4>
-        <evidence-5>uv build wheel includes the new core/* and sdk/* modules (count of mint_python/core|sdk entries &gt; 9 — original 9 placeholders are now real modules + tests scaffold)</evidence-5>
-        <evidence-6>VF-013 inv-1 (idempotency) inv-2 (lxml schema validity) inv-3 (no GRACE Custom XML Parts in Phase-7 output) inv-4 (preset choice observable in heading style) all hold</evidence-6>
-      </required-evidence>
-    </Wave-7-5>
-  </WaveChecks>
 
   <PhaseGates>
     <Gate-Phase-1 PHASE="Phase-1">
@@ -1719,6 +1542,29 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Gate-Phase-8>
 
+    <Gate-Phase-9 PHASE="Phase-9" STATUS="planned">
+      <goal>Pure Python Edition Phase 3 (handover §6 Phase 3) lands: MP-RULES + MP-VALIDATE + MP-FIX as pure-python successors to M-RULES/M-VALIDATE/M-FIX. Document.validate(level) and Document.fix(strategy) unstubbed. Golden doc passes lenient MP-VALIDATE with hard_count=0; fix pipeline converges on bad fixtures; destructive violations rejected. VF-013 + VF-014 non-regression green. Coverage 100% on all new mint_python modules.</goal>
+      <commands>
+        <command-1>pytest tests/ -x --timeout=120</command-1>
+        <command-2>ruff check src/mint_python tests</command-2>
+        <command-3>mypy src/mint_python</command-3>
+        <command-4>uv run --with pytest-cov pytest tests/ --cov=src/mint_python --cov-report=term --cov-fail-under=100</command-4>
+        <command-5>uv build</command-5>
+      </commands>
+      <required-evidence>
+        <evidence-1>All V-MP-RULES / V-MP-VALIDATE / V-MP-FIX scenarios pass (12 + 10 + 7 = 29 planned scenarios)</evidence-1>
+        <evidence-2>VF-015 trace-sequence + 6 invariants hold on validate+fix pipeline</evidence-2>
+        <evidence-3>VF-016: Document.validate/fix return concrete reports; BLOCK_PHASE_GUARD absent from validate/fix paths</evidence-3>
+        <evidence-4>VF-013 (Phase-7 golden doc) re-runs green — fingerprint matches mp_e2e_baseline.json</evidence-4>
+        <evidence-5>VF-014 (Phase-8 chart golden doc) re-runs green — fingerprint matches mp_chart_e2e_baseline.json</evidence-5>
+        <evidence-6>lenient mode MP-VALIDATE on golden doc: hard_count=0, passed=True</evidence-6>
+        <evidence-7>D-H09 raw_newline.docx fix converges within 3 iterations; post-fix D-H09=0</evidence-7>
+        <evidence-8>100% coverage maintained on src/mint_python/ — rules/, validate.py, fix.py contribute all lines covered</evidence-8>
+        <evidence-9>Destructive rejection: D-H02 fix attempt raises DestructiveRejectedError without mutating file</evidence-9>
+        <evidence-10>uv build wheel ships new rules/, validate.py, fix.py entries alongside existing core/ + sdk/</evidence-10>
+      </required-evidence>
+    </Gate-Phase-9>
+
     <Gate-Phase-7 PHASE="Phase-7" STATUS="done" COMPLETED_AT="2026-05-09">
       <goal>Pure Python Edition Phase 1 (handover §6 Phase 1) lands: Document/Section/Table/Style stack works end-to-end via mint_python.sdk; a 3-section golden document passes M-VALIDATE on lenient mode; stubs (inject_grace/validate/fix/to_pdf, Section.add_chart) cleanly point to later phases. Foundation ready for Phase-2 (Chart + matplotlib).</goal>
       <commands>
@@ -1760,7 +1606,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
   </PhaseGates>
 
   <SwarmExecutionReadiness UPDATED="2026-05-09">
-    <summary>Current executable verification is strong for deterministic OOXML, validation, edit, theme, MCP, and CLI adapter paths. Swarm execution is permitted only when workers stay inside declared module write scopes and controller-owned docs are edited serially. Phase-6 engine-dispatch verification is ACTIVE (Wave-6-1 landed 2026-05-09: 7ece0df, 2baab4a, 73ae169, 5cc23b9, 832912e + cleanup ddc678a). Phase-7 (Pure Python Edition Phase 1) is PLANNED — 6 MP-* modules, 5 sub-waves, VF-013 as the headline acceptance signal; verification surface is finalized and ready for $grace-multiagent-execute.</summary>
+    <summary>Current executable verification is strong for deterministic OOXML, validation, edit, theme, MCP, and CLI adapter paths. Swarm execution is permitted only when workers stay inside declared module write scopes and controller-owned docs are edited serially. Phase-6 engine-dispatch verification is ACTIVE (Wave-6-1 landed 2026-05-09: 7ece0df, 2baab4a, 73ae169, 5cc23b9, 832912e + cleanup ddc678a). Phase-7 (Pure Python Edition Phase 1) is DONE — 6 MP-* modules, 5 sub-waves, VF-013 headline acceptance signal green. Phase-8 (Chart + matplotlib) is DONE — 7 chart factories + from_matplotlib/seaborn + VF-014 headline green. Phase-9 (MP-RULES + MP-VALIDATE + MP-FIX) is PLANNED — 3 modules, 4 waves (Wave-9-1..Wave-9-4), VF-015 + VF-016 headline acceptance signals; verification surface finalized and ready for $grace-multiagent-execute.</summary>
     <verification-matrix>
       <target-1 MODULES="M-RULES,M-VALIDATE,M-FINGERPRINT,M-THEME,M-THEMEEXTRACT" STATUS="swarm-safe">
         <evidence>Pure or read-only deterministic tests; run module-local pytest plus ruff/mypy on touched files.</evidence>
@@ -1786,7 +1632,14 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <evidence>Phase-6 engine-dispatch contract is implemented and verified end-to-end. Wave-6-1 landed under commits 7ece0df (MP-PKG), 2baab4a (M-CONFIG), 73ae169 (M-CLI), 5cc23b9 (infra), 832912e (V-MP-FLAG tests). 309 unit/integration tests + 1 skipped pass; ruff and mypy clean across the touched surface; uv build wheel includes 9 mint_python __init__.py entries.</evidence>
         <commands>pytest tests/unit/test_engine_flag.py tests/integration/test_cli.py -x</commands>
       </target-6>
-      <target-8 MODULES="MP-CHART" STATUS="swarm-safe-with-isolated-fixtures" COMPLETED_AT="2026-05-09">
+      <target-9 MODULES="MP-RULES,MP-VALIDATE,MP-FIX" STATUS="planned" ADDED_AT="2026-05-09">
+        <evidence>Phase-9 modules: MP-RULES is a leaf utility — no MP-* deps, read-only shared rules/*.yaml, deterministic XPath evaluation. MP-VALIDATE depends on MP-RULES — opens saved .docx (zip+lxml), deterministic per input XML. MP-FIX depends on MP-VALIDATE — all file mutations target tmp_path copies; backup always created first; destructive rejected; cascade bounded to DEFAULT_MAX_ITERATIONS=3. Wave-9-1 solo, Wave-9-2 solo, Wave-9-3 solo — no parallelism needed (sequential deps). Wave-9-4 solo: in-place unstub of Document.validate/fix + integration e2e. No new hard deps beyond existing pyyaml/lxml/python-docx. VF-013 + VF-014 non-regression re-run at Wave-9-4.</evidence>
+        <commands>pytest tests/unit/test_mp_rules.py tests/unit/test_mp_validate.py tests/unit/test_mp_fix.py tests/integration/test_mp_e2e.py -x --timeout=120</commands>
+        <wave-dependencies>Wave-9-1 unlocks Wave-9-2 (MP-VALIDATE depends on MP-RULES Rule/Violation types); Wave-9-2 unlocks Wave-9-3 (MP-FIX depends on MP-VALIDATE run_checks + SeverityMode). Wave-9-4 solo: unstubs Document.validate/fix + VF-015/VF-016 e2e. Within Phase-9, no parallel waves — each module builds on the previous.</wave-dependencies>
+        <swarm-fixtures-required>(1) tmp_path + tmp_docx_path for save() targets; (2) caplog_at_info for trace assertions; (3) marker_counter for BLOCK_LOAD_RULES / BLOCK_RUN_CHECKS / BLOCK_CREATE_BACKUP / BLOCK_APPLY_FIX counts; (4) mp_minimal_config for VF-015 e2e that chains through M-VALIDATE; (5) existing test fixtures at tests/fixtures/ (minimal_valid.docx, bad_column_widths.docx, raw_newline.docx) — read-only access; (6) golden_doc_builder for VF-015 e2e golden doc construction; (7) _mp_helpers helpers for baseline load/write + assert_marker_sequence; (8) MP_E2E_WRITE_BASELINE env gate for baseline rotation.</swarm-fixtures-required>
+      </target-9>
+
+    <target-8 MODULES="MP-CHART" STATUS="swarm-safe-with-isolated-fixtures" COMPLETED_AT="2026-05-09">
         <evidence>Phase-8 module: matplotlib backend forced to 'Agg' at import (process-local; no display dep); seaborn lazy-imported (optional dep). Wave-8-1 solo (no parallelism within MP-CHART; the 7 factories share file). Wave-8-2 solo: in-place updates to MP-SECTION + MP-SDK + tests + pyproject + uv.lock + new e2e test + new baseline JSON. matplotlib rcParams modifications wrapped in `with mpl.rc_context(...):` to prevent leaks across tests. tmp_path mandate for any image writes. Mid-risk due to matplotlib version variance — pinned matplotlib&gt;=3.7,&lt;4 to stabilize.</evidence>
         <commands>pytest tests/unit/test_mp_chart.py tests/integration/test_mp_chart_e2e.py -x --timeout=120</commands>
         <wave-dependencies>Wave-8-1 unlocks Wave-8-2 (Section unstub + SDK re-export depend on Chart class existence).</wave-dependencies>
@@ -1816,7 +1669,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
     </open-gaps>
   </SwarmExecutionReadiness>
 
-  <SwarmFixtures UPDATED="2026-05-09" SCOPE="Phase-7 (MP-*) and forward; Phase-8 chart additions documented inline">
+  <SwarmFixtures UPDATED="2026-05-09" SCOPE="Phase-7 (MP-*) and forward; Phase-8 chart additions documented inline; Phase-9 rules/validate/fix additions documented inline">
     <intent>Per-module subagent execution requires a stable, controller-owned shared-fixture surface. Workers do NOT invent fixtures; they import what is documented here. This block is the contract between the controller (who provisions fixtures) and Wave-7-* workers (who consume them).</intent>
 
     <ownership>
@@ -1988,10 +1841,25 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <VF-014 depends="mp_clean_env, mpl_figure_cleanup, tmp_docx_path, mp_minimal_config, caplog_at_info, marker_counter, chart_baseline_path, plus _mp_helpers.{build_chart_golden_document, assert_chart_inline_shape_emu, assert_no_legacy_markers, load_chart_audit_baseline, write_chart_audit_baseline, assert_seaborn_not_imported, assert_matplotlib_backend_is_agg, build_golden_document (for VF-013 non-regression rerun)}" added-in="Phase-8">
         <usage>Heaviest Phase-8 consumer: builds chart golden doc; asserts trace marker counts (BLOCK_BUILD_CHART=2, BLOCK_RENDER_CHART=2, BLOCK_PHASE_GUARD=0); validates EMU widths via assert_chart_inline_shape_emu; runs M-VALIDATE lenient via mp_minimal_config; pins baseline via load_chart_audit_baseline (gated by MP_CHART_E2E_WRITE_BASELINE env); RE-RUNS build_golden_document and asserts its fingerprint still matches mp_e2e_baseline.json — the VF-013 non-regression invariant.</usage>
       </VF-014>
+      <V-MP-RULES depends="mp_clean_env, caplog_at_info, marker_counter, tmp_path" added-in="Phase-9">
+        <usage>Solo utility module: marker_counter asserts BLOCK_LOAD_RULES and BLOCK_EVALUATE_RULE counts. tmp_path for YAML fixture temp files. Read-only access to shared rules/*.yaml.</usage>
+      </V-MP-RULES>
+      <V-MP-VALIDATE depends="mp_clean_env, caplog_at_info, marker_counter, tmp_path" added-in="Phase-9">
+        <usage>Depends on MP-RULES (shipped Wave-9-1). marker_counter asserts BLOCK_RUN_CHECKS. tmp_path for save targets. Read-only access to shared rules/*.yaml and tests/fixtures/*.docx.</usage>
+      </V-MP-VALIDATE>
+      <V-MP-FIX depends="mp_clean_env, caplog_at_info, marker_counter, tmp_path" added-in="Phase-9">
+        <usage>Depends on MP-VALIDATE (shipped Wave-9-2). marker_counter asserts BLOCK_CREATE_BACKUP + BLOCK_APPLY_FIX. tmp_path for save targets and backup files. Read-only access to tests/fixtures/raw_newline.docx.</usage>
+      </V-MP-FIX>
+      <VF-015 depends="mp_clean_env, tmp_docx_path, mp_minimal_config, caplog_at_info, marker_counter, golden_doc_builder, plus _mp_helpers.{build_golden_document, assert_marker_sequence, assert_no_legacy_markers, load_audit_baseline, write_audit_baseline}" added-in="Phase-9">
+        <usage>Integration e2e: builds golden doc via build_golden_document, validates via MP-VALIDATE, fixes via MP-FIX, asserts baseline fingerprint matches mp_e2e_baseline.json. Also re-runs VF-013 + VF-014 non-regression.</usage>
+      </VF-015>
+      <VF-016 depends="mp_clean_env, tmp_docx_path, caplog_at_info, marker_counter, golden_doc_builder, plus _mp_helpers.{build_golden_document, assert_marker_sequence}" added-in="Phase-9">
+        <usage>Document API test: builds doc via SDK, calls doc.validate() + doc.fix() directly, asserts BLOCK_PHASE_GUARD count=0 for validate/fix methods.</usage>
+      </VF-016>
     </fixture-dependency-matrix>
   </SwarmFixtures>
 
-  <SubagentExecutionPackets KIND="template" SCOPE="Phase-7 Wave-7-* per-module dispatch">
+  <SubagentExecutionPackets KIND="template" SCOPE="Phase-7 Wave-7-* through Phase-9 Wave-9-* per-module dispatch">
     <intent>Each Wave-7-* worker is a fresh, isolated subagent. The controller hands it a packet that is self-contained — the worker does NOT re-read the full GRACE artifacts. This template defines what a per-module packet MUST contain so the worker can implement, verify, and commit without context-switching.</intent>
 
     <packet-template>
@@ -2022,13 +1890,14 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <rule-5>If a worker discovers it needs a new fixture or helper not in SwarmFixtures, it MUST stop and report — the controller updates SwarmFixtures + provisions the fixture in conftest.py before re-dispatching. Workers NEVER add fixtures locally to test files.</rule-5>
     </subagent-isolation-policy>
 
-    <pre-wave-8-1-controller-checklist added-in="Phase-8">
-      <item-1>uv add matplotlib&gt;=3.7,&lt;4 — adds matplotlib as a hard pyproject dep BEFORE Wave-8-1 worker dispatches. This deviates from the dev-plan step-4 placement (which puts pyproject + uv.lock under Wave-8-2) but reduces the deviation pattern that hit Phase-7 Wave-7-2 worker B (where matplotlib's absence forced an in-flight pyproject edit). matplotlib is KNOWN to be needed by chart.py at module import time; pre-installing avoids the Wave-8-1 worker hitting an ImportError on `import matplotlib.pyplot as plt`. The dev-plan Phase-8/step-4 description should be amended in the Wave-8-1 controller-sync commit to reflect "matplotlib pre-installed in pre-Wave-8-1; step-4 covers seaborn-optional documentation + uv.lock refresh after MP-CHART code lands".</item-1>
-      <item-2>Update tests/unit/conftest.py: add fixture-8 (mpl_figure_cleanup autouse — try-import matplotlib, plt.close('all') on teardown), fixture-9 (mpl_rcparams_snapshot opt-in — try-import + snapshot/restore + assert no leak), fixture-10 (chart_baseline_path session-scoped path resolver). Existing 7 fixtures unchanged.</item-2>
-      <item-3>Update tests/unit/_mp_helpers.py: add helper-7 (build_chart_golden_document — STUB raising NotImplementedError naming Wave-8-2 until that wave activates it), helper-8 (assert_chart_inline_shape_emu), helper-9 (assert_seaborn_not_imported), helper-10/11 (load/write_chart_audit_baseline pair gated by MP_CHART_E2E_WRITE_BASELINE), helper-12 (assert_matplotlib_backend_is_agg). Existing 6 helpers unchanged.</item-3>
-      <item-4>Smoke: `uv run pytest tests/ --collect-only -q | tail -3` returns "419 tests collected" (current Phase-7 baseline + 0 new tests yet); confirms conftest extensions don't break collection. Then `uv run python -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; print(matplotlib.get_backend())"` prints "agg".</item-4>
-      <item-5>Single grace(meta) commit covering items 1-3: `grace(meta): provision matplotlib + Phase-8 fixtures and helpers ahead of Wave-8-1 dispatch`. Push BEFORE Wave-8-1 worker A starts.</item-5>
-    </pre-wave-8-1-controller-checklist>
+    <pre-wave-9-1-controller-checklist added-in="Phase-9">
+      <item-1>Verify tests/unit/conftest.py is at Phase-8-complete state (10 fixtures). No new fixtures needed for Phase-9 — existing mp_clean_env, tmp_docx_path, mp_minimal_config, caplog_at_info, marker_counter, golden_doc_builder suffice for all 3 modules.</item-1>
+      <item-2>Verify tests/unit/_mp_helpers.py contains all 12 helpers through Phase-8. No new helpers needed for Phase-9.</item-2>
+      <item-3>Verify rules/d-hard.yaml, rules/d-soft.yaml, rules/p-hard.yaml exist and are readable — MP-RULES reads shared YAML from this directory (cross-package dependency, documented exception to forbidden-2).</item-3>
+      <item-4>Verify src/mint_python/rules/__init__.py is the Phase-6 empty skeleton (19 lines, empty MODULE_MAP, no exports) — this is the target file Wave-9-1 replaces.</item-4>
+      <item-5>Smoke: `uv run pytest tests/ --collect-only -q | tail -3` confirms test collection count (current baseline + 0 new tests yet).</item-5>
+      <item-6>Single grace(meta) commit: `grace(meta): verify Phase-9 pre-flight — conftest, helpers, rules YAML, skeleton` — push BEFORE Wave-9-1 worker dispatches.</item-6>
+    </pre-wave-9-1-controller-checklist>
 
     <pre-wave-7-1-controller-checklist>
       <item-1>Provision tests/unit/conftest.py with the 7 fixtures defined in SwarmFixtures/conftest-spec. Each fixture body is small (1-5 lines); all bodies live in conftest.py.</item-1>
@@ -2063,6 +1932,72 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <field-14>knowledge-graph.xml MP-STYLE STATUS planned→done (controller flips post-wave).</field-14>
       <field-15>V-MP-STYLE scenarios 1-13 status planned→done; check-1..3 status planned→done.</field-15>
       <field-16>`grace(MP-STYLE): land Style + Pt + ColorPalette + load_preset for Phase-7\n\n... (per development-plan.xml ExecutionPolicy commit format)`</field-16>
+    </packet-example>
+
+    <packet-example MODULE="MP-RULES" WAVE="Wave-9-1" added-in="Phase-9">
+      <field-1>MP-RULES</field-1>
+      <field-2>Wave-9-1</field-2>
+      <field-3>balanced</field-3>
+      <field-4>src/mint_python/rules/__init__.py. Replace Phase-6 empty skeleton with concrete Rule/Violation types, YAML loader, XPath evaluate engine, all_rules registry. Rules YAML at rules/ (shared with M-RULES) — read-only, must NOT modify. New test file: tests/unit/test_mp_rules.py. NO edits to any other src/mint_python/* file, NO edits to docs/*.xml, NO edits to tests/unit/conftest.py or tests/unit/_mp_helpers.py.</field-4>
+      <field-5>MP-RULES: Pure Python OOXML validation rule definitions loaded from YAML (D-H*, D-S*, P-H*). Successor to M-RULES with MP-* semantic markup. Rule dataclass (id, format, severity, xpath, check, fix_category, hint, description). Violation dataclass. Severity enum (HARD/SOFT). FixCategory enum (SAFE/VISUAL/DESTRUCTIVE). evaluate(rule, tree) → Violation|None. all_rules(rules_dir, doc_format) → list[Rule].</field-5>
+      <field-7>No MP-* production deps — MP-RULES is a leaf utility. Reads YAML from rules/ directory via pyyaml; evaluates XPath via lxml against parsed OOXML XML trees. Rules shared with M-RULES; path to rules/ must resolve from project root.</field-7>
+      <field-8>V-MP-RULES verification excerpt verbatim: 12 scenarios (1-12), 2 trace markers (BLOCK_LOAD_RULES, BLOCK_EVALUATE_RULE), 3 forbidden behaviors, 5 module checks.</field-8>
+      <field-9>mp_clean_env (autouse), caplog_at_info, marker_counter, tmp_path. DO NOT redefine.</field-9>
+      <field-10>extract_marker (used by marker_counter internally).</field-10>
+      <field-11>2 trace markers: [MP-Rules][all_rules][BLOCK_LOAD_RULES] doc_format=%s rule_count=%d at INFO; [MP-Rules][evaluate][BLOCK_EVALUATE_RULE] rule_id=%s check=%s at INFO. Wrap in # START_BLOCK_LOAD_RULES / # END_BLOCK_LOAD_RULES; # START_BLOCK_EVALUATE_RULE / # END_BLOCK_EVALUATE_RULE.</field-11>
+      <field-12>pytest tests/unit/test_mp_rules.py -x; ruff check src/mint_python/rules/ tests/unit/test_mp_rules.py; mypy --strict src/mint_python/rules/; python -c "from mint_python.rules import all_rules; assert len(all_rules(doc_format='docx')) &gt; 0"; python -c "import mint_python.rules; assert all(n in dir(mint_python.rules) for n in ['Rule','Violation','Severity','FixCategory','evaluate','all_rules'])"</field-12>
+      <field-14>knowledge-graph.xml MP-RULES STATUS planned→done (controller flips post-wave).</field-14>
+      <field-15>V-MP-RULES scenarios 1-12 status planned→done; check-1..5 status planned→done.</field-15>
+      <field-16>`grace(MP-RULES): land Rule/Violation types + YAML loader + XPath evaluate for Phase-9`</field-16>
+    </packet-example>
+
+    <packet-example MODULE="MP-VALIDATE" WAVE="Wave-9-2" added-in="Phase-9">
+      <field-1>MP-VALIDATE</field-1>
+      <field-2>Wave-9-2</field-2>
+      <field-3>balanced</field-3>
+      <field-4>src/mint_python/validate.py (new file). New test file: tests/unit/test_mp_validate.py. NO edits to any other src/mint_python/* file, NO edits to docs/*.xml, NO edits to conftest.py or _mp_helpers.py.</field-4>
+      <field-5>MP-VALIDATE: Run all OOXML rules against a saved .docx with severity mode enforcement. ValidationReport dataclass. SeverityMode enum (AUDIT/LENIENT/STRICT) — self-defined, decoupled from mint.config. run_checks(document_path, severity_mode, rules_dir) → ValidationReport. validate(document_path, severity_mode, rules_dir) → ValidationReport (convenience).</field-5>
+      <field-7>MP-VALIDATE depends on MP-RULES (Rule, Violation, Severity, FixCategory, evaluate, all_rules, get_hint). MP-RULES was shipped in Wave-9-1 — all types and functions are importable. Uses lxml for XML parsing from .docx zip; uses zipfile for ZIP extraction; uses pyyaml transitively via MP-RULES.</field-7>
+      <field-8>V-MP-VALIDATE verification excerpt: 10 scenarios, 1 trace marker (BLOCK_RUN_CHECKS), 3 forbidden behaviors, 5 module checks.</field-8>
+      <field-9>mp_clean_env (autouse), caplog_at_info, marker_counter, tmp_path. Read-only access to tests/fixtures/ (minimal_valid.docx, bad_column_widths.docx). DO NOT redefine.</field-9>
+      <field-11>1 trace marker: [MP-Validate][run_checks][BLOCK_RUN_CHECKS] mode=%s violations=%d hard=%d soft=%d passed=%s at INFO. Wrap in # START_BLOCK_RUN_CHECKS / # END_BLOCK_RUN_CHECKS.</field-11>
+      <field-12>pytest tests/unit/test_mp_validate.py -x; ruff check src/mint_python/validate.py tests/unit/test_mp_validate.py; mypy --strict src/mint_python/validate.py; python -c "from mint_python.validate import validate; r = validate('tests/fixtures/minimal_valid.docx'); assert r.passed"</field-12>
+      <field-14>knowledge-graph.xml MP-VALIDATE STATUS planned→done (controller flips).</field-14>
+      <field-15>V-MP-VALIDATE scenarios 1-10 status planned→done; check-1..5 status planned→done.</field-15>
+      <field-16>`grace(MP-VALIDATE): land run_checks engine + SeverityMode for Phase-9`</field-16>
+    </packet-example>
+
+    <packet-example MODULE="MP-FIX" WAVE="Wave-9-3" added-in="Phase-9">
+      <field-1>MP-FIX</field-1>
+      <field-2>Wave-9-3</field-2>
+      <field-3>balanced</field-3>
+      <field-4>src/mint_python/fix.py (new file). New test file: tests/unit/test_mp_fix.py. NO edits to docs/*.xml, NO edits to conftest.py or _mp_helpers.py.</field-4>
+      <field-5>MP-FIX: Apply safe/visual auto-fixes to OOXML documents with backup, cascade detection, destructive rejection. FixReport dataclass. FixError, CascadeDetectedError, BackupFailedError, DestructiveRejectedError. DEFAULT_MAX_ITERATIONS=3. create_backup(path). apply_fixes(path, violations, max_iterations, rules_dir) → FixReport. fix(path, rules_dir) → FixReport.</field-5>
+      <field-7>MP-FIX depends on MP-VALIDATE (run_checks, ValidationReport, SeverityMode, InvalidDocumentError) and MP-RULES (FixCategory, Violation, Severity). Both were shipped in Wave-9-1 and Wave-9-2. Uses zipfile + io for in-place docx modification; uses shutil for backup copy.</field-7>
+      <field-8>V-MP-FIX verification excerpt: 7 scenarios, 2 trace markers (BLOCK_CREATE_BACKUP, BLOCK_APPLY_FIX), 4 forbidden behaviors, 4 module checks.</field-8>
+      <field-9>mp_clean_env (autouse), caplog_at_info, marker_counter, tmp_path. Read-only access to tests/fixtures/raw_newline.docx. DO NOT redefine.</field-9>
+      <field-11>2 trace markers: [MP-Fix][backup][BLOCK_CREATE_BACKUP] backup_path=... at INFO; [MP-Fix][apply][BLOCK_APPLY_FIX] iterations=%d applied=%s diff=%s at INFO. Wrap in # START_BLOCK_CREATE_BACKUP / # END_BLOCK_CREATE_BACKUP; # START_BLOCK_APPLY_FIX / # END_BLOCK_APPLY_FIX.</field-11>
+      <field-12>pytest tests/unit/test_mp_fix.py -x; ruff check src/mint_python/fix.py tests/unit/test_mp_fix.py; mypy --strict src/mint_python/fix.py; python -c "from mint_python.fix import fix, DEFAULT_MAX_ITERATIONS; assert DEFAULT_MAX_ITERATIONS == 3"</field-12>
+      <field-14>knowledge-graph.xml MP-FIX STATUS planned→done (controller flips).</field-14>
+      <field-15>V-MP-FIX scenarios 1-7 status planned→done; check-1..4 status planned→done.</field-15>
+      <field-16>`grace(MP-FIX): land auto-fix engine + cascade detection for Phase-9`</field-16>
+    </packet-example>
+
+    <packet-example MODULE="MP-DOCUMENT-unstub" WAVE="Wave-9-4" added-in="Phase-9">
+      <field-1>MP-DOCUMENT (unstub validate/fix)</field-1>
+      <field-2>Wave-9-4</field-2>
+      <field-3>balanced</field-3>
+      <field-4>src/mint_python/core/document.py (in-place: unstub validate() and fix() methods ONLY); tests/integration/test_mp_validate_fix_e2e.py (new); tests/unit/test_mp_document.py (update: retire Phase-7 BLOCK_PHASE_GUARD assertions for validate/fix). NO edits to any other src/mint_python/core/* file. NO edits to conftest.py (existing Phase-7+Phase-8 fixtures sufficient).</field-4>
+      <field-5>Unstub Document.validate(level) and Document.fix(strategy). Delegation pattern: validate saves to temp .docx → calls MP-VALIDATE.validate(tmp_path, level) → returns ValidationReport; fix saves to temp → calls MP-VALIDATE.run_checks → MP-FIX.apply_fixes → returns FixReport. Temp files cleaned up via contextlib after call.</field-5>
+      <field-7>Document methods depend on MP-VALIDATE (validate, run_checks, ValidationReport, SeverityMode) and MP-FIX (fix, apply_fixes, FixReport). Both shipped in Wave-9-2 and Wave-9-3. Additionally depends on MP-SECTION (Section) and MP-STYLE — already shipped Phase-7/8.</field-7>
+      <field-8>VF-016 verification excerpt: 3 invariants (temp-file cleanup, stub retired, delegation correct), 1 required signal (BLOCK_PHASE_GUARD only for inject_grace/to_pdf), 1 forbidden (no BLOCK_PHASE_GUARD on validate/fix). V-MP-DOCUMENT scenario update: retire Phase-7 "stub raises NotImplementedError" scenarios for validate/fix — replace with "returns concrete report" scenarios.</field-8>
+      <field-9>mp_clean_env, tmp_docx_path, caplog_at_info, marker_counter, golden_doc_builder. DO NOT redefine.</field-9>
+      <field-10>build_golden_document, assert_marker_sequence, assert_no_legacy_markers, load_audit_baseline, write_audit_baseline.</field-10>
+      <field-11>NO new trace markers. Existing BLOCK_SAVE_DOCX fires from Document.save() (unchanged). BLOCK_PHASE_GUARD fires ONLY for inject_grace and to_pdf — specifically NOT for validate/fix.</field-11>
+      <field-12>pytest tests/unit/test_mp_document.py tests/integration/test_mp_validate_fix_e2e.py -x --timeout=60; ruff check src/mint_python/core/document.py; mypy src/mint_python/core/document.py; python -c "from mint_python.sdk import Document; doc = Document(format='docx', title='T'); r = doc.validate(); assert hasattr(r, 'passed')"</field-12>
+      <field-14>knowledge-graph.xml MP-DOCUMENT fn-validate + fn-fix: STUB→concrete (controller flips post-wave).</field-14>
+      <field-15>V-MP-DOCUMENT: retire scenario-10 (validate stub raises NotImplementedError) and scenario-11 (fix stub raises NotImplementedError). Add scenario-10-new (validate returns ValidationReport) and scenario-11-new (fix returns FixReport). VF-016 scenarios planned→done.</field-15>
+      <field-16>`grace(MP-DOCUMENT): unstub Document.validate + Document.fix for Phase-9`</field-16>
     </packet-example>
   </SubagentExecutionPackets>
 
@@ -2189,6 +2124,55 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <observed-evidence>frozenset(r2) gained an extra entry "test_local" injected by a previous test that called load_preset(path=...) and silently registered it</observed-evidence>
       <first-divergent-block>src/mint_python/core/style.py load_preset() — the path-loading branch updates the module-level registry as a side effect</first-divergent-block>
       <next-action>Make load_preset(path=...) a pure function: read file, validate, return Style namespace; do NOT touch the registry. Add a regression test that asserts frozenset(presets) is unchanged after load_preset(path=tmp_json).</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-9">
+      <scenario>V-MP-RULES forbidden-3: broken YAML swallowed</scenario>
+      <expected-evidence>all_rules(rules_dir=dir_with_broken_yaml) raises RuleLoadError with path to the broken file</expected-evidence>
+      <observed-evidence>all_rules() returns empty list — caught YAML parse exception and silently skipped the file</observed-evidence>
+      <first-divergent-block>src/mint_python/rules/__init__.py — _load_yaml_rules uses bare `except Exception:` around yaml.safe_load</first-divergent-block>
+      <next-action>Narrow the except to `yaml.YAMLError` and re-raise as RuleLoadError with the file path. Verify scenario-10 passes.</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-9">
+      <scenario>V-MP-RULES forbidden-1: XPath error swallowed silently</scenario>
+      <expected-evidence>evaluate(Rule(xpath="//invalid[",...), tree) logs WARNING and returns None</expected-evidence>
+      <observed-evidence>evaluate() raises lxml.etree.XPathError uncaught — worker forgot the try/except</observed-evidence>
+      <first-divergent-block>src/mint_python/rules/__init__.py evaluate() body — missing try/except around tree.xpath()</first-divergent-block>
+      <next-action>Add try/except XPathError with WARNING log (mirror M-RULES behavior). Return None on XPath error — never raise.</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-9">
+      <scenario>V-MP-VALIDATE forbidden-1: broken zip returns empty report</scenario>
+      <expected-evidence>run_checks(not_a_zip.docx) raises InvalidDocumentError with "not a valid ZIP"</expected-evidence>
+      <observed-evidence>run_checks() returns ValidationReport with passed=True and violations=[] — zipfile.BadZipFile caught and ignored</observed-evidence>
+      <first-divergent-block>src/mint_python/validate.py _open_document_xml() — bare `except:` catching zipfile.BadZipFile without re-raise</first-divergent-block>
+      <next-action>Remove the broad except; let zipfile errors propagate through InvalidDocumentError chain. Only catch zipfile.BadZipFile to wrap in InvalidDocumentError.</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-9">
+      <scenario>V-MP-FIX forbidden-2: destructive fix applied</scenario>
+      <expected-evidence>apply_fixes on violations containing D-H02 (destructive) raises DestructiveRejectedError before file is touched</expected-evidence>
+      <observed-evidence>apply_fixes applies D-H09 fix (safe), then moves to D-H02 and attempts to modify document</observed-evidence>
+      <first-divergent-block>src/mint_python/fix.py apply_fixes() — destructive check placed AFTER the fix loop instead of BEFORE any file modification</first-divergent-block>
+      <next-action>Move the destructive-vs-fixable filtering to the BEGINNING of apply_fixes, BEFORE create_backup(). If any destructive violations present, raise DestructiveRejectedError immediately.</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-9">
+      <scenario>V-MP-FIX forbidden-3: fix loop unbounded</scenario>
+      <expected-evidence>max_iterations=2 on oscillating violation set raises CascadeDetectedError after 2 iterations</expected-evidence>
+      <observed-evidence>apply_fixes runs 10+ iterations without converging or raising — hash check at line 178 never triggers</observed-evidence>
+      <first-divergent-block>src/mint_python/fix.py apply_fixes() — `if iteration > 0 and new_hash == original_hash` compares to original pre-fix hash from 3 iterations ago instead of previous-iteration hash</first-divergent-block>
+      <next-action>Track prev_hash per iteration (update after each re-write). CascadeDetectedError when prev_hash == new_hash AND iterations remaining. Add test scenario-4 with oscillating mock fix.</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-9">
+      <scenario>VF-015 inv-5: VF-013 non-regression broke during unstub</scenario>
+      <expected-evidence>VF-013 e2e re-run after Wave-9-4 produces fingerprint matching mp_e2e_baseline.json</expected-evidence>
+      <observed-evidence>fingerprint(VF-013 saved doc).hash changed — Document.save() in wave-9-4 modified save path to call validate/fix implicitly, altering core.xml emission</observed-evidence>
+      <first-divergent-block>src/mint_python/core/document.py save() — Wave-9-4 worker added an `if self._auto_validate:` branch that calls validate before finalizing</first-divergent-block>
+      <next-action>Revert save() change. Document.validate/fix are explicit user-driven methods — save() does NOT auto-validate. The delegation pattern calls validate/fix only when the user calls doc.validate() / doc.fix().</next-action>
+    </packet-example>
+    <packet-example added-in="Phase-9">
+      <scenario>VF-016 inv-1: temp file leakage</scenario>
+      <expected-evidence>After Document.validate() returns, the temp .docx file does not exist on disk</expected-evidence>
+      <observed-evidence>/tmp/tmpXXXXXX.docx still exists — validate() saved to temp but forgot to unlink after returning report</observed-evidence>
+      <first-divergent-block>src/mint_python/core/document.py validate() — uses NamedTemporaryFile without delete=True or explicit unlink in finally</first-divergent-block>
+      <next-action>Use contextlib.closing + NamedTemporaryFile(delete=True) or explicit Path.unlink(missing_ok=True) in try/finally. Add VF-016 inv-1 test that asserts no leftover .docx after validate/fix return.</next-action>
     </packet-example>
   </FailurePackets>
 </VerificationPlan>
