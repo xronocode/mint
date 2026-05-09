@@ -394,7 +394,7 @@
       <swarm-safety>SWARM-SAFE: e2e test writes to tmp_path; no shared mutable state; matplotlib uses Agg backend (forced via matplotlib.use('Agg') before any Figure construction) so no display dependencies; baseline write gated by env so xdist workers cannot race-overwrite.</swarm-safety>
     </VF-014>
 
-    <VF-015 NAME="PurePythonValidationAndFixFlow" USE_CASES="UC-003,UC-007" DATA_FLOW="DF-015,DF-016" PRIORITY="high" STATUS="planned" ACTIVATED_AT="Wave-9-4">
+    <VF-015 NAME="PurePythonValidationAndFixFlow" USE_CASES="UC-003,UC-007" DATA_FLOW="DF-015,DF-016" PRIORITY="high" STATUS="done" ACTIVATED_AT="Wave-9-4" COMPLETED_AT="2026-05-09">
       <scenario>User builds Document via mint_python.sdk → saves to .docx → validates via MP-VALIDATE on lenient → auto-fixes via MP-FIX → re-validates → baseline pinned</scenario>
       <expected-outcome>(a) MP-VALIDATE on built golden doc returns lenient PASS with hard_count=0; (b) MP-FIX on golden doc is no-op (0 fixes applied); (c) bad_column_widths.docx validate-then-fix pipeline converges; (d) destructive violations reject cleanly; (e) baseline fingerprint matches mp_e2e_baseline.json when validate/fix are chained onto golden doc.</expected-outcome>
       <invariants>

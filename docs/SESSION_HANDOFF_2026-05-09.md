@@ -33,14 +33,14 @@ MINT — Model-Independent Normalization Toolkit. Document generation для DOC
 | Phase-6 | Dual-engine flag (`MINT_ENGINE=python\|js` + `--engine`); MP-PKG empty skeleton; M-CONFIG Engine StrEnum; M-CLI `_select_engine` chokepoint + BLOCK_LOAD_CONFIG/BLOCK_SELECT_ENGINE/BLOCK_DISPATCH markers | ✓ done (2026-05-09) |
 | Phase-7 | Pure Python Core+SDK: MP-STYLE / MP-CONTENT / MP-TABLE / MP-SECTION / MP-DOCUMENT / MP-SDK (handover §3.1-3.3, §3.5). Idempotent save() via core.xml dcterms pin. VF-013 e2e baseline. | ✓ done (2026-05-09) |
 | Phase-8 | MP-CHART (handover §3.4): 7 chart factories (bar/line/stacked_bar/pie/heatmap/waterfall/gantt) + from_matplotlib + from_seaborn lazy + from_plotly stub. VF-014 e2e. matplotlib hard dep. Section.add_chart unstubbed. | ✓ done (2026-05-09) |
-| Phase-9 | MP-RULES + MP-VALIDATE + MP-FIX (handover §6 Phase 3): pure-python successors to M-RULES/M-VALIDATE/M-FIX. 53+42+23=118 unit tests. Document.validate/fix unstubbed via temp-file delegation. VF-015 + VF-016 e2e. Gate-Phase-9: 610 tests passed, 1 skipped, 100% coverage, ruff/mypy clean. Full-integrity review PASS. | ✓ done (2026-05-09) |
+| Phase-9 | MP-RULES + MP-VALIDATE + MP-FIX (handover §6 Phase 3): pure-python successors to M-RULES/M-VALIDATE/M-FIX. 53+42+23=118 unit tests + 7 cov-gap tests + 9 e2e. Document.validate/fix unstubbed via temp-file delegation. VF-015 + VF-016 e2e. Gate-Phase-9: 643 tests passed, 1 skipped, 100% coverage, ruff/mypy clean. Full-integrity review PASS. | ✓ done (2026-05-09) |
 
-## Current state (post-Phase-8 + full-integrity review fixes)
+## Current state (post-Phase-9 + full-integrity review fixes + cov-gap closure)
 
-- **506 tests passed, 1 skipped** (1 = pre-existing M-EDIT latency stub from Phase-5 — unrelated)
-- **100% coverage on `src/mint_python/`** (882 stmts, 0 miss) — gate enforced via `pytest --cov-fail-under=100`
-- **ruff + mypy clean** (16 mint_python source files; mypy `--strict`)
-- **uv build wheel:** `mint_runtime-0.2.0-py3-none-any.whl` ships 12 mint_python core+sdk entries
+- **643 tests passed, 1 skipped** (1 = pre-existing M-EDIT latency stub from Phase-5 — unrelated)
+- **100% coverage on `src/mint_python/`** (1251 stmts, 0 miss) — gate enforced via `pytest --cov-fail-under=100`
+- **ruff + mypy clean** (18 mint_python source files including MP-RULES/VALIDATE/FIX; mypy `--strict`)
+- **uv build wheel:** `mint_runtime-0.2.0-py3-none-any.whl` ships 12 mint_python core+sdk entries (+ rules + validate + fix as flat-package files)
 - **`from mint_python.sdk import Document, Section, Table, Style, Image, TOC, Pt, ColorPalette, Chart, presets`** — 10 §3 types + presets registry, all functional
 
 ### Quick-look user surface
@@ -132,16 +132,19 @@ These are the surfaces that future phases unblock:
 ## Suggested kickoff prompt for new session
 
 ```
-Continuing MINT Pure Python Edition. Phase-7 (Core+SDK) and Phase-8 (Chart+matplotlib)
-shipped; 506 tests passed + 1 skipped, 100% coverage on src/mint_python/, ruff/mypy
-clean. Next: Phase-9 = handover §6 Phase 3 = MP-RULES + MP-VALIDATE + MP-FIX
-(pure-python successors; unstubs Document.validate / Document.fix).
+Continuing MINT Pure Python Edition. Phase-7 (Core+SDK), Phase-8 (Chart+matplotlib),
+and Phase-9 (Validation+Fix) shipped; 643 tests passed + 1 skipped, 100% coverage
+on src/mint_python/, ruff/mypy clean. Active stubs: Document.inject_grace + to_pdf
+(both Phase-11 = handover §6 Phase 5 = MP-GRACE + Gotenberg) and Chart.from_plotly
+(Phase-12+). Phase-10 (handover §6 Phase 4 — Execution tiers + RestrictedPython
+sandbox) skipped per roadmap; next is Phase-11.
 
 Read docs/SESSION_HANDOFF_2026-05-09.md for the full state, then:
-1. docs/mint-pure-python-handover-v1.md §6 Phase 3 + §7
-2. docs/development-plan.xml Phase-8 (convention reference)
-3. docs/verification-plan.xml SwarmFixtures + Gate-Phase-8 (dispatch pattern)
-4. src/mint/{rules,validate,fix}.py (legacy js-engine reference for porting)
+1. docs/mint-pure-python-handover-v1.md §6 Phase 5 + §7
+2. docs/development-plan.xml Phase-9 (convention reference)
+3. docs/verification-plan.xml SwarmFixtures + Gate-Phase-9 (dispatch pattern)
+4. src/mint/grace.py + src/mint/qa.py (legacy GRACE injector + Gotenberg adapter
+   reference for porting)
 
 Then $grace-plan with Phase-9 scope (3 modules + 2 stub retires).
 ```
