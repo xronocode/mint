@@ -197,3 +197,57 @@ def schema_violation_factory():
 
     return _factory
 # END_BLOCK_SCHEMA_VIOLATION_FACTORY
+
+
+# START_BLOCK_MPL_FIGURE_CLEANUP
+@pytest.fixture(autouse=True)
+def mpl_figure_cleanup():
+    """Force-close all matplotlib Figures after each test (Phase-8).
+
+    matplotlib retains Figure refs in pyplot's internal registry until
+    explicit close — accumulation under long pytest runs grows memory.
+    Lazy-import: tests that don't touch matplotlib pay zero cost.
+    """
+    yield
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return
+    plt.close("all")
+# END_BLOCK_MPL_FIGURE_CLEANUP
+
+
+# START_BLOCK_MPL_RCPARAMS_SNAPSHOT
+@pytest.fixture
+def mpl_rcparams_snapshot():
+    """Snapshot rcParams at entry; STRICT assert no leak at teardown (Phase-8).
+
+    Used by V-MP-CHART theming-assertion tests to verify corporate rcParams
+    modifications happen WITHIN a chart construction without polluting global
+    state. V-MP-CHART forbidden-5 invariant.
+    """
+    try:
+        import matplotlib
+    except ImportError:
+        pytest.skip("matplotlib not installed")
+    snapshot = dict(matplotlib.rcParams)
+    yield
+    leaked = {k: v for k, v in matplotlib.rcParams.items() if snapshot.get(k) != v}
+    if leaked:
+        # Restore so subsequent tests aren't affected, then fail.
+        matplotlib.rcParams.update(snapshot)
+        raise AssertionError(
+            f"rcParams leak detected (V-MP-CHART forbidden-5): {sorted(leaked)}"
+        )
+# END_BLOCK_MPL_RCPARAMS_SNAPSHOT
+
+
+# START_BLOCK_CHART_BASELINE_PATH
+@pytest.fixture(scope="session")
+def chart_baseline_path() -> Path:
+    """Path to tests/fixtures/mp_chart_e2e_baseline.json (Phase-8).
+
+    Symmetric to load_audit_baseline path resolution in _mp_helpers.
+    """
+    return Path(__file__).resolve().parent.parent / "fixtures" / "mp_chart_e2e_baseline.json"
+# END_BLOCK_CHART_BASELINE_PATH

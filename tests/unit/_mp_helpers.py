@@ -200,3 +200,116 @@ def write_audit_baseline(data: dict[str, Any]) -> None:
         )
     _BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
     _BASELINE_PATH.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Phase-8 helpers (chart-specific)
+# ---------------------------------------------------------------------------
+
+_CHART_BASELINE_PATH = (
+    Path(__file__).resolve().parent.parent / "fixtures" / "mp_chart_e2e_baseline.json"
+)
+
+
+def build_chart_golden_document(out_path: Path) -> Path:
+    """VF-014 chart golden document builder — single source of truth (Phase-8).
+
+    Pre-Wave-8-2 STUB raises NotImplementedError naming Wave-8-2. The Wave-8-2
+    worker replaces this body per docs/verification-plan.xml#VF-014
+    golden-document-spec (alga_corporate; 2 sections each with 1 paragraph + 1
+    chart of different type — bar + line; both width_inches=5.0).
+
+    Activation: Wave-8-2 step-5 (test surface). Pre-condition: VF-014
+    golden-document-spec frozen + MP-CHART (Wave-8-1) shipped + MP-SECTION
+    add_chart unstub (Wave-8-2 step-2) + MP-SDK Chart re-export (Wave-8-2
+    step-3) all complete. STUB raises with exact "Wave-8-2" substring so a
+    worker that imports this before activation gets unambiguous wrong-wave
+    signal.
+    """
+    raise NotImplementedError(
+        "build_chart_golden_document activates at Wave-8-2 step-5 (VF-014 e2e). "
+        "Phase-8 pre-Wave-8-2 stub: MP-SECTION.add_chart still raises NotImplementedError "
+        "and mint_python.sdk does not yet export Chart. "
+        "See docs/verification-plan.xml#VF-014 golden-document-spec for the concrete body."
+    )
+
+
+def assert_chart_inline_shape_emu(doc: Any, expected_widths_inches: list[float]) -> None:
+    """Assert each chart inline_shape's width.emu == round(inches x 914400).
+
+    VF-014 inv-3 (EMU PRECISION). On failure, AssertionError lists actual vs
+    expected per index.
+    """
+    shapes = list(doc.inline_shapes)
+    if len(shapes) != len(expected_widths_inches):
+        raise AssertionError(
+            f"inline_shape count mismatch: expected {len(expected_widths_inches)}, "
+            f"got {len(shapes)}"
+        )
+    diffs: list[str] = []
+    for i, (shape, inches) in enumerate(zip(shapes, expected_widths_inches, strict=True)):
+        expected_emu = round(inches * 914400)
+        actual_emu = shape.width.emu
+        if actual_emu != expected_emu:
+            diffs.append(
+                f"shape[{i}]: expected_emu={expected_emu} (inches={inches}), got={actual_emu}"
+            )
+    if diffs:
+        raise AssertionError("EMU width drift:\n  " + "\n  ".join(diffs))
+
+
+def assert_seaborn_not_imported() -> None:
+    """V-MP-CHART forbidden-3: seaborn must remain lazy-imported.
+
+    Asserts `'seaborn' not in sys.modules`. Failures indicate a module-level
+    `import seaborn` somewhere in the import graph reaching from
+    mint_python.core.chart or test infrastructure.
+    """
+    import sys
+
+    if "seaborn" in sys.modules:
+        raise AssertionError(
+            "seaborn imported at module level (V-MP-CHART forbidden-3). "
+            "Move the import inside Chart.from_seaborn body."
+        )
+
+
+def assert_matplotlib_backend_is_agg() -> None:
+    """V-MP-CHART forbidden-2: matplotlib backend must be 'Agg'.
+
+    Lazy-import matplotlib (skip if missing); assert backend == 'agg' (case-
+    insensitive). Fails when a sibling test or module switched the backend.
+    """
+    try:
+        import matplotlib
+    except ImportError:
+        return
+    backend = matplotlib.get_backend()
+    if backend.lower() != "agg":
+        raise AssertionError(
+            f"matplotlib backend is {backend!r}, expected 'Agg' "
+            "(V-MP-CHART forbidden-2). Check chart.py import order: "
+            "`import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt`."
+        )
+
+
+def load_chart_audit_baseline() -> dict[str, Any]:
+    """Read tests/fixtures/mp_chart_e2e_baseline.json (VF-014 inv-6 baseline pin)."""
+    if not _CHART_BASELINE_PATH.exists():
+        raise FileNotFoundError(
+            f"chart audit baseline not found at {_CHART_BASELINE_PATH}. "
+            "Set MP_CHART_E2E_WRITE_BASELINE=1 on the first run to create it. "
+            "See docs/verification-plan.xml#V-MP-DOCUMENT/baseline-update-protocol."
+        )
+    return cast(dict[str, Any], json.loads(_CHART_BASELINE_PATH.read_text()))
+
+
+def write_chart_audit_baseline(data: dict[str, Any]) -> None:
+    """Write tests/fixtures/mp_chart_e2e_baseline.json — gated by MP_CHART_E2E_WRITE_BASELINE=1."""
+    if os.environ.get("MP_CHART_E2E_WRITE_BASELINE") != "1":
+        raise RuntimeError(
+            "refusing to write chart audit baseline without "
+            "MP_CHART_E2E_WRITE_BASELINE=1. See V-MP-DOCUMENT/baseline-update-protocol."
+        )
+    _CHART_BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CHART_BASELINE_PATH.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
