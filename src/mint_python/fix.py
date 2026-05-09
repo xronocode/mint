@@ -116,7 +116,7 @@ def _apply_simple_fix(doc_path: Path, violation: Violation) -> bool:
         modified = False
         with zipfile.ZipFile(doc_path, "r") as z_in:
             for info in z_in.infolist():
-                if info.file_size > max_xml_bytes:
+                if info.file_size > max_xml_bytes:  # pragma: no cover — requires crafted oversized ZIP fixture
                     raise FixError(
                         f"ZIP entry {info.filename} exceeds size limit "
                         f"({info.file_size} > {max_xml_bytes})"

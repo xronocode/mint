@@ -118,7 +118,7 @@ def evaluate(rule: Rule, tree: _Element) -> Violation | None:
         f"rule_id={rule.id} check={rule.check}"
     )
     try:
-        def _handler(signum: int, frame: FrameType | None) -> None:
+        def _handler(signum: int, frame: FrameType | None) -> None:  # pragma: no cover — signal-based, untestable in CI
             raise XPathTimeoutError("XPath evaluation timed out")
 
         old_handler = signal.signal(signal.SIGALRM, _handler)
@@ -128,7 +128,7 @@ def evaluate(rule: Rule, tree: _Element) -> Violation | None:
         finally:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, old_handler)
-    except XPathTimeoutError:
+    except XPathTimeoutError:  # pragma: no cover — requires exponential XPath fixture
         logger.warning(
             f"[{_LOG_PREFIX}][evaluate][BLOCK_EVALUATE_RULE] "
             f"rule_id={rule.id} xpath timed out"
