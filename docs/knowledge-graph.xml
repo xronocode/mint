@@ -469,7 +469,7 @@
         <type-TOC PURPOSE="Table-of-contents anchor; rendered as Word TOC field with auto-update" />
         <fn-with_style_preset PURPOSE="Load named preset; returns self for chaining" />
         <fn-with_style_from PURPOSE="Load preset from path; returns self for chaining" />
-        <fn-add_cover PURPOSE="Cover page (title + subtitle + optional logo); rendered via lxml direct write" />
+        <fn-add_cover PURPOSE="Cover page (title + subtitle + optional logo); rendered via python-docx primitives (add_heading + add_paragraph + add_picture + WD_BREAK.PAGE)" />
         <fn-add_section PURPOSE="Append Section to body" />
         <fn-add_toc PURPOSE="Insert TOC field anchor" />
         <fn-set_header PURPOSE="Document-wide header (Phase-1 scope)" />

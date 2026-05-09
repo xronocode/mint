@@ -1042,7 +1042,7 @@ writeFileSync('output.docx', buffer);
 
     <MP-DOCUMENT NAME="Pure Python Document Facade" TYPE="CORE_LOGIC" LAYER="3" ORDER="14" STATUS="done">
       <contract>
-        <purpose>Document facade per handover §3.1: full API surface (cover, sections, TOC, header/footer, save). Stubs `inject_grace`, `validate`, `fix`, `to_pdf` with NotImplementedError pointing at later phases. Save uses python-docx as backbone with lxml drop-down for cover and header/footer parts python-docx doesn't expose cleanly.</purpose>
+        <purpose>Document facade per handover §3.1: full API surface (cover, sections, TOC, header/footer, save). Stubs `inject_grace`, `validate`, `fix`, `to_pdf` with NotImplementedError pointing at later phases. Save uses python-docx as the backbone; cover (add_picture + WD_BREAK.PAGE) and header/footer (doc.sections[0].header.paragraphs[0].text) use python-docx primitives directly. Only the TOC field uses an lxml drop-down because python-docx has no first-class TOC API.</purpose>
         <inputs>
           <param name="format" type="Literal['docx']" />
           <param name="title" type="str" />
@@ -1064,7 +1064,7 @@ writeFileSync('output.docx', buffer);
         <export-Document PURPOSE="Document facade aggregating Section list, document-wide Style preset, header/footer, cover" />
         <fn-with_style_preset PURPOSE="Load named preset; returns self for chaining" />
         <fn-with_style_from PURPOSE="Load preset from path; returns self for chaining" />
-        <fn-add_cover PURPOSE="Add cover page (title + subtitle + optional logo); rendered via lxml direct write" />
+        <fn-add_cover PURPOSE="Add cover page (title + subtitle + optional logo); rendered via python-docx primitives (add_heading + add_paragraph + add_picture) terminated by a WD_BREAK.PAGE run" />
         <fn-add_section PURPOSE="Append Section to body" />
         <fn-add_toc PURPOSE="Insert table-of-contents field anchor; rendered as Word TOC field with auto-update flag" />
         <fn-set_header PURPOSE="Document-wide header (Phase-1 scope; per-section deferred)" />
@@ -1279,7 +1279,7 @@ writeFileSync('output.docx', buffer);
       <step-4 module="MP-SECTION" status="done" verification="V-MP-SECTION">Section(title, level).add_paragraph/.add_table/.add_image fluent chain. add_chart raises NotImplementedError naming Phase 2 (matplotlib chart impl). Emits [MP-Section][add_chart][BLOCK_PHASE_GUARD] in the stub path.</step-4>
       <step-5 module="MP-DOCUMENT" status="done" verification="V-MP-DOCUMENT">Document facade with full §3.1 API surface; save() implemented via python-docx + lxml direct-write for cover/header/footer; stubs (inject_grace/validate/fix/to_pdf) all emit BLOCK_PHASE_GUARD then raise NotImplementedError naming target phase. Emits [MP-Document][save][BLOCK_SAVE_DOCX] with section_count, table_count, output_path.</step-5>
       <step-6 module="MP-SDK" status="done" verification="V-MP-SDK">src/mint_python/sdk/__init__.py re-exports Document, Section, Table, Style, Image, TOC, Pt, ColorPalette + presets registry. with_style_from(path) loader. NO public exports beyond what handover §3 names.</step-6>
-      <step-7 module="(infrastructure)" status="done" verification="V-MP-SDK">Update docs/technology.xml: add python-docx ≥1.1, pillow ≥10.x to dependencies. Update pyproject.toml [project].dependencies and uv.lock. Document in docs/style-preset-schema.md the JSON schema agreed in step-1.</step-7>
+      <step-7 module="(infrastructure)" status="done" verification="V-MP-SDK">Update pyproject.toml [project].dependencies + uv.lock with python-docx ≥1.1 and pillow ≥10.x (landed mid-Wave-7-2 by the MP-CONTENT worker who hit the missing-deps gap; technology.xml already declared them in the Phase-7 plan commit). Note: docs/style-preset-schema.md was provisioned earlier by $grace-verification (commit 8163785) ahead of Wave-7-1 dispatch — not produced during Phase-7 implementation; treat its presence as an upstream verification artifact.</step-7>
       <step-8 module="(test surface)" status="done" verification="VF-013">Add tests/integration/test_mp_e2e.py: build a 3-section golden document (cover + 2 body sections, each with a paragraph + a table) via mint_python.sdk, save to tmp, run existing M-VALIDATE on lenient mode, assert zero hard violations + non-empty soft list (audit baseline). Reused by future phases as the python-engine regression anchor.</step-8>
     </Phase-7>
   </ImplementationOrder>
