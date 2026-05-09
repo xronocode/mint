@@ -1119,7 +1119,7 @@ writeFileSync('output.docx', buffer);
         <fn-gantt PURPOSE="Chart.gantt(tasks, title=None, **kwargs) — horizontal bar variant with task spans" />
         <fn-from_matplotlib PURPOSE="Chart.from_matplotlib(fig, caption=None, width_inches=None, vector=True) — wrap user-built matplotlib Figure; vector kwarg accepted for forward-compat but Phase-8 emits PNG @ 300 DPI" />
         <fn-from_seaborn PURPOSE="Chart.from_seaborn(fig, **kwargs) — lazy-imports seaborn; aliases to from_matplotlib (seaborn returns matplotlib Figure)" />
-        <fn-from_plotly PURPOSE="STUB Phase-9+: raises NotImplementedError naming Phase-9 + emits [MP-Chart][from_plotly][BLOCK_PHASE_GUARD]" />
+        <fn-from_plotly PURPOSE="Convert plotly Figure to PNG via plotly.io.to_image (kaleido backend, scale=2); lazy-imports plotly — raises ImportError with `pip install plotly kaleido` hint when either dep is missing (Phase-12 unstub commit 7ca3ec3)" />
         <fn-render PURPOSE="Chart.render(parent_doc) — calls parent_doc.add_picture with PNG bytes + Inches(width); emits [MP-Chart][render][BLOCK_RENDER_CHART] chart_type=%s emu_width=%d" />
       </interface>
       <depends>MP-STYLE, MP-CONTENT</depends>
@@ -1455,6 +1455,13 @@ writeFileSync('output.docx', buffer);
       <step-3 module="MP-DOCUMENT" status="done" verification="V-MP-DOCUMENT">In-place unstub: Document.to_pdf → Gotenberg HTTP adapter (POST /forms/libreoffice/convert with the saved docx; receive PDF bytes; write to caller-supplied path). Phase-7 BLOCK_PHASE_GUARD on to_pdf retired.</step-3>
       <step-4 module="(test surface)" status="done" verification="VF-016">Add tests/unit/test_mp_grace.py + tests/integration/test_mp_grace_e2e.py + tests/integration/test_mp_pdf_e2e.py covering: bootstrap idempotency under fingerprint, describe round-trip, vendor Custom XML Parts preservation (non-GRACE customXml entries unchanged after injection), Gotenberg adapter happy path + error path. VF-013 + VF-014 + VF-015 + VF-016 all stay green (non-regression).</step-4>
     </Phase-11>
+
+    <Phase-12 name="Pure Python Edition — Phase 6 (Chart.from_plotly + kaleido per handover §3.4)" status="done" COMPLETED_AT="2026-05-09">
+      <goal>Retire the last MP-CHART stub: Chart.from_plotly. Pure Python Edition reaches ZERO active stubs across the entire SDK surface — Document.{validate, fix, inject_grace, to_pdf} + Section.add_chart + Chart.from_plotly all concrete. The from_plotly path piggybacks on existing DF-011 Chart Construction (no new DF needed); plotly + kaleido remain optional deps via lazy-import pattern (mirrors seaborn precedent from Phase-8).</goal>
+      <step-1 module="MP-CHART" status="done" verification="V-MP-CHART">In-place unstub: replace from_plotly stub raising NotImplementedError with concrete delegation to plotly.io.to_image (scale=2 PNG via kaleido backend). Lazy-import contract preserved — plotly + kaleido remain optional deps; missing-dep error path raises ImportError with installation hint, NOT BLOCK_PHASE_GUARD. Chart instance carries chart_type="plotly" tag in trace payloads.</step-1>
+      <step-2 module="(test surface)" status="done" verification="V-MP-CHART">Update tests/unit/test_mp_chart.py: retire scenario-10 NotImplementedError assertion; add positive Plotly Figure → Chart construction tests + missing-dep ImportError tests (plotly absent + plotly-OK-kaleido-absent both covered). +2 net tests; coverage 100% maintained.</step-2>
+      <step-3 module="(infrastructure)" status="done" verification="V-MP-CHART">Document plotly + kaleido as optional deps in docs/technology.xml mirroring seaborn precedent. NOT added to pyproject.toml [project].dependencies — lazy-import pattern keeps the wheel slim; users opting into Plotly install via `pip install plotly kaleido` (or via a [project.optional-dependencies] charts-plotly extras group, future cleanup).</step-3>
+    </Phase-12>
   </ImplementationOrder>
 
   <ExecutionPolicy>

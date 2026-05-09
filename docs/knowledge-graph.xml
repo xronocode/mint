@@ -498,7 +498,7 @@
         <fn-gantt PURPOSE="Chart.gantt(tasks, **kwargs) — horizontal bar variant" />
         <fn-from_matplotlib PURPOSE="Chart.from_matplotlib(fig, caption=None, width_inches=None, vector=True) — wrap user-built matplotlib Figure" />
         <fn-from_seaborn PURPOSE="Chart.from_seaborn(fig, **kwargs) — lazy-imports seaborn; aliases to from_matplotlib" />
-        <fn-from_plotly PURPOSE="STUB Phase-9+ — emits BLOCK_PHASE_GUARD then raises NotImplementedError" />
+        <fn-from_plotly PURPOSE="Convert plotly Figure to PNG via plotly.io.to_image (kaleido backend, scale=2); lazy-imports plotly — raises ImportError with `pip install plotly kaleido` hint when either dep is missing (Phase-12 unstub commit 7ca3ec3)" />
       </annotations>
     </MP-CHART>
 

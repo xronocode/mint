@@ -16,6 +16,8 @@
     <dep name="librechat" version="latest" purpose="Multi-model UI with MCP and Artifacts support" />
     <dep name="matplotlib" version="3.7-3.x" purpose="Chart rendering backend for MP-CHART (Phase-8 onward); rendered to PNG @ 300 DPI; corporate theme + chartjunk removal applied via rcParams; backend forced to 'Agg' for headless test runners" />
     <dep name="seaborn" version="optional" purpose="Convenience wrapper for Chart.from_seaborn (Phase-8); lazy-imported only when called — NOT a hard dep" />
+    <dep name="plotly" version="optional" purpose="Source for Chart.from_plotly (Phase-12); user-supplied plotly.graph_objs.Figure converted to PNG via plotly.io.to_image; lazy-imported, raises ImportError with `pip install plotly kaleido` hint when missing — NOT a hard dep" />
+    <dep name="kaleido" version="optional" purpose="PNG export backend used by plotly.io.to_image in Chart.from_plotly (Phase-12); lazy-imported via plotly's call chain; without kaleido, plotly fig.to_image raises and Chart.from_plotly surfaces it as ImportError with kaleido install hint — NOT a hard dep" />
     <future-dep name="RestrictedPython" version="7.x" purpose="Phase-4 (handover §6): sandbox for tier=frontier python tier execution; not added in Phase-7" />
   </Dependencies>
 
