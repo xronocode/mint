@@ -14,8 +14,9 @@ Generates the richest document the Pure Python Edition SDK can produce,
 then validates it against MP-VALIDATE on lenient mode.
 
 Gaps (not yet supported):
-  a) Multi-column, per-section headers/footers, page breaks — no section API
-  b) Landscape orientation, custom margins                  — no page API
+  a) Watermarks, text boxes, WordArt — artistic elements deferred
+  b) Track changes, comments, document protection — collaboration features deferred
+  c) Embedded OLE objects — complex embedding deferred
 """
 from __future__ import annotations
 
@@ -34,6 +35,8 @@ from mint_python.sdk import (
     Image,
     List,
     ListKind,
+    Margins,
+    PageLayout,
     Section,
     Style,
     TabAlignment,
@@ -157,8 +160,10 @@ def build_showcase_document(tmp_dir: Path) -> Document:
     ))
     doc.add_section(sec)
 
-    # ---------- §2: Style System ----------
-    style_section = Section("Style System", level=1)
+    # ---------- §2: Style System (two-column flow demo) ----------
+    style_section = Section("Style System", level=1).with_page_layout(
+        PageLayout(columns=2)
+    )
     style_section.add_paragraph("Built-in style presets:")
     style_section.add_list(List(
         items=[
@@ -240,8 +245,15 @@ def build_showcase_document(tmp_dir: Path) -> Document:
 
     doc.add_section(table_section)
 
-    # ---------- §4: Charts ----------
-    chart_section = Section("Charts", level=1)
+    # ---------- §4: Charts (landscape — wider charts read better) ----------
+    chart_section = Section("Charts", level=1).with_page_layout(
+        PageLayout(
+            orientation="landscape",
+            margins=Margins(top=0.75, bottom=0.75, left=0.75, right=0.75),
+            header="MINT SDK Showcase — Charts",
+            footer="Confidential",
+        )
+    )
 
     chart_section.add_paragraph("Bar Chart — Quarterly Revenue:")
     chart_section.add_chart(Chart.bar(
@@ -367,11 +379,9 @@ def build_showcase_document(tmp_dir: Path) -> Document:
         .add_run(":")
     )
     gaps = [
-        "a) Multi-column layout, per-section headers/footers, explicit page breaks — section/page API not exposed",
-        "b) Landscape orientation, custom page margins — page-level properties not exposed",
-        "c) Watermarks, text boxes, WordArt — artistic elements deferred",
-        "d) Track changes, comments, document protection — collaboration features deferred",
-        "e) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
+        "a) Watermarks, text boxes, WordArt — artistic elements deferred",
+        "b) Track changes, comments, document protection — collaboration features deferred",
+        "c) Embedded OLE objects (Excel charts, etc.) — complex embedding deferred",
     ]
     for gap in gaps:
         gap_section.add_paragraph(gap)
@@ -425,6 +435,44 @@ class TestShowcaseE2E:
         assert "Known Gaps" in last_section.title
         # Threshold tracks shipped scope: each closed gap reduces the list
         # by one. After per-run, lists, merged cells, hyperlinks/bookmarks,
-        # tab stops, footnotes, and callouts all shipped, the floor is
-        # 5 gaps + 1 intro = 6 blocks.
-        assert len(last_section._blocks) >= 6
+        # tab stops, footnotes, callouts, and the page/section API all
+        # shipped, the floor is 3 gaps + 1 intro = 4 blocks.
+        assert len(last_section._blocks) >= 4
+
+    def test_page_layout_emits_landscape_and_columns(self, tmp_path: Path) -> None:
+        """The new with_page_layout API surfaces in the saved OOXML.
+
+        Charts § is configured landscape; Style System § as 2-column. Parse
+        the saved document.xml and assert at least one sectPr has
+        orient='landscape' and at least one has w:cols num='2'.
+        """
+        import zipfile
+
+        from lxml import etree
+
+        doc = build_showcase_document(tmp_path)
+        out = tmp_path / "showcase.docx"
+        doc.save(out)
+
+        with zipfile.ZipFile(out) as z:
+            xml = z.read("word/document.xml")
+        tree = etree.fromstring(xml)
+        ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        sect_prs = tree.findall(".//w:sectPr", ns)
+
+        landscape_found = False
+        two_col_found = False
+        for sp in sect_prs:
+            pg_sz = sp.find("w:pgSz", ns)
+            if pg_sz is not None and pg_sz.get(
+                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}orient"
+            ) == "landscape":
+                landscape_found = True
+            cols = sp.find("w:cols", ns)
+            if cols is not None and cols.get(
+                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}num"
+            ) == "2":
+                two_col_found = True
+
+        assert landscape_found, "Charts section should emit landscape sectPr"
+        assert two_col_found, "Style System section should emit 2-column sectPr"

@@ -28,6 +28,8 @@
 #   ListKind - re-export of mint_python.core.list_block.ListKind
 #   Callout - re-export of mint_python.core.callout.Callout
 #   CalloutKind - re-export of mint_python.core.callout.CalloutKind
+#   PageLayout - re-export of mint_python.core.page_layout.PageLayout
+#   Margins - re-export of mint_python.core.page_layout.Margins
 #   TabStop - re-export of mint_python.core.content.TabStop
 #   TabAlignment - re-export of mint_python.core.content.TabAlignment enum
 #   TabLeader - re-export of mint_python.core.content.TabLeader enum
@@ -64,6 +66,7 @@ from mint_python.core.chart import Chart
 from mint_python.core.content import Image, TabAlignment, TabLeader, TabStop
 from mint_python.core.document import Document
 from mint_python.core.list_block import List, ListKind
+from mint_python.core.page_layout import Margins, PageLayout
 from mint_python.core.section import Section
 from mint_python.core.style import (
     BUILTIN_PRESETS as presets,  # noqa: N811 - public alias per handover §3
@@ -92,6 +95,8 @@ __all__ = [
     "Image",
     "List",
     "ListKind",
+    "Margins",
+    "PageLayout",
     "Pt",
     "Section",
     "Style",

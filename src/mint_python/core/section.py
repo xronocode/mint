@@ -48,11 +48,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from docx.document import Document as DocxDocument
+from docx.enum.section import WD_SECTION
 
 from mint_python.core.callout import Callout
 from mint_python.core.chart import Chart
 from mint_python.core.content import Image, Paragraph
 from mint_python.core.list_block import List
+from mint_python.core.page_layout import PageLayout, apply_to_docx_section
 from mint_python.core.table import Table
 
 # ---------------------------------------------------------------------------
@@ -112,6 +114,7 @@ class Section:
     _blocks: list[Paragraph | Table | Image | Chart | List | Callout] = field(
         default_factory=list
     )
+    _page_layout: PageLayout | None = None
 
     def __post_init__(self) -> None:
         if not (1 <= self.level <= 6):
@@ -178,6 +181,17 @@ class Section:
         self._blocks.append(callout)
         return self
 
+    def with_page_layout(self, layout: PageLayout) -> Section:
+        """Attach a per-Section PageLayout; returns self for fluent chaining.
+
+        At render time the Section opens its own docx section break before
+        emitting the heading + content, so cover/TOC/preceding sections
+        retain the document's default sectPr and only this Section's content
+        gets the configured orientation, margins, columns, and header/footer.
+        """
+        self._page_layout = layout
+        return self
+
     def render(self, parent_doc: DocxDocument) -> None:
         """Emit heading + ordered child block renders into ``parent_doc``.
 
@@ -188,7 +202,21 @@ class Section:
         emitting an extra section-level marker would over-instrument the
         trace. Callers who need section boundaries can reconstruct them
         from caplog by pairing add_heading payloads with their level.
+
+        When ``_page_layout`` is set, a docx section break is added BEFORE
+        the heading so the new sectPr applies to this Section's content
+        onward; preceding content (cover/TOC/prior sections without their
+        own layout) stays under the document's original trailing sectPr.
         """
+        if self._page_layout is not None:
+            start_type = (
+                WD_SECTION.NEW_PAGE
+                if self._page_layout.page_break_before
+                else WD_SECTION.CONTINUOUS
+            )
+            docx_section = parent_doc.add_section(start_type)
+            apply_to_docx_section(docx_section, self._page_layout)
+
         parent_doc.add_heading(self.title, level=self.level)
         for block in self._blocks:
             block.render(parent_doc)
