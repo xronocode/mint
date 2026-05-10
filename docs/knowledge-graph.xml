@@ -808,14 +808,22 @@
       </annotations>
     </MP-MANIFEST-READ>
 
-    <MP-VISUAL-QA-HOOK NAME="Visual QA hook on create_document (VLM rubric)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
-      <purpose>Advisory post-create_document visual quality gate. Refactors root-level e2e_qa_visual.py into a library; runs after every successful create_document. Score 0-100 across typography / layout / visual_richness / professional axes via qwen2.5vl:7b on Ollama. Default ON; opt out via MINT_SKIP_VISUAL_QA=1. NEVER fails the tool — backend-unavailable degrades gracefully; below-threshold logs but tool still succeeds.</purpose>
-      <path>src/mint_python/qa/visual.py + edits to src/mint_python/mcp/document.py</path>
-      <depends>soffice (LibreOffice headless), pdftoppm (poppler-utils), Ollama VLM endpoint qwen2.5vl:7b, pillow, urllib.request stdlib; integrated into MP-DOC-GENERIC.create_document via post-step</depends>
+    <MP-VISUAL-QA-HOOK NAME="Visual QA hook on create_document (VLM rubric)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-10" ACTIVATION_GATE="Wave-15-2" COMMIT="653896a">
+      <purpose>Advisory post-create_document visual quality gate. Refactors root-level e2e_qa_visual.py into a library; runs after every successful create_document. Score 0-100 across typography / layout / visual_richness / professional axes via qwen2.5vl:7b on Ollama. Default ON; opt out via MINT_SKIP_VISUAL_QA=1. NEVER fails the tool — two-layer defense in depth (score_document outer except + caller try/except wrap). VF-019 inv-7 NO-CALLER-INPUT-IN-VLM-PAYLOAD: rubric prompt is FIXED with NO doc_title interpolation (the original e2e_qa_visual.py used core.xml dc:title which derived from the caller's intent — removed in Wave-15-2 refactor).</purpose>
+      <path>src/mint_python/qa/__init__.py + src/mint_python/qa/visual.py + edits to src/mint_python/mcp/document.py (hook insertion between END_BLOCK_INJECT_GRACE and the return dict) + e2e_qa_visual.py rewritten as 56-LOC argparse CLI shim delegating to score_document</path>
+      <depends>soffice (LibreOffice headless), pdftoppm (poppler-utils), Ollama VLM endpoint qwen2.5vl:7b (configurable via MINT_VISUAL_QA_OLLAMA_URL + MINT_VISUAL_QA_VLM_MODEL ops overrides), urllib.request stdlib; integrated into MP-DOC-GENERIC.create_document via post-step</depends>
+      <consumed-by>MP-DOC-GENERIC._run_pipeline (hook caller); e2e_qa_visual.py CLI shim (manual smoke)</consumed-by>
       <verification-ref>V-MP-VISUAL-QA-HOOK</verification-ref>
       <annotations>
-        <fn-score_document PURPOSE="library function returning VisualQAReport | None; backend-unavailable returns None with logged warning; never raises back into the tool" />
-        <type-VisualQAReport PURPOSE="frozen dataclass: score, axes dict, issues list, pages_scored, preset_name, advisory=True, skipped, skip_reason" />
+        <fn-score_document PURPOSE="library function returning VisualQAReport | None; None when MINT_SKIP_VISUAL_QA=1 (caller opt-out); VisualQAReport(skipped=True) when backend/network/decode failure (key present so ops sees signal); never raises back into the tool (outer except Exception maps any uncaught raise to skipped=True with skip_reason='unexpected:&lt;ExcClass&gt;')" />
+        <type-VisualQAReport PURPOSE="frozen dataclass: score float, axes dict[str, int], issues list[str], pages_scored int, preset_name str, advisory bool=True, skipped bool=False, skip_reason str | None" />
+        <env-MINT_SKIP_VISUAL_QA PURPOSE="when '1', hook short-circuits BEFORE backend probes; score_document returns None; caller omits visual_qa key entirely from structured_content (key absent, not None)" />
+        <env-MINT_VISUAL_QA_OLLAMA_URL PURPOSE="ops override for Ollama endpoint URL; not caller-controllable" />
+        <env-MINT_VISUAL_QA_VLM_MODEL PURPOSE="ops override for VLM model name; not caller-controllable" />
+        <log-marker-BLOCK_QA_SCORE PURPOSE="INFO; payload preset pages_scored score axes; emitted on success path AFTER BLOCK_INJECT_GRACE in caplog order" />
+        <log-marker-BLOCK_QA_BELOW_THRESHOLD PURPOSE="WARNING; payload score threshold preset; emitted when aggregate &lt; threshold (default 70); tool still succeeds" />
+        <log-marker-BLOCK_QA_BACKEND_UNAVAILABLE PURPOSE="WARNING; payload reason=&lt;backend&gt;_unavailable | render_failed:&lt;Exc&gt; | no_pages_rendered | ollama_unreachable:&lt;Exc&gt;; emitted on graceful-fail paths" />
+        <const-_PROMPT_TEMPLATE PURPOSE="FIXED rubric prompt; parameterized only by page_no + total_pages (numeric); NO caller-derived content (intent / source_md / fields_elicited / doc_title) per VF-019 inv-7" />
       </annotations>
     </MP-VISUAL-QA-HOOK>
 
