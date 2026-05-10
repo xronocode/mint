@@ -703,5 +703,65 @@
     <CrossLink from="MP-MEMO-POC" to="MP-STYLE" relation="create_memo applies the klawd preset (apply_preset_to_doc) so generated memos visually match the Anthropic baseline. Verified by V-MP-MEMO-POC scenario-6: styles.xml carries 1B3A5C / Arial / 333333." />
     <CrossLink from="MP-MEMO-POC" to="MP-GRACE" relation="create_memo injects a GRACE manifest (urn:mint:grace:2026:manifest) carrying audit-trail metadata (audit_id, fields_elicited, model identity, timestamp). Establishes the GRACE-as-audit-trail differentiator end-to-end." />
     <CrossLink from="MP-MCP-AUDIT" to="MP-MEMO-POC" relation="MP-MCP-AUDIT's roadmap section uses MP-MEMO-POC.create_memo as the canonical example of the new tool signature (async, ctx: Context, ctx.elicit-based dialog). Phase-14 migration of legacy mcp_g1 / mcp_g2 tools follows the same shape." />
+
+    <!-- Phase 14: generic doc-gen + governed templates + MCP resources -->
+
+    <MP-DOC-GENERIC NAME="Generic create_document MCP tool" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>Lift Phase-13 MEMO-POC out of the hardcoded "memo" shape into a generic create_document(intent, doc_type, source_md?, ctx) tool. Document type selected at call-time from templates/ registry; pipeline (heuristic → elicit → klawd → GRACE) identical for every doc_type. Adding Letter / Report / Contract becomes a templates/&lt;name&gt;.yaml file with no Python changes.</purpose>
+      <path>src/mint_python/mcp/document.py (replaces mcp/memo.py; legacy alias kept)</path>
+      <depends>MP-MEMO-POC (refactor source), MP-MD-ADAPTER, MP-DOCUMENT, MP-STYLE, MP-GRACE, MP-TEMPLATES-REGISTRY, fastmcp.Context, pyyaml</depends>
+      <verification-ref>V-MP-DOC-GENERIC</verification-ref>
+      <annotations>
+        <fn-create_document PURPOSE="@server.tool async; doc_type selects template; pipeline doc-type-agnostic" />
+        <type-DocumentSpec PURPOSE="Generic dataclass driven by template required_fields; replaces MemoSpec" />
+        <fn-create_memo PURPOSE="Backwards-compat alias create_memo(intent) → create_document(intent, doc_type='memo')" />
+      </annotations>
+    </MP-DOC-GENERIC>
+
+    <MP-TEMPLATES-REGISTRY NAME="Template registry + read MCP tools" TYPE="UTILITY" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>Read-only registry over templates/ — discovers YAML files (and semver-versioned siblings), validates against TemplateSchema, exposes them through list_templates / get_template MCP tools. First half of audit's Priority-2.</purpose>
+      <path>src/mint_python/templates/registry.py + templates/letter.yaml (new doc_type)</path>
+      <depends>pyyaml</depends>
+      <verification-ref>V-MP-TEMPLATES-REGISTRY</verification-ref>
+      <annotations>
+        <type-TemplateRegistry PURPOSE="Walks templates/, parses + validates YAML files; returns list/get queries" />
+        <fn-list_templates PURPOSE="@server.tool async; enumerates registry entries" />
+        <fn-get_template PURPOSE="@server.tool async; returns full YAML content for name+version" />
+        <type-TemplateSchema PURPOSE="Generic schema replacing MemoTemplate; required_fields + layout + doc_type + version + description" />
+      </annotations>
+    </MP-TEMPLATES-REGISTRY>
+
+    <MP-TEMPLATES-WRITE NAME="Template versioning + cross-model handoff" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>Versioned write side of the template registry. update_template authors a new semver-bumped YAML file; never overwrites. Sidecar audit log records every write. GRACE manifest in produced docx records template lineage. Closes audit's Priority-4 — frontier model edits in low-sensitivity context, local model later consumes on sensitive data, manifest names the chain.</purpose>
+      <path>src/mint_python/templates/registry.py (extended) + templates/_audit.jsonl (gitignored)</path>
+      <depends>MP-TEMPLATES-REGISTRY (validation + version detection), MP-GRACE (manifest extension carries template lineage), pyyaml</depends>
+      <verification-ref>V-MP-TEMPLATES-WRITE</verification-ref>
+      <annotations>
+        <fn-update_template PURPOSE="@server.tool async; bumps semver + writes new file + appends audit-log entry" />
+        <type-TemplateAuditEntry PURPOSE="Sidecar JSONL record per write: timestamp, name, version, predecessor_version, author, content_sha256" />
+      </annotations>
+    </MP-TEMPLATES-WRITE>
+
+    <MP-MCP-RESOURCES NAME="MCP resources for templates + presets" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>FastMCP @server.resource handlers exposing mint://template/&lt;name&gt; and mint://preset/&lt;name&gt; URI schemes. Native enumeration for clients that prefer resources/list (Cursor, VS Code Insiders MCP). Symmetric tools list_presets / get_preset for clients without resource support (current Claude Desktop). Closes audit's Priority-1.</purpose>
+      <path>src/mint_python/mcp/resources.py</path>
+      <depends>MP-TEMPLATES-REGISTRY, MP-STYLE (BUILTIN_PRESETS lookup), fastmcp.server.resource</depends>
+      <verification-ref>V-MP-MCP-RESOURCES</verification-ref>
+      <annotations>
+        <export-resource_handlers PURPOSE="@server.resource handlers for mint://template/* and mint://preset/* URIs" />
+        <fn-list_presets PURPOSE="@server.tool async; enumerates BUILTIN_PRESETS" />
+        <fn-get_preset PURPOSE="@server.tool async; returns full YAML/JSON preset content" />
+      </annotations>
+    </MP-MCP-RESOURCES>
+
+    <CrossLink from="MP-DOC-GENERIC" to="MP-MEMO-POC" relation="MP-DOC-GENERIC supersedes MP-MEMO-POC's hardcoded memo flow; pipeline (heuristic → elicit → klawd → GRACE) is inherited verbatim, only specialization moves out into templates/." />
+    <CrossLink from="MP-DOC-GENERIC" to="MP-TEMPLATES-REGISTRY" relation="create_document looks up doc_type in the registry to fetch the template; registry validates schema before pipeline runs." />
+    <CrossLink from="MP-DOC-GENERIC" to="MP-MD-ADAPTER" relation="Inherited from MEMO-POC: source_md is parsed via markdown_to_spec for fact extraction." />
+    <CrossLink from="MP-DOC-GENERIC" to="MP-DOCUMENT" relation="Inherited: docx assembly through MP-DOCUMENT with klawd preset application." />
+    <CrossLink from="MP-DOC-GENERIC" to="MP-GRACE" relation="GRACE manifest extended with doc_type + template_version + template_author for full lineage." />
+    <CrossLink from="MP-TEMPLATES-WRITE" to="MP-TEMPLATES-REGISTRY" relation="Write side validates content against the registry's TemplateSchema before persisting; new versions land in the same directory the registry walks." />
+    <CrossLink from="MP-TEMPLATES-WRITE" to="MP-GRACE" relation="Audit log entries flow into GRACE manifest of every produced docx — establishing the cross-model handoff lineage chain." />
+    <CrossLink from="MP-MCP-RESOURCES" to="MP-TEMPLATES-REGISTRY" relation="Resource handler for mint://template/* delegates to the registry's get_template; resource enumeration mirrors list_templates." />
+    <CrossLink from="MP-MCP-RESOURCES" to="MP-STYLE" relation="Resource handler for mint://preset/* reads from MP-STYLE.BUILTIN_PRESETS." />
   </Project>
 </KnowledgeGraph>
