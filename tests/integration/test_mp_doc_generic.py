@@ -405,3 +405,225 @@ async def test_create_document_decorated_callable_returns_tool_result() -> None:
     assert result.structured_content["status"] == "complete"
     assert result.structured_content["doc_type"] == "memo"
     assert result.structured_content["template_version"] == "1.0"
+
+
+# --------------------------------------------------------------------------- #
+# Bug #1 — kind: callout in template layout renders to docx (was previously
+# silently skipped, surfaced by W3 cross-model handoff smoke 2026-05-10).
+# --------------------------------------------------------------------------- #
+
+
+def test_callout_in_template_layout_renders_to_docx(tmp_path: Path) -> None:
+    """A template entry with kind: callout produces a callout in the
+    output docx. Tests both the comment-documented vocab (kind_of /
+    body / title) AND the natural Claude-Desktop shape (type / text /
+    label) to cover the field-name leniency."""
+    from mint_python.mcp.document import (
+        DocumentSpec,
+        DocumentTemplate,
+        _build_document,
+    )
+
+    # Comment-documented vocab.
+    template_a = DocumentTemplate(
+        name="x",
+        version="1.0",
+        required_fields=(),
+        layout=[
+            {"kind": "heading", "level": 1, "text": "Header"},
+            {"kind": "callout", "kind_of": "warning", "title": "A", "body": "Body A"},
+        ],
+    )
+    spec = DocumentSpec()
+    doc_a = _build_document(spec, template_a)
+    out_a = tmp_path / "a.docx"
+    doc_a.save(out_a)
+
+    # Claude's natural shape (type / text / label).
+    template_b = DocumentTemplate(
+        name="x",
+        version="1.0",
+        required_fields=(),
+        layout=[
+            {"kind": "heading", "level": 1, "text": "Header"},
+            {"kind": "callout", "type": "warning", "label": "B", "text": "Body B"},
+        ],
+    )
+    doc_b = _build_document(spec, template_b)
+    out_b = tmp_path / "b.docx"
+    doc_b.save(out_b)
+
+    # Both docx files contain the callout text in the body part. The
+    # callout is implemented via styled paragraphs in word/document.xml,
+    # so the body text appears verbatim there.
+    with zipfile.ZipFile(out_a) as zf:
+        body_a = zf.read("word/document.xml").decode("utf-8")
+    with zipfile.ZipFile(out_b) as zf:
+        body_b = zf.read("word/document.xml").decode("utf-8")
+    assert "Body A" in body_a
+    assert "Body B" in body_b
+
+
+def test_callout_substitutes_template_fields(tmp_path: Path) -> None:
+    """Callout body and title go through _substitute, so {{ field }}
+    placeholders work just like in headings/paragraphs/tables."""
+    from mint_python.mcp.document import (
+        DocumentSpec,
+        DocumentTemplate,
+        _build_document,
+    )
+
+    template = DocumentTemplate(
+        name="x",
+        version="1.0",
+        required_fields=("subject",),
+        layout=[
+            {"kind": "heading", "level": 1, "text": "Header"},
+            {
+                "kind": "callout",
+                "kind_of": "info",
+                "title": "Re: {{ subject }}",
+                "body": "Note about {{ subject }}",
+            },
+        ],
+    )
+    spec = DocumentSpec(subject="Q2 review")
+    doc = _build_document(spec, template)
+    out = tmp_path / "out.docx"
+    doc.save(out)
+    with zipfile.ZipFile(out) as zf:
+        body = zf.read("word/document.xml").decode("utf-8")
+    assert "Note about Q2 review" in body
+    assert "Re: Q2 review" in body
+
+
+def test_callout_unknown_kind_falls_back_to_info(tmp_path: Path) -> None:
+    """Unknown `kind_of` value (typo or future extension) defaults to
+    INFO rather than crashing — forgiving for template authors."""
+    from mint_python.mcp.document import (
+        DocumentSpec,
+        DocumentTemplate,
+        _build_document,
+    )
+
+    template = DocumentTemplate(
+        name="x",
+        version="1.0",
+        required_fields=(),
+        layout=[
+            {"kind": "heading", "level": 1, "text": "Header"},
+            {"kind": "callout", "kind_of": "futuristic-warning", "body": "X"},
+        ],
+    )
+    doc = _build_document(DocumentSpec(), template)
+    out = tmp_path / "out.docx"
+    doc.save(out)  # must not raise
+    with zipfile.ZipFile(out) as zf:
+        body = zf.read("word/document.xml").decode("utf-8")
+    assert "X" in body
+
+
+# --------------------------------------------------------------------------- #
+# Bug #2 — _substitute supports {{ name | default: "..." }} Jinja filter.
+# --------------------------------------------------------------------------- #
+
+
+def test_substitute_uses_field_when_set() -> None:
+    """When the named field IS set on the spec, the default is ignored
+    and the field value used."""
+    from mint_python.mcp.document import DocumentSpec, _substitute
+
+    spec = DocumentSpec(subject="Q2 review")
+    assert _substitute("Re: {{ subject }}", spec) == "Re: Q2 review"
+    assert (
+        _substitute('Re: {{ subject | default: "untitled" }}', spec)
+        == "Re: Q2 review"
+    )
+
+
+def test_substitute_falls_back_to_default_when_field_unset() -> None:
+    """Field unset + default present → default rendered. Both double-
+    and single-quoted defaults work."""
+    from mint_python.mcp.document import DocumentSpec, _substitute
+
+    spec = DocumentSpec()  # nothing set
+    assert (
+        _substitute('Hello {{ subject | default: "world" }}', spec)
+        == "Hello world"
+    )
+    assert (
+        _substitute("Hello {{ subject | default: 'world' }}", spec)
+        == "Hello world"
+    )
+
+
+def test_substitute_empty_when_no_default_and_field_unset() -> None:
+    """Field unset + no default → empty string (preserves prior behavior)."""
+    from mint_python.mcp.document import DocumentSpec, _substitute
+
+    spec = DocumentSpec()
+    assert _substitute("Hello {{ subject }}", spec) == "Hello "
+
+
+def test_substitute_default_with_punctuation_inside() -> None:
+    """Default strings can contain commas, colons, periods — common in
+    confidentiality-style notices that drove this issue."""
+    from mint_python.mcp.document import DocumentSpec, _substitute
+
+    spec = DocumentSpec()
+    text = (
+        '{{ confidentiality | default: '
+        '"This memo is confidential. Do not forward." }}'
+    )
+    out = _substitute(text, spec)
+    assert out == "This memo is confidential. Do not forward."
+
+
+# --------------------------------------------------------------------------- #
+# Bug #3 — tool result text includes the file:// URI verbatim AND the
+# create_document docstring directs the model to relay it as-is.
+# --------------------------------------------------------------------------- #
+
+
+def test_to_tool_result_text_includes_file_uri_verbatim() -> None:
+    """The TextContent we return MUST contain the file:// URI as a raw
+    string (not just inside a markdown link). Easier for downstream
+    paraphrasing to preserve."""
+    from mint_python.mcp.document import _to_tool_result
+
+    fake_result = {
+        "status": "complete",
+        "path": "/Users/example/Documents/MINT/memo_test.docx",
+        "audit_id": "deadbeef-1234",
+        "fields_elicited": [],
+        "doc_type": "memo",
+        "template_version": "1.0",
+    }
+    tool_result = _to_tool_result(fake_result)
+    text = tool_result.content[0].text
+    # The raw file:// URI must appear in the text — not only inside a
+    # markdown-link parens.
+    assert "file:///Users/example/Documents/MINT/memo_test.docx" in text
+    # Imperative-style cue that helps relayers preserve the path.
+    assert "Open" in text or "Saved" in text or "open" in text
+    assert "deadbeef-1234" in text
+
+
+def test_create_document_docstring_directs_verbatim_relay() -> None:
+    """create_document's docstring must instruct the model to relay the
+    file:// link verbatim — directives in tool descriptions are
+    typically respected by orchestrating models."""
+    from mint_python.mcp.document import create_document
+
+    # FastMCP tool decorators preserve the underlying function's docstring.
+    docstring = (
+        getattr(create_document, "__doc__", None)
+        or getattr(create_document, "fn", create_document).__doc__
+        or ""
+    )
+    needle = "verbatim"
+    assert needle in docstring.lower(), (
+        "create_document docstring must contain a verbatim-relay "
+        "directive so connected models preserve the file:// link in "
+        "their reply to the user (closes #3)"
+    )
