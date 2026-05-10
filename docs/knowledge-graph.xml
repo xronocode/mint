@@ -827,7 +827,7 @@
       </annotations>
     </MP-VISUAL-QA-HOOK>
 
-    <MP-LEGACY-DEPRECATION NAME="Remove mcp_g1/mcp_g2 + JS sandbox + legacy create/assemble pipeline" TYPE="UTILITY" STATUS="planned" ADDED_AT="2026-05-10" SCOPE_EXPANDED_AT="2026-05-10">
+    <MP-LEGACY-DEPRECATION NAME="Remove mcp_g1/mcp_g2 + JS sandbox + legacy create/assemble pipeline" TYPE="UTILITY" STATUS="shipped" ADDED_AT="2026-05-10" SCOPE_EXPANDED_AT="2026-05-10" ACTIVATION_GATE="Wave-15-3" COMMIT="63b1646">
       <purpose>Subtractive cleanup honoring audit §6 "Tools to deprecate" + the unmet Phase-14 promise. Pre-flight 2026-05-10 expanded scope: also deletes mint.create + mint.assemble (legacy JS-tier orchestrators superseded by mint_python.mcp.document.create_document since Phase-14) and the cmd_serve CLI subcommand mount path. Drops Engine.JS, purges docx/pptxgenjs/exceljs/vm2/isolated-vm/vitest/eslint from pyproject + uv.lock, updates docs/technology.xml + docs/requirements.xml. Pure-python becomes the only execution surface. Net public surface SHRINKS by 5 legacy MCP tools + 2 legacy orchestration modules + 1 CLI subcommand.</purpose>
       <path>src/mint/mcp_g1.py (delete) + src/mint/mcp_g2.py (delete) + src/mint/sandbox/ (delete recursive) + src/mint/create.py (delete; scope-expanded) + src/mint/assemble.py (delete; scope-expanded) + src/mint/cli.py (edit: drop cmd_serve + Engine.JS) + src/mint/config.py (drop Engine.JS) + pyproject.toml (drop deps + dangling entry points) + docs/technology.xml + docs/requirements.xml</path>
       <depends>Pre-flight audit complete 2026-05-10: tools/article_experiment/ + scripts/ clean. In-tree importers (mint.create, mint.assemble, mint.cli) all in deletion scope — no stub-shim needed.</depends>
