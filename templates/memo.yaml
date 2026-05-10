@@ -1,0 +1,49 @@
+# MINT memo template (MP-MEMO-POC)
+#
+# This file is the canonical Memo document structure as DATA, not code.
+# MP-MEMO-POC's create_memo tool reads this YAML at runtime and assembles
+# the docx by walking these block declarations against the MemoSpec
+# fields. Adding a Letter or Report doc-type later means another YAML
+# file in this directory — no Python changes.
+#
+# Fields referenced via `{{ field_name }}` are required in MemoSpec and
+# populated either heuristically from the user's intent or via
+# ctx.elicit dialogs.
+
+name: memo
+version: "1.0"
+description: "Standard business memo — sender / recipient / date / subject / body"
+
+# Required MemoSpec fields, in declaration order. The runtime elicits any
+# that are missing AFTER heuristic extraction, in this exact order.
+required_fields:
+  - sender
+  - recipient
+  - date
+  - subject
+  - body
+
+# Block sequence the assembler emits. Each entry is one of:
+#   {kind: heading, level: 1..3, text: "..." | "{{ field }}"}
+#   {kind: paragraph, text: "..." | "{{ field }}", emphasis: ["phrase", ...]}
+#   {kind: callout, kind_of: info|warning|code, body: "...", title: "..."}
+#   {kind: table, header: [...], rows: [["{{ field }}"], ...]}
+#   {kind: spacer}    -- blank paragraph for visual rhythm
+layout:
+  - kind: heading
+    level: 1
+    text: MEMORANDUM
+  - kind: spacer
+  - kind: table
+    header: ["Field", "Value"]
+    rows:
+      - ["From", "{{ sender }}"]
+      - ["To", "{{ recipient }}"]
+      - ["Date", "{{ date }}"]
+      - ["Subject", "{{ subject }}"]
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Body
+  - kind: paragraph
+    text: "{{ body }}"
