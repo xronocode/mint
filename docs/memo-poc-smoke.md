@@ -7,7 +7,7 @@ failures.
 
 ## Important — two operating modes
 
-`create_memo` runs in one of two modes depending on the connected MCP
+`mint_create_memo` runs in one of two modes depending on the connected MCP
 client:
 
 - **Elicitation mode** — the client implements MCP `elicitation/create`
@@ -21,7 +21,7 @@ client:
   first elicit, the tool short-circuits, returns
   `{"status": "needs_more_info", "missing_fields": [...], "extracted_so_far": {...}, "guidance": "..."}`,
   and the connected model asks the user in chat. The user then re-invokes
-  `create_memo` with a fuller intent that contains the missing values
+  `mint_create_memo` with a fuller intent that contains the missing values
   inline. This works in **every** MCP client, including current Claude
   Desktop.
 
@@ -65,12 +65,12 @@ the list.
 
 In a Claude Desktop chat:
 
-> Use the create_memo tool with this intent: "Memo from Mikhail Yevdokimov
+> Use the mint_create_memo tool with this intent: "Memo from Mikhail Yevdokimov
 > (CFO) to Board of Directors on 2026-05-15 about Q2 revenue trends. Q2
 > revenue grew 13%, services led the lift, margin ahead of plan."
 
 Expected:
-- Claude invokes `create_memo` with the intent string and `source_md=None`.
+- Claude invokes `mint_create_memo` with the intent string and `source_md=None`.
 - No elicitation prompts shown to the user.
 - Tool returns `{path: "/tmp/mint_memo_*/memo.docx", audit_id: "...", fields_elicited: []}`.
 - Claude's reply mentions the saved path and shows the audit_id.
@@ -79,11 +79,11 @@ Expected:
 
 In a fresh chat:
 
-> Use create_memo to draft a memo from Mikhail Yevdokimov on 2026-05-15
+> Use mint_create_memo to draft a memo from Mikhail Yevdokimov on 2026-05-15
 > about Q2 revenue trends; revenue grew 13%.
 
 Expected:
-- Claude invokes `create_memo` with the intent.
+- Claude invokes `mint_create_memo` with the intent.
 - Claude Desktop renders **one** structured form — labelled "recipient" —
   asking "Who is the memo addressed to?".
 - User enters "Board of Directors" and submits.
@@ -91,7 +91,7 @@ Expected:
 
 ### Round 3 — multiple elicitation rounds
 
-> Use create_memo with intent "Memo about Q2 revenue trends. Recipient:
+> Use mint_create_memo with intent "Memo about Q2 revenue trends. Recipient:
 > Board of Directors."
 
 Expected:
