@@ -520,6 +520,135 @@ async def test_other_mcp_errors_still_propagate() -> None:
     assert excinfo.value.error.code == -32603
 
 
+# --------------------------------------------------------------------------- #
+# Heuristic extractor — labelled-key form (LLM natural output)
+# --------------------------------------------------------------------------- #
+
+
+def test_heuristic_extracts_labelled_form() -> None:
+    """LLMs frequently emit memos as labelled blobs when asked to be explicit;
+    the heuristic must accept this form alongside prose."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    intent = (
+        "sender: Mikhail Yevdokimov (CPO)\n"
+        "recipient: Board of Directors\n"
+        "date: 2026-05-15\n"
+        "subject: Q2 CA Product Trends\n"
+    )
+    spec = _heuristic_extract(intent, source_md=None)
+    assert spec.sender == "Mikhail Yevdokimov (CPO)"
+    assert spec.recipient == "Board of Directors"
+    assert spec.date == "2026-05-15"
+    assert spec.subject == "Q2 CA Product Trends"
+
+
+def test_heuristic_extracts_from_to_aliases() -> None:
+    """`From:` and `To:` aliases for sender / recipient."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    intent = (
+        "From: Mikhail (CPO)\n"
+        "To: Board\n"
+        "Subject: Q3 plan\n"
+    )
+    spec = _heuristic_extract(intent, source_md=None)
+    assert spec.sender == "Mikhail (CPO)"
+    assert spec.recipient == "Board"
+    assert spec.subject == "Q3 plan"
+
+
+def test_heuristic_extracts_body_block() -> None:
+    """Multi-line `Body:\\n\\n...` blob is captured as body text."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    intent = (
+        "sender: M\nrecipient: B\ndate: 2026-05-15\nsubject: X\n"
+        "Body:\n\n"
+        "Para 1 with detail.\n\n"
+        "Para 2 with more detail.\n"
+    )
+    spec = _heuristic_extract(intent, source_md=None)
+    assert spec.body
+    assert "Para 1" in spec.body
+    assert "Para 2" in spec.body
+
+
+def test_heuristic_subject_label_with_colon() -> None:
+    """`Subject: X` is a legal subject pattern in addition to `about X`."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    intent = "From: M\nTo: B\nDate: 2026-05-15\nSubject: Q2 review\n"
+    spec = _heuristic_extract(intent, source_md=None)
+    assert spec.subject == "Q2 review"
+
+
+def test_heuristic_empty_label_value_skipped() -> None:
+    """A label with no value (`subject:` followed by nothing) is skipped — the
+    field stays unset and falls through to prose / elicit later."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    intent = "sender: M\nrecipient: B\nsubject:\nMemo about Q2.\n"
+    spec = _heuristic_extract(intent, source_md=None)
+    # subject from prose ("about Q2"), not from the empty label.
+    assert spec.subject == "Q2"
+
+
+def test_heuristic_body_block_wins_over_inline_body_label() -> None:
+    """Multi-line `Body:\\n\\n…` block captures body before the single-line
+    label scan runs, so a stray inline `body: short` afterwards doesn't
+    overwrite it. Covers the body-already-set defensive branch."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    intent = (
+        "sender: M\nrecipient: B\ndate: 2026-05-15\nsubject: X\n"
+        "body: short inline value\n"  # this would normally fill body
+        "Body:\n\n"
+        "Multi-line block paragraph that should win.\n"
+    )
+    spec = _heuristic_extract(intent, source_md=None)
+    assert spec.body
+    # The multi-line block captured it; the inline label was skipped.
+    assert "Multi-line block" in spec.body
+
+
+def test_heuristic_mixed_labelled_and_prose_fallback() -> None:
+    """When intent has labelled sender + prose subject, both are extracted."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    intent = (
+        "sender: Mikhail\n"
+        "Memo to Board of Directors about strategy review.\n"
+    )
+    spec = _heuristic_extract(intent, source_md=None)
+    assert spec.sender == "Mikhail"
+    assert spec.recipient == "Board of Directors"
+    assert spec.subject == "strategy review"
+
+
+@pytest.mark.asyncio
+async def test_full_labelled_intent_no_elicit() -> None:
+    """End-to-end: a fully labelled intent (the form Claude naturally
+    produces in chat-driven fallback mode) hits the heuristic correctly
+    and no elicit calls are made."""
+    intent = (
+        "sender: Mikhail Yevdokimov (CPO)\n"
+        "recipient: Board of Directors\n"
+        "date: 2026-05-15\n"
+        "subject: Q2 CA Product Trends and Kyrgyzstan trends\n"
+        "Body:\n\n"
+        "Q2 2026 Central Asia Product Trends:\n"
+        "- Super-app consolidation wave\n"
+        "- Open banking momentum\n"
+        "- Cashless acceleration\n"
+    )
+    ctx = FakeMCPContext(answers={})
+    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+    assert result["status"] == "complete"
+    assert ctx.elicited_calls == []
+    assert Path(result["path"]).exists()
+
+
 def test_template_loader_returns_required_fields() -> None:
     from mint_python.mcp.memo import _load_template
 

@@ -153,13 +153,37 @@ _FROM_RE = re.compile(
     r"(?:[,.:;]|\s+(?:on|about|re|regarding)\b|$)",
     re.IGNORECASE,
 )
-# Fallback for recipient-only: "to X" or "Recipient: X".
+# Fallback for recipient-only: "to X" or "Recipient: X". The capture stops
+# at common subject/body lead-ins so "Memo to Board about strategy" doesn't
+# yield "Board about strategy" as recipient.
 _RECIPIENT_RE = re.compile(
-    r"\b(?:Recipient:|to)\s+([^,.;\n]+)",
+    r"\b(?:Recipient:|to)\s+([^,.;\n]+?)"
+    r"(?:[,.:;\n]|\s+(?:about|regarding|re:|on)\b|$)",
     re.IGNORECASE,
 )
-# Subject patterns: "about X" / "regarding X" / "re: X".
-_SUBJECT_RE = re.compile(r"\b(?:about|regarding|re:)\s+([^,.;]+)", re.IGNORECASE)
+# Subject prose patterns: "about X" / "regarding X" / "re: X". Labelled
+# `subject: X` form is handled by _LABEL_RE; intentionally NOT included here
+# to avoid double-matching against an empty `subject:\n` line followed by
+# unrelated prose.
+_SUBJECT_RE = re.compile(
+    r"\b(?:about|regarding|re:)\s+([^,.;\n]+)",
+    re.IGNORECASE,
+)
+# Labelled-field pattern: "<label>:" anywhere on a line, value to end-of-line
+# OR end-of-string. LLMs frequently emit memos as labelled key-value blobs
+# when asked to be explicit; we match the conventional 5 labels.
+_LABEL_RE = re.compile(
+    # `[ \t]*` after the colon (NOT `\s*`) — otherwise `\s` consumes the
+    # newline and an empty `subject:\n` line eats the next line as its value.
+    r"^[ \t]*(sender|from|recipient|to|date|subject|body)[ \t]*:[ \t]*(.+?)[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Body specifically — multi-line: "Body:\n\n<everything until EOF or another
+# top-level label>". When present this overrides the labelled-line form.
+_BODY_BLOCK_RE = re.compile(
+    r"^\s*body\s*:\s*\n+(.+?)\Z",
+    re.IGNORECASE | re.DOTALL | re.MULTILINE,
+)
 
 
 def _heuristic_extract(intent: str, source_md: str | None) -> MemoSpec:
@@ -168,36 +192,70 @@ def _heuristic_extract(intent: str, source_md: str | None) -> MemoSpec:
     Conservative — when uncertain, leaves the field as None so elicitation
     kicks in. False positives here silently produce wrong content; false
     negatives just mean an extra elicit call.
+
+    Strategy is layered:
+      1. Try the labelled-key form ("sender: X\\nrecipient: Y\\n...") which
+         LLMs emit naturally when asked to be explicit.
+      2. Fall back to prose patterns ("Memo from X to Y about Z").
+      3. Body extraction tries (in order): labelled "Body:\\n\\n…" block,
+         single-line "body: …", source_md content.
     """
     spec = MemoSpec()
 
-    # Date
-    m = _DATE_RE.search(intent)
+    # ---- Layer 1: labelled-line form -----------------------------------
+    label_to_field = {
+        "sender": "sender", "from": "sender",
+        "recipient": "recipient", "to": "recipient",
+        "date": "date", "subject": "subject", "body": "body",
+    }
+    # Multi-line body block first — captures the "Body:\n\n..." shape.
+    m = _BODY_BLOCK_RE.search(intent)
     if m:
-        spec.date = m.group(1).strip()
+        body_text = m.group(1).strip()
+        if body_text:
+            spec.body = body_text
 
-    # From / To — try joint, fall back to halves.
-    m = _FROM_TO_RE.search(intent)
-    if m:
-        spec.sender = m.group(1).strip()
-        spec.recipient = m.group(2).strip()
-    else:
-        m = _FROM_RE.search(intent)
+    # Single-line labelled fields. The `not getattr(spec, target)` guard
+    # is the precedence rule: once a field is set (by the body block
+    # earlier or by an earlier matching label), subsequent matches for
+    # the same target are ignored.
+    for match in _LABEL_RE.finditer(intent):
+        label, value = match.group(1).lower(), match.group(2).strip()
+        target = label_to_field.get(label)
+        if target and value and not getattr(spec, target):
+            setattr(spec, target, value)
+
+    # ---- Layer 2: prose patterns ---------------------------------------
+    if not spec.date:
+        m = _DATE_RE.search(intent)
         if m:
-            spec.sender = m.group(1).strip()
-        m = _RECIPIENT_RE.search(intent)
+            spec.date = m.group(1).strip()
+
+    # From / To prose: try joint, fall back to halves.
+    if not spec.sender or not spec.recipient:
+        m = _FROM_TO_RE.search(intent)
         if m:
-            spec.recipient = m.group(1).strip()
+            if not spec.sender:
+                spec.sender = m.group(1).strip()
+            if not spec.recipient:
+                spec.recipient = m.group(2).strip()
+        else:
+            if not spec.sender:
+                m = _FROM_RE.search(intent)
+                if m:
+                    spec.sender = m.group(1).strip()
+            if not spec.recipient:
+                m = _RECIPIENT_RE.search(intent)
+                if m:
+                    spec.recipient = m.group(1).strip()
 
-    # Subject
-    m = _SUBJECT_RE.search(intent)
-    if m:
-        spec.subject = m.group(1).strip().rstrip(".")
+    if not spec.subject:
+        m = _SUBJECT_RE.search(intent)
+        if m:
+            spec.subject = m.group(1).strip().rstrip(".")
 
-    # Body — if source_md is provided, use the markdown adapter's first
-    # section's joined text as a starting body; otherwise leave None and
-    # elicit. The body is the longest field, hardest to extract reliably.
-    if source_md and source_md.strip():
+    # ---- Layer 3: body from source_md ----------------------------------
+    if not spec.body and source_md and source_md.strip():
         try:
             article_spec = markdown_to_spec(source_md)
             chunks: list[str] = []
