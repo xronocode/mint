@@ -95,17 +95,31 @@ Outputs land in `dist/experiment/` (git-ignored). The matrix, prompt, and
 runner are in `tools/article_experiment/`. To compare against this baseline,
 copy the new run's `results.json` and diff metric-by-metric.
 
+## A note on R1/R2 visual fidelity (post-alpha discovery)
+
+The R1 and R2 docx artifacts shipped under a latent bug —
+`Document.with_style_preset()` loaded the preset DATA but never consumed it
+during render, so all R1/R2 docx files use python-docx's stock theme styles
+(Heading 1 = `#365F91`, theme font), NOT klawd's `#1B3A5C` / Arial. The
+schema, validation, and content-generation parts of the pipeline worked
+correctly in both rounds — only the *visual* application of the preset
+was missing. The fix landed in 0.4.0a2 (`apply_preset_to_doc`).
+
+`round-3-postfix/` re-runs the same matrix with the fix in place. Every
+R3 success cell's `styles.xml` carries klawd's typography. R1 and R2 stay
+in git as historical record; R3 is the visually-correct baseline.
+
 ## Files in this directory
 
 ```
 .
 ├── README.md               — this file
-├── REPORT_COMPARISON.md    — narrative comparison of R1 vs R2 + interpretation
+├── REPORT_COMPARISON.md    — narrative R1/R2/R3 comparison + interpretation
 ├── matrix.md               — the 6+2 cell selection and model-by-model rationale
 ├── prompt.md               — exact prompt sent to all 6 mint-pipeline cells
 ├── source/
-│   └── article-draft.md    — frozen copy of source content used in both rounds
-├── round-1/
+│   └── article-draft.md    — frozen copy of source content used in all rounds
+├── round-1/                  ← under-bug; visually = Word defaults
 │   ├── REPORT.md
 │   ├── results.json
 │   ├── 04_light_gemma3_4b.docx     (39KB)
@@ -113,14 +127,22 @@ copy the new run's `results.json` and diff metric-by-metric.
 │   ├── 06_light_qwen3_5.docx       (38KB)
 │   ├── 07_baseline_qwen3_5_35b.md  (9KB)
 │   └── 08_baseline_gemma3_4b.md    (7KB)
-└── round-2/
+├── round-2/                  ← under-bug; visually = Word defaults
+│   ├── REPORT.md
+│   ├── results.json
+│   ├── 01_heavy_gemma4_31b.docx        (39KB) — recovered in R2
+│   ├── 02_heavy_glm_4_7_flash.docx     (40KB) — recovered in R2
+│   ├── 04_light_gemma3_4b.docx         (39KB)
+│   ├── 05_light_gemma4_e2b.docx        (40KB)
+│   ├── 06_light_qwen3_5.docx           (38KB)
+│   ├── 07_baseline_qwen3_5_35b.md      (9KB)
+│   └── 08_baseline_gemma3_4b.md        (7KB)
+└── round-3-postfix/          ← visually correct; klawd actually applied
     ├── REPORT.md
     ├── results.json
-    ├── 01_heavy_gemma4_31b.docx        (39KB) — recovered in R2
-    ├── 02_heavy_glm_4_7_flash.docx     (40KB) — recovered in R2
-    ├── 04_light_gemma3_4b.docx         (39KB)
-    ├── 05_light_gemma4_e2b.docx        (40KB)
-    ├── 06_light_qwen3_5.docx           (38KB)
-    ├── 07_baseline_qwen3_5_35b.md      (9KB)
-    └── 08_baseline_gemma3_4b.md        (7KB)
+    ├── 01_heavy_gemma4_31b.docx        (40KB) — Heading 1 #1B3A5C / Arial / 16pt
+    ├── 04_light_gemma3_4b.docx         (40KB) — Heading 1 #1B3A5C / Arial / 16pt
+    ├── 06_light_qwen3_5.docx           (41KB) — Heading 1 #1B3A5C / Arial / 16pt
+    ├── 07_baseline_qwen3_5_35b.md      (10KB)
+    └── 08_baseline_gemma3_4b.md        (12KB)
 ```
