@@ -742,7 +742,7 @@
       </annotations>
     </MP-TEMPLATES-WRITE>
 
-    <MP-MCP-RESOURCES NAME="MCP resources for templates + presets" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+    <MP-MCP-RESOURCES NAME="MCP resources for templates + presets" TYPE="INTEGRATION" STATUS="done" ADDED_AT="2026-05-10" COMPLETED_AT="2026-05-10">
       <purpose>FastMCP @server.resource handlers exposing mint://template/&lt;name&gt; and mint://preset/&lt;name&gt; URI schemes. Native enumeration for clients that prefer resources/list (Cursor, VS Code Insiders MCP). Symmetric tools list_presets / get_preset for clients without resource support (current Claude Desktop). Closes audit's Priority-1.</purpose>
       <path>src/mint_python/mcp/resources.py</path>
       <depends>MP-TEMPLATES-REGISTRY, MP-STYLE (BUILTIN_PRESETS lookup), fastmcp.server.resource</depends>

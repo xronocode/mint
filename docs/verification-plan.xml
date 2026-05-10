@@ -1851,9 +1851,9 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-CAREFUL — writes to a shared directory; tests use tmp_path-isolated MINT_TEMPLATES_DIR override; concurrent-write safety documented but not enforced (single-process MCP server assumption).</autonomy-assessment>
     </V-MP-TEMPLATES-WRITE>
 
-    <V-MP-MCP-RESOURCES MODULE="MP-MCP-RESOURCES" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+    <V-MP-MCP-RESOURCES MODULE="MP-MCP-RESOURCES" PRIORITY="medium" STATUS="done" ADDED_AT="2026-05-10" COMPLETED_AT="2026-05-10">
       <test-files>
-        <file status="planned">tests/integration/test_mp_mcp_resources.py</file>
+        <file status="done">tests/integration/test_mp_mcp_resources.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/integration/test_mp_mcp_resources.py -x</check-1>
@@ -1861,11 +1861,11 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <check-3>mypy src/mint_python/mcp/resources.py</check-3>
       </module-checks>
       <scenarios>
-        <scenario-1 kind="success" evidence="deterministic" status="planned">resources/list returns mint://template/memo, mint://template/letter, mint://preset/klawd, mint://preset/claret_serif and the other 3 builtin presets. Each entry has name, mimeType, description.</scenario-1>
-        <scenario-2 kind="success" evidence="deterministic" status="planned">resources/read mint://template/memo returns the YAML content with mimeType=application/x-yaml.</scenario-2>
-        <scenario-3 kind="success" evidence="deterministic" status="planned">list_presets / get_preset tools mirror the resources protocol for clients without resources/list support; same data, different surface.</scenario-3>
-        <scenario-4 kind="failure" evidence="deterministic" status="planned">resources/read mint://template/nonexistent returns RESOURCE_NOT_FOUND.</scenario-4>
-        <scenario-5 kind="failure" evidence="deterministic" status="planned">resources/read of a malformed URI returns RESOURCE_URI_INVALID with the supported schemes named.</scenario-5>
+        <scenario-1 kind="success" evidence="deterministic" status="done">_list_mint_resources (the enumerator backing resources/list-style listing) returns mint://template/memo, mint://template/letter, mint://preset/klawd, mint://preset/claret_serif, mint://preset/alga_corporate, mint://preset/minimal, mint://preset/compact. Each entry has uri, name, mimeType, description. test_scenario_1_list_mint_resources_enumerates_templates_and_presets.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="done">_template_resource_content('memo') returns the latest version's YAML serialization. The @server.resource templated handler is callable in tests directly and returns the same content. test_scenario_2_template_resource_returns_yaml_content + test_scenario_2_b_template_resource_handler_callable_directly.</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="done">list_presets / get_preset tools project the same data as the resource enumerator/handler. JSON presets get application/json mimeType; YAML presets get application/x-yaml. test_scenario_3_list_presets_tool_matches_resource_listing + test_scenario_3_b_get_preset_tool_returns_content_and_mime.</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic" status="done">_template_resource_content('nonexistent') and _preset_resource_content('nonexistent') both raise RESOURCE_NOT_FOUND with the available alternatives listed. The get_preset tool surfaces the same error class for cross-surface consistency. test_scenario_4_unknown_template_raises_resource_not_found + variants.</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic" status="done">_parse_uri rejects malformed inputs (wrong scheme, wrong protocol, missing slash, empty name, path traversal) with RESOURCE_URI_INVALID; message names accepted forms. test_scenario_5_malformed_uri_lists_supported_schemes.</scenario-5>
       </scenarios>
       <forbidden-behaviors>
         <forbidden-1>Resource handlers MUST NOT expose anything outside templates/ and presets/ — no general filesystem read.</forbidden-1>
