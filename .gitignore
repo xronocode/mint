@@ -40,3 +40,4 @@ tests/output/
 # Local scratch artifacts
 .last_assembled.js
 .coverage
+~$*.docx
