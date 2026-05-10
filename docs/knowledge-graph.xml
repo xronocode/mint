@@ -706,7 +706,7 @@
 
     <!-- Phase 14: generic doc-gen + governed templates + MCP resources -->
 
-    <MP-DOC-GENERIC NAME="Generic create_document MCP tool" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+    <MP-DOC-GENERIC NAME="Generic create_document MCP tool" TYPE="INTEGRATION" STATUS="done" ADDED_AT="2026-05-10" COMPLETED_AT="2026-05-10">
       <purpose>Lift Phase-13 MEMO-POC out of the hardcoded "memo" shape into a generic create_document(intent, doc_type, source_md?, ctx) tool. Document type selected at call-time from templates/ registry; pipeline (heuristic → elicit → klawd → GRACE) identical for every doc_type. Adding Letter / Report / Contract becomes a templates/&lt;name&gt;.yaml file with no Python changes.</purpose>
       <path>src/mint_python/mcp/document.py (replaces mcp/memo.py; legacy alias kept)</path>
       <depends>MP-MEMO-POC (refactor source), MP-MD-ADAPTER, MP-DOCUMENT, MP-STYLE, MP-GRACE, MP-TEMPLATES-REGISTRY, fastmcp.Context, pyyaml</depends>
