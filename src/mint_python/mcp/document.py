@@ -213,6 +213,16 @@ _BODY_BLOCK_RE = re.compile(
     r"^\s*body\s*:\s*\n+(.+?)\Z",
     re.IGNORECASE | re.DOTALL | re.MULTILINE,
 )
+# Pre-normalize transition between inline labelled keys: "Sender: X.
+# Recipient: Y. Date: Z." appears as one line; this splits each
+# `<label>:` after a period+whitespace onto its own line so the
+# line-mode _LABEL_RE matches them all. Conservative — only fires when
+# the next token genuinely is one of our known labels followed by a
+# colon, so prose containing periods doesn't get clobbered.
+_INLINE_LABEL_SPLIT_RE = re.compile(
+    r"\.\s+(?=(?:sender|from|recipient|to|date|subject|body)\s*:)",
+    re.IGNORECASE,
+)
 
 
 def _heuristic_extract(intent: str, source_md: str | None) -> DocumentSpec:
@@ -237,6 +247,15 @@ def _heuristic_extract(intent: str, source_md: str | None) -> DocumentSpec:
     """
     spec = DocumentSpec()
 
+    # ---- Pre-normalize: inline labelled-key form -----------------------
+    # LLMs sometimes emit labelled keys on a single line separated by
+    # ". " — e.g. "Sender: X. Recipient: Y. Date: Z.". The line-mode
+    # _LABEL_RE only sees the first label that way (its lazy value
+    # match consumes the rest of the line). Detect these inline
+    # transitions and inject newlines so each label lands on its own
+    # line for the regex below.
+    intent = _INLINE_LABEL_SPLIT_RE.sub(".\n", intent)
+
     # ---- Layer 1: labelled-line form -----------------------------------
     label_to_field = {
         "sender": "sender", "from": "sender",
@@ -258,7 +277,11 @@ def _heuristic_extract(intent: str, source_md: str | None) -> DocumentSpec:
         label, value = match.group(1).lower(), match.group(2).strip()
         target = label_to_field.get(label)
         if target and value and not getattr(spec, target):
-            setattr(spec, target, value)
+            # Strip a trailing sentence-period if present — values like
+            # "M. Yevdokimov (CPO)." come from inline-label splitting
+            # and the trailing period is a sentence terminator, not
+            # part of the name.
+            setattr(spec, target, value.rstrip("."))
 
     # ---- Layer 2: prose patterns ---------------------------------------
     if not spec.date:

@@ -946,6 +946,27 @@ async def test_create_memo_degraded_returns_text_only_no_resource_link() -> None
     assert "missing" in text_summary.lower()
 
 
+def test_heuristic_extracts_inline_labelled_keys_separated_by_periods() -> None:
+    """Smoke 2026-05-10 surfaced this gap — Claude Desktop emits intents
+    where labelled keys are separated by ". " inline rather than by
+    newlines. The pre-normalize step inserts newlines before each label
+    transition so the line-mode _LABEL_RE matches every label."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    intent = (
+        "Sender: M. Yevdokimov (CPO). Recipient: Board of Directors. "
+        "Date: 2026-05-15. Subject: Q2 review preliminary. "
+        "Body: Two short paragraphs. Paragraph 1 — Q2 revenue trends. "
+        "Paragraph 2 — Risk callout: FX exposure remains elevated."
+    )
+    spec = _heuristic_extract(intent, None)
+    assert spec.sender == "M. Yevdokimov (CPO)"
+    assert spec.recipient == "Board of Directors"
+    assert spec.date == "2026-05-15"
+    assert spec.subject == "Q2 review preliminary"
+    assert spec.body and spec.body.startswith("Two short paragraphs")
+
+
 @pytest.mark.asyncio
 async def test_memo_template_not_found_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """When templates/memo.yaml is missing, the loader raises

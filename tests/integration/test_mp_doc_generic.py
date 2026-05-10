@@ -44,6 +44,33 @@ def _isolate_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("MINT_MEMO_DIR", str(tmp_path / "doc_out"))
 
 
+@pytest.fixture(autouse=True)
+def _isolate_templates_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Use a tmp_path-isolated templates/ snapshot of the canonical
+    baselines (memo + letter at v1.0). Insulates these tests from any
+    update_template-authored siblings that may be sitting in repo's
+    templates/ from local development or smoke-testing — the W1
+    parity scenarios assert on version='1.0' which only holds when
+    no v1.1 sibling exists."""
+    fixtures = tmp_path / "templates"
+    fixtures.mkdir()
+    repo_templates = Path(__file__).parent.parent.parent / "templates"
+    for name in ("memo.yaml", "letter.yaml"):
+        (fixtures / name).write_text(
+            (repo_templates / name).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    from mint_python.mcp import document as document_module
+    from mint_python.templates import registry as reg_module
+
+    monkeypatch.setattr(document_module, "_TEMPLATES_DIR", fixtures)
+    monkeypatch.setattr(reg_module, "_TEMPLATES_DIR", fixtures)
+    from mint_python.templates.registry import reset_default_registry
+    reset_default_registry()
+    yield fixtures
+    reset_default_registry()
+
+
 # --------------------------------------------------------------------------- #
 # Scenario-1: parity — create_document(doc_type='memo') reproduces the
 # Phase-13 MEMO-POC byte-for-byte (same docx structure, same klawd visual,
