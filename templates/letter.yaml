@@ -1,0 +1,45 @@
+# MINT letter template (Phase-14 W2 — MP-TEMPLATES-REGISTRY)
+#
+# A second governed doc_type alongside templates/memo.yaml. The point is
+# to demonstrate that the create_document pipeline is genuinely doc-type
+# agnostic — different required_fields drive different elicitation order,
+# the layout is letter-shaped (recipient at top, sender at bottom for
+# signature), and the same klawd preset / GRACE manifest path applies.
+#
+# Closes V-MP-DOC-GENERIC scenario-4 (deferred from W1 because it needed
+# this asset to be committed).
+
+name: letter
+version: "1.0"
+description: "Personal / business letter — recipient, body, sender (signature)"
+doc_type: letter
+
+# Required fields, in declaration order. Note the order differs from
+# memo's (sender → recipient → date → subject → body) — the elicitation
+# loop iterates THIS list, so a missing-field elicit prompts in
+# letter-natural order.
+required_fields:
+  - recipient
+  - body
+  - sender
+  - date
+
+# Layout walks one block per entry; placeholders `{{ field }}` are
+# substituted from the spec. Letter shape:
+#   recipient as the top heading, body, signature line with sender +
+#   date underneath.
+layout:
+  - kind: heading
+    level: 1
+    text: "{{ recipient }}"
+  - kind: spacer
+  - kind: paragraph
+    text: "{{ body }}"
+  - kind: spacer
+  - kind: heading
+    level: 3
+    text: Signed
+  - kind: paragraph
+    text: "{{ sender }}"
+  - kind: paragraph
+    text: "{{ date }}"
