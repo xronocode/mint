@@ -302,6 +302,53 @@ layout:
 # --------------------------------------------------------------------------- #
 
 
+# --------------------------------------------------------------------------- #
+# Scenario-4: real templates/letter.yaml drives the pipeline (W2 ships
+# the asset; this test promotes V-MP-DOC-GENERIC scenario-4 from
+# deferred-to-W2 to done). Different required_fields → different
+# elicitation order, different layout, klawd preset still applied.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_scenario_4_letter_doc_type_uses_real_letter_yaml() -> None:
+    """create_document(doc_type='letter') uses the committed
+    templates/letter.yaml. The letter shape's required_fields differ from
+    memo's (recipient/body/sender/date — no subject; different order),
+    proving the pipeline is genuinely doc-type agnostic."""
+    intent = (
+        "recipient: Mr. Smith\n"
+        "body: A short letter for the scenario-4 verification.\n"
+        "sender: Mikhail Yevdokimov\n"
+        "date: 2026-05-15\n"
+    )
+    ctx = FakeMCPContext(answers={})
+
+    result = await _run_pipeline(
+        intent=intent, doc_type="letter", source_md=None, ctx=ctx
+    )
+
+    assert result["status"] == "complete"
+    assert result["doc_type"] == "letter"
+    assert ctx.elicited_calls == [], (
+        "scenario-4 forbids elicit calls when intent carries all letter fields"
+    )
+
+    output_path = Path(result["path"])
+    assert output_path.exists()
+    assert output_path.name.startswith("letter_")
+
+    with zipfile.ZipFile(output_path, "r") as zf:
+        grace_parts = [
+            n for n in zf.namelist()
+            if n.startswith("grace/") and n.endswith(".xml")
+        ]
+        assert grace_parts
+        manifest_blob = b"".join(zf.read(p) for p in grace_parts)
+    assert b"template=letter.yaml" in manifest_blob
+    assert b"generated_by=MP-DOC-GENERIC" in manifest_blob
+
+
 @pytest.mark.asyncio
 async def test_create_document_decorated_callable_returns_tool_result() -> None:
     """The @server.tool wrapper around create_document is callable in tests
