@@ -1139,5 +1139,6 @@ __all__ = [
 # and create_memo — list_templates, get_template, update_template,
 # list_presets, get_preset, and the mint:// resource handlers stay
 # unregistered and invisible to live MCP clients.
+from mint_python.mcp import manifest as _manifest  # noqa: E402, F401
 from mint_python.mcp import resources as _resources  # noqa: E402, F401
 from mint_python.templates import registry as _registry  # noqa: E402, F401
