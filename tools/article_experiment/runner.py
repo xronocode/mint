@@ -300,25 +300,40 @@ def run_mint(
     response_text = ""
     last_err: str | None = None
 
-    for attempt in range(2):  # initial + 1 retry
+    # 1 initial attempt + 2 retries. Each failed attempt augments the user
+    # message with a targeted hint about what went wrong so the model can
+    # course-correct on the next round-trip.
+    MAX_ATTEMPTS = 3
+    for attempt in range(MAX_ATTEMPTS):
         try:
             resp = client.call(prompt=user, system=system)
         except LLMCallError as exc:
             last_err = str(exc)
             result.retries = attempt
-            break
+            # On hard timeout there's no point in retrying with a longer
+            # prompt — the model is stuck. Stop here.
+            if "timeout" in last_err.lower():
+                break
+            user += (
+                f"\n\nRETRY {attempt + 1}: previous call failed ({last_err}). "
+                "Try again — reply with ONLY the JSON object."
+            )
+            continue
+
         result.tokens_in += resp.tokens_in
         result.tokens_out += resp.tokens_out
         response_text = resp.text or resp.reasoning  # fall back to reasoning if content empty
-        result.raw_text_first_200 = response_text[:200]
+        if not result.raw_text_first_200:
+            result.raw_text_first_200 = response_text[:200]
 
         candidate = _extract_json_object(response_text)
         if candidate is None:
             last_err = "no JSON object found in response"
             result.retries = attempt
             user += (
-                "\n\nIMPORTANT: your previous reply did not contain valid JSON. "
-                "Reply NOW with ONLY the JSON object — no prose, no fence."
+                f"\n\nRETRY {attempt + 1}: your previous reply contained no JSON "
+                "object. Reply NOW with ONLY the JSON object — no thinking, no "
+                "preface, no markdown fence, no commentary."
             )
             continue
 
@@ -328,21 +343,35 @@ def run_mint(
             last_err = f"JSON parse failed: {exc}"
             result.retries = attempt
             user += (
-                f"\n\nIMPORTANT: your previous JSON was malformed ({exc}). "
-                "Reply NOW with ONLY a valid JSON object."
+                f"\n\nRETRY {attempt + 1}: previous JSON had a parse error ({exc}). "
+                "Re-emit ONLY a syntactically valid JSON object — no escape errors, "
+                "no unescaped newlines inside string values."
             )
             continue
 
         result.json_parse_ok = True
+
         try:
             spec = parse_spec(data)
         except SpecParseError as exc:
             last_err = f"schema validation failed: {exc}"
             result.schema_violations = [str(exc)]
             result.retries = attempt
-            break
+            user += (
+                f"\n\nRETRY {attempt + 1}: previous JSON failed schema validation "
+                f"({exc}). The response MUST be a single JSON OBJECT (not array) "
+                'with at minimum these fields:\n'
+                '  - "title": <non-empty string>\n'
+                '  - "sections": [ { "title": <string>, "blocks": [...] }, ... ]\n'
+                "Re-emit the JSON now."
+            )
+            continue
 
+        # Past the gate: schema valid. Clear any stale error from earlier
+        # attempts — the cell succeeded as far as the contract is concerned.
         result.schema_valid = True
+        result.retries = attempt
+        last_err = None
 
         # Build + save + validate the docx.
         try:
@@ -359,10 +388,7 @@ def run_mint(
         break
 
     result.duration_s = time.monotonic() - start
-    if last_err and not result.schema_valid:
-        result.error = last_err
-    elif last_err:
-        # Schema valid but downstream issue — still report.
+    if last_err:
         result.error = last_err
     return result
 
