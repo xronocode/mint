@@ -5,6 +5,26 @@ so the elicitation round-trip with a human user is verified manually. This
 document is the procedure; failure modes are tracked as issues, not test
 failures.
 
+## Important — two operating modes
+
+`create_memo` runs in one of two modes depending on the connected MCP
+client:
+
+- **Elicitation mode** — the client implements MCP `elicitation/create`
+  (server-driven structured forms). Tool calls `ctx.elicit(...)` for each
+  missing required field; user fills the form in the client UI; tool
+  resumes and assembles the docx in one round-trip. **As of 2026-05-10
+  Claude Desktop does NOT implement this** — it returns
+  `-32601 "Method not found"` to any `elicitation/create` request.
+  Cursor / Copilot / FastMCP-based hosts may.
+- **Chat-driven fallback mode** — when the client returns -32601 on the
+  first elicit, the tool short-circuits, returns
+  `{"status": "needs_more_info", "missing_fields": [...], "extracted_so_far": {...}, "guidance": "..."}`,
+  and the connected model asks the user in chat. The user then re-invokes
+  `create_memo` with a fuller intent that contains the missing values
+  inline. This works in **every** MCP client, including current Claude
+  Desktop.
+
 ## Prerequisites
 
 - Claude Desktop installed (https://claude.ai/download)

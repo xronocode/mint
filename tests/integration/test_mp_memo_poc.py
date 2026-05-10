@@ -404,6 +404,122 @@ def test_heuristic_extractor_extracts_subject() -> None:
     assert spec.subject == "Q2 revenue"
 
 
+# --------------------------------------------------------------------------- #
+# Graceful degradation when client doesn't support elicitation/create
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_degraded_single_field_unsupported_returns_needs_more_info() -> None:
+    """Real Claude Desktop returns -32601 'Method not found' when the server
+    sends elicitation/create. The tool must NOT crash — it returns a
+    structured needs_more_info response so the connected model can ask the
+    user in chat and re-invoke create_memo with a richer intent."""
+    intent = _read("intent_missing_recipient.txt")
+    ctx = FakeMCPContext(
+        answers={
+            "recipient": "__UNSUPPORTED__",
+            "body": "__UNSUPPORTED__",
+        }
+    )
+
+    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+
+    assert result["status"] == "needs_more_info"
+    assert "recipient" in result["missing_fields"]
+    assert "body" in result["missing_fields"]
+    # extracted_so_far carries what the heuristic could find from the intent.
+    assert "sender" in result["extracted_so_far"]
+    assert "date" in result["extracted_so_far"]
+    # No docx written, no audit_id minted on the degraded path.
+    assert "path" not in result
+    assert "audit_id" not in result
+    # Guidance message instructs the model what to do next.
+    assert "missing_fields" in result["guidance"]
+
+
+@pytest.mark.asyncio
+async def test_degraded_first_unsupported_skips_remaining_elicits(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Once the client returns -32601 on the first elicit, the tool must NOT
+    keep trying to elicit — it short-circuits and collects all remaining
+    missing fields into missing_fields without further round-trips."""
+    caplog.set_level(logging.INFO)
+    intent = _read("intent_missing_two.txt")  # recipient extracted; sender/date/subject/body missing
+    ctx = FakeMCPContext(
+        answers={
+            # First missing field (sender) hits unsupported. After that,
+            # we should NOT see any more elicit calls — even if other
+            # answers were scripted, they shouldn't fire.
+            "sender": "__UNSUPPORTED__",
+            "date": "would-not-be-used",
+            "subject": "would-not-be-used",
+            "body": "would-not-be-used",
+        }
+    )
+
+    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+
+    # Only the first elicit attempt was made (it hit -32601).
+    assert len(ctx.elicited_calls) == 1
+    assert ctx.elicited_calls[0][0] == "sender"
+    assert result["status"] == "needs_more_info"
+    # The intent fixture supplies recipient (Recipient:) and subject
+    # (about Q2 revenue trends) heuristically; sender + date + body
+    # are missing.
+    assert set(result["missing_fields"]) == {"sender", "date", "body"}
+
+    # The unsupported emission was logged with action=unsupported.
+    msgs = [r.getMessage() for r in caplog.records if "BLOCK_ELICIT_FIELD" in r.getMessage()]
+    assert any("action=unsupported" in m for m in msgs), msgs
+
+
+@pytest.mark.asyncio
+async def test_degraded_all_required_missing() -> None:
+    """Bare intent without any extractable fields. Heuristic finds nothing;
+    elicit unsupported. Tool returns all 5 fields in missing_fields."""
+    ctx = FakeMCPContext(
+        answers={"sender": "__UNSUPPORTED__"}  # only need the first to fail
+    )
+
+    result = await create_memo(intent="Make a memo.", source_md=None, ctx=ctx)
+
+    assert result["status"] == "needs_more_info"
+    assert set(result["missing_fields"]) == {
+        "sender",
+        "recipient",
+        "date",
+        "subject",
+        "body",
+    }
+    assert result["extracted_so_far"] == {}
+
+
+@pytest.mark.asyncio
+async def test_other_mcp_errors_still_propagate() -> None:
+    """McpError codes OTHER than -32601 (e.g. -32603 internal error,
+    -32700 parse error) MUST propagate — we only swallow Method-not-found.
+    Otherwise we'd silently mask real client / transport bugs."""
+    from mcp.shared.exceptions import McpError
+    from mcp.types import ErrorData
+
+    intent = _read("intent_missing_recipient.txt")
+
+    class CtxWithInternalError(FakeMCPContext):
+        async def elicit(  # type: ignore[override]
+            self, message, response_type=None, *, response_title=None,
+            response_description=None,
+        ):
+            self.elicited_calls.append((response_title or message[:40], message))
+            raise McpError(ErrorData(code=-32603, message="internal server error"))
+
+    ctx = CtxWithInternalError()
+    with pytest.raises(McpError) as excinfo:
+        await create_memo(intent=intent, source_md=None, ctx=ctx)
+    assert excinfo.value.error.code == -32603
+
+
 def test_template_loader_returns_required_fields() -> None:
     from mint_python.mcp.memo import _load_template
 
