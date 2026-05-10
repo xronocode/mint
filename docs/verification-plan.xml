@@ -1781,9 +1781,9 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-CAREFUL — integration tests use FakeMCPContext (deterministic) and are parallel-safe within tests/integration/test_mp_memo_poc.py. The wave-level FastMCP-stdio harness uses an isolated subprocess per test; safe for parallel runs. The manual smoke through Claude Desktop is single-user, single-instance, NOT parallelizable, and explicitly out of CI scope.</autonomy-assessment>
     </V-MP-MEMO-POC>
 
-    <V-MP-DOC-GENERIC MODULE="MP-DOC-GENERIC" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-10">
+    <V-MP-DOC-GENERIC MODULE="MP-DOC-GENERIC" PRIORITY="high" STATUS="done" ADDED_AT="2026-05-10" COMPLETED_AT="2026-05-10">
       <test-files>
-        <file status="planned">tests/integration/test_mp_doc_generic.py</file>
+        <file status="done">tests/integration/test_mp_doc_generic.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/integration/test_mp_doc_generic.py -x</check-1>
@@ -1791,12 +1791,12 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <check-3>mypy src/mint_python/mcp/document.py</check-3>
       </module-checks>
       <scenarios>
-        <scenario-1 kind="success" evidence="deterministic" status="planned">create_document(intent, doc_type='memo') reproduces V-MP-MEMO-POC scenario-1 byte-for-byte (same docx structure, same klawd visual, same GRACE manifest schema). Backwards-compat baseline.</scenario-1>
-        <scenario-2 kind="success" evidence="deterministic" status="planned">Legacy create_memo alias delegates to create_document(doc_type='memo'); existing FakeMCPContext-driven tests in test_mp_memo_poc.py continue to pass without edits during the transition window.</scenario-2>
-        <scenario-3 kind="failure" evidence="deterministic" status="planned">create_document(doc_type='nonexistent') raises DOC_TYPE_NOT_FOUND with the available doc_types listed in the message.</scenario-3>
-        <scenario-4 kind="success" evidence="integration" status="planned">create_document(doc_type='letter') uses templates/letter.yaml — different required_fields drive different elicitation order, different layout, klawd preset still applied. Proves the pipeline is genuinely doc-type agnostic.</scenario-4>
-        <scenario-5 kind="success" evidence="trace" status="planned">[MP-Doc][create][BLOCK_PARSE_INTENT] carries doc_type and template_version in the payload. Cross-module evidence chain otherwise unchanged.</scenario-5>
-        <scenario-6 kind="success" evidence="deterministic" status="planned">structured_content shape extends MEMO-POC's with doc_type and template_version fields. Existing consumers reading {status, path, audit_id, fields_elicited} still work.</scenario-6>
+        <scenario-1 kind="success" evidence="deterministic" status="done">create_document(intent, doc_type='memo') reproduces V-MP-MEMO-POC scenario-1 byte-for-byte (same docx structure, same klawd visual, same GRACE manifest schema). Backwards-compat baseline. test_scenario_1_create_document_memo_parity_with_memo_poc.</scenario-1>
+        <scenario-2 kind="success" evidence="trace" status="done">Legacy create_memo alias delegates to create_document(doc_type='memo'); existing FakeMCPContext-driven tests in test_mp_memo_poc.py continue to pass without edits during the transition window. Verified empirically: 43/43 V-MP-MEMO-POC scenarios still green. Alias path keeps emitting [MP-Memo] log markers per test_scenario_2_create_memo_alias_keeps_mp_memo_log_prefix.</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic" status="done">create_document(doc_type='nonexistent') raises DOC_TYPE_NOT_FOUND with the available doc_types listed in the message. test_scenario_3_unknown_doc_type_raises_with_available_list.</scenario-3>
+        <scenario-4 kind="success" evidence="integration" status="deferred-to-W2">create_document(doc_type='letter') uses templates/letter.yaml — different required_fields drive different elicitation order, different layout, klawd preset still applied. Deferred to W2 (MP-TEMPLATES-REGISTRY) which ships templates/letter.yaml as a committed asset. W1 instead exercises doc-type agnosticism via test_pipeline_is_doc_type_agnostic_via_fixture_template (monkeypatched _TEMPLATES_DIR + ad-hoc letter_fixture.yaml in tmp_path).</scenario-4>
+        <scenario-5 kind="success" evidence="trace" status="done">[MP-Doc][create][BLOCK_PARSE_INTENT] carries doc_type and template_version in the payload. Cross-module evidence chain otherwise unchanged. test_scenario_5_parse_intent_log_carries_doc_type_and_template_version.</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="done">structured_content shape extends MEMO-POC's with doc_type and template_version fields. Existing consumers reading {status, path, audit_id, fields_elicited} still work. test_scenario_6_structured_content_extends_with_doc_type_fields.</scenario-6>
       </scenarios>
       <forbidden-behaviors>
         <forbidden-1>create_document MUST NOT contain per-doc_type if/else branches. Specialization comes ONLY from templates/&lt;doc_type&gt;.yaml.</forbidden-1>
