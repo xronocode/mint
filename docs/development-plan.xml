@@ -1,4 +1,4 @@
-<DevelopmentPlan VERSION="0.2.0">
+<DevelopmentPlan VERSION="0.3.0">
   <ArchitectureNotes>
     <objective>MINT replicates Claude's document generation pipeline as a standalone, model-agnostic toolkit. Plan optimizes for G0→G1→G2→G5→G6 minimum viable launch path. Phase 4 adds modular generation: decompose document into sections, generate each independently, assemble deterministically.</objective>
     <non-goal>No Claude API, no dvejsada dependency, no hosted SaaS, no macros/signatures/protection in v0.x.</non-goal>
@@ -1522,6 +1522,137 @@ writeFileSync('output.docx', buffer);
       </observability>
       <verification-ref>V-MP-MCP-RESOURCES</verification-ref>
     </MP-MCP-RESOURCES>
+
+    <!-- Phase 15: production hardening (per HANDOVER-phase15-ready.md + docs/mcp-audit.md) -->
+
+    <MP-AUTH-SHIM NAME="Authorization shim for write-path MCP tools (template-writer allowlist)" TYPE="UTILITY" LAYER="1" ORDER="28" STATUS="planned" ADDED_AT="2026-05-10">
+      <contract>
+        <purpose>Production-blocker fix: today update_template is writable by ANY connected MCP client (after Phase-14 that includes any local model attached via Cursor / OpenWebUI / sidecar). This shim gates write-path tools behind a config-driven author allowlist; read tools (list_templates / get_template / mint:// resources) stay open. First write tool gated is update_template; future write tools route through the same shim. Closes the audit's Priority-4 sub-clause "Authorization shim: read = open; write = config-gated allowlist" left as TODO at Phase-14 close.</purpose>
+        <inputs>
+          <param name="author" type="str" desc="Author identity supplied by the calling MCP tool (typically from ctx or explicit param)" />
+          <param name="env_MINT_TEMPLATE_WRITERS" type="str | None" desc="Comma-separated allowlist; takes precedence over file config" />
+          <param name="config_file" type="Path" desc="~/.config/mint/writers.json containing {writers: [str, ...]}; loaded on first call" />
+        </inputs>
+        <outputs>
+          <param name="is_writer" type="bool" desc="True if author is on the allowlist or open-mode is active" />
+        </outputs>
+        <errors>
+          <error code="TEMPLATE_WRITE_FORBIDDEN" desc="Author is not on the allowlist; raised before any disk mutation" />
+          <error code="AUTH_CONFIG_INVALID" desc="writers.json malformed or env value uninterpretable; raised at registry load, not at call time" />
+        </errors>
+      </contract>
+      <interface>
+        <export-is_template_writer PURPOSE="fn-is_template_writer(author: str) -> bool — pure check, no side effects" />
+        <export-require_template_writer PURPOSE="fn-require_template_writer(author: str) -> None — raises TEMPLATE_WRITE_FORBIDDEN on deny; called by update_template before any disk write" />
+        <export-load_writers_config PURPOSE="fn-load_writers_config() -> WritersConfig — reads MINT_TEMPLATE_WRITERS env then config file; cached per-process; emits BLOCK_AUTH_OPEN_MODE warning once if empty" />
+        <type-WritersConfig PURPOSE="frozen dataclass: writers tuple[str, ...], source Literal['env','file','none'], open_mode bool" />
+      </interface>
+      <depends>stdlib only (os, json, pathlib, dataclasses, logging). No coupling with MP-TEMPLATES-WRITE; consumer-side import keeps the shim independently testable.</depends>
+      <target>
+        <source>src/mint_python/mcp/auth.py</source>
+        <tests>tests/integration/test_mp_auth_shim.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Auth</log-prefix>
+      </observability>
+      <verification-ref>V-MP-AUTH-SHIM</verification-ref>
+    </MP-AUTH-SHIM>
+
+    <MP-MANIFEST-READ NAME="GRACE manifest read tool (mint_read_grace_manifest)" TYPE="INTEGRATION" LAYER="4" ORDER="29" STATUS="planned" ADDED_AT="2026-05-10">
+      <contract>
+        <purpose>Symmetric read counterpart to GRACE injection. Exposes the mint_read_grace_manifest MCP tool that opens any docx, locates grace/manifest_*.xml, and returns the parsed manifest as a dict. Closes audit Priority-1 acceptance criterion "New tool read_grace_manifest(document_path) exists and round-trips a manifest written by any other tool" — explicitly named in audit §1 row-7, §3(c), and §5 roadmap, but never shipped during Phase-14 (Wave-2 only added inject; the read side was deferred). Useful UX for "verify provenance of this docx I received" (cross-model handoff scenario where the receiving model wants to inspect what generated the file).</purpose>
+        <inputs>
+          <param name="document_path" type="str" desc="Path to a .docx file" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="manifest" type="dict" desc="{audit_id, model_identity, fields_elicited, template, template_version, template_author, timestamp, instructions, fingerprint, namespace}" />
+        </outputs>
+        <errors>
+          <error code="MANIFEST_NOT_FOUND" desc="docx has no urn:mint:grace:2026:manifest custom XML part" />
+          <error code="MANIFEST_PARSE_ERROR" desc="manifest XML present but unparseable" />
+          <error code="INVALID_DOCUMENT" desc="path is not a valid .docx zip / path traversal rejected" />
+        </errors>
+      </contract>
+      <interface>
+        <export-mint_read_grace_manifest PURPOSE="@server.tool async fn-mint_read_grace_manifest(document_path, ctx) — thin wrapper around MP-GRACE.describe; canonicalizes the dict shape and surfaces tool-level errors" />
+      </interface>
+      <depends>MP-GRACE (existing fn-describe), M-SECURITY safe_doc helper for path-traversal guard, fastmcp.Context</depends>
+      <target>
+        <source>src/mint_python/mcp/manifest.py</source>
+        <tests>tests/integration/test_mp_manifest_read.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Manifest</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MANIFEST-READ</verification-ref>
+    </MP-MANIFEST-READ>
+
+    <MP-VISUAL-QA-HOOK NAME="Visual QA hook on create_document (VLM rubric)" TYPE="INTEGRATION" LAYER="4" ORDER="30" STATUS="planned" ADDED_AT="2026-05-10">
+      <contract>
+        <purpose>Advisory post-create_document visual quality gate. After every successful create_document (and the create_memo alias), run the produced docx through the existing VLM rubric scorer (typography / layout / visual_richness / professional axes via qwen2.5vl:7b on Ollama). Score is attached to the tool result's structured_content as visual_qa: {score, axes, issues, advisory: true}; the tool NEVER fails on visual-QA outcome. Defaults ON; opt out via MINT_SKIP_VISUAL_QA=1. Closes the structure-vs-visual gap at Phase-14 close: MP-VALIDATE checks OOXML structure but never confirms the rendered doc visually matches the preset's intent.</purpose>
+        <inputs>
+          <param name="document_path" type="Path" desc="Saved docx path (after MP-GRACE injection)" />
+          <param name="preset_name" type="str" desc="Active preset (currently always 'klawd' but parameterized for future presets)" />
+          <param name="env_MINT_SKIP_VISUAL_QA" type="str | None" desc="When '1' the hook short-circuits and structured_content omits visual_qa key" />
+          <param name="env_MINT_VISUAL_QA_PAGES" type="str | None" desc="Max pages to score; default 5" />
+        </inputs>
+        <outputs>
+          <param name="report" type="VisualQAReport | None" desc="None when skipped or backend unavailable; structured score otherwise" />
+        </outputs>
+        <errors>
+          <error code="VISUAL_QA_BACKEND_UNAVAILABLE" desc="soffice / pdftoppm / Ollama unreachable; logged as warning, hook returns None, tool succeeds" />
+        </errors>
+      </contract>
+      <interface>
+        <export-score_document PURPOSE="fn-score_document(path, preset_name='klawd') -> VisualQAReport | None — refactor of root-level e2e_qa_visual.py into a library function, with backend-unavailable degradation built in" />
+        <type-VisualQAReport PURPOSE="frozen dataclass: score int (0-100), axes dict[str, int], issues list[str], pages_scored int, preset_name str, advisory bool=True, skipped bool=False, skip_reason str | None" />
+      </interface>
+      <depends>soffice (LibreOffice headless) for docx→PDF, pdftoppm (poppler-utils) for PDF→PNG, Ollama VLM endpoint (qwen2.5vl:7b), pillow for PNG reads, urllib.request stdlib. Hook integrated by MP-DOC-GENERIC.create_document via post-step in src/mint_python/mcp/document.py.</depends>
+      <target>
+        <source>src/mint_python/qa/visual.py + edits to src/mint_python/mcp/document.py (~10 LOC hook call) + retire root-level e2e_qa_visual.py (replaced by library + a 5-line CLI shim if still needed)</source>
+        <tests>tests/integration/test_mp_visual_qa_hook.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-VisualQA</log-prefix>
+      </observability>
+      <verification-ref>V-MP-VISUAL-QA-HOOK</verification-ref>
+    </MP-VISUAL-QA-HOOK>
+
+    <MP-LEGACY-DEPRECATION NAME="Remove mcp_g1/mcp_g2 + JS sandbox path + legacy create/assemble pipeline" TYPE="UTILITY" LAYER="0" ORDER="31" STATUS="planned" ADDED_AT="2026-05-10" SCOPE_EXPANDED_AT="2026-05-10">
+      <contract>
+        <purpose>Subtractive cleanup. Honors audit §6 "Tools to deprecate" and the unmet Phase-14 promise to "deprecate JS sandbox in W1, remove in W3" — neither happened during Phase-14. Phase-15 fulfils both at once: the legacy mcp_g1 / mcp_g2 surfaces + the MINT_ENGINE=js code path + the docx-js / pptxgenjs / exceljs Node deps are removed entirely. Pre-flight audit on 2026-05-10 (controller-side, before Wave-15-1 dispatch) revealed deeper coupling: mint.create:47-48 + mint.assemble:616-617 import mint.sandbox directly; mint.cli:44-45 mounts mcp_g1/mcp_g2 in cmd_serve. Scope expanded: also delete mint.create + mint.assemble (legacy JS-tier orchestration superseded by mint_python.mcp.document.create_document since Phase-14) and the mint serve CLI subcommand mount path. Pure-python (mint_python) becomes the only execution surface. Per memory project_mint_v2 + requirements.xml constraint-7, this is the strategic direction; Phase-15 is the cleanup that finally ships it.</purpose>
+        <inputs>
+          <param name="N/A" type="—" desc="No runtime inputs; this is a code/dep removal step" />
+        </inputs>
+        <outputs>
+          <param name="N/A" type="—" desc="No new exports; net public surface SHRINKS by 5 legacy MCP tools (mint_create, mint_fix, mint_validate, mint_extract_style, mint_fingerprint as exposed via mcp_g1/mcp_g2) and the --engine js CLI flag" />
+        </outputs>
+        <errors>
+          <error code="N/A" desc="No new error codes; legacy import sites get ModuleNotFoundError pointing at mint_python successors" />
+        </errors>
+      </contract>
+      <interface>
+        <removal-mcp_g1 PURPOSE="DELETE src/mint/mcp_g1.py — registers mint_validate / mint_fix / mint_fingerprint on FastMCP('MINT-G1'); successors are mint_python.mcp.* tools already shipped in Phase-14" />
+        <removal-mcp_g2 PURPOSE="DELETE src/mint/mcp_g2.py — registers mint_create / mint_extract_style / mint_list_templates / mint_edit on FastMCP('MINT-G2'); mint_create_document / mint_list_templates (Python) / mint_edit (TBD migration) supersede" />
+        <removal-sandbox PURPOSE="DELETE src/mint/sandbox/ — Node.js vm2/isolated-vm sandbox; pure-python runtime makes it dead code" />
+        <removal-create PURPOSE="DELETE src/mint/create.py (~120 LOC) — legacy JS-tier orchestrator (M-CREATE); imports mint.sandbox directly at line 47-48; superseded by mint_python.mcp.document.create_document since Phase-14. Scope-expansion 2026-05-10 (pre-flight discovery)." />
+        <removal-assemble PURPOSE="DELETE src/mint/assemble.py (~700 LOC) — legacy JS-tier modular generator (M-ASSEMBLE); imports mint.sandbox at line 616-617; only used by mint.create which is also being removed. Scope-expansion 2026-05-10." />
+        <removal-cmd_serve PURPOSE="REMOVE the cmd_serve subcommand from src/mint/cli.py (which mounts mcp_g1 + mcp_g2 via FastMCP('MINT').mount(g1).mount(g2) at lines 44-45). The MCP server entry point becomes the FastMCP server in src/mint_python/mcp/document.py invoked directly via stdio in claude_desktop_config.json. The 'mint serve' CLI surface either disappears entirely or repoints at the pure-python server. Scope-expansion 2026-05-10." />
+        <removal-engine_js PURPOSE="REMOVE the Engine.JS branch from src/mint/cli.py::_select_engine; --engine js arg either removed or kept as deprecated stub that exits with a pointer to mint_python tools" />
+        <removal-deps PURPOSE="REMOVE docx (9.x), pptxgenjs (3.x), exceljs (4.x), vm2/isolated-vm sandbox runtime hint, eslint, vitest from pyproject.toml + uv.lock; update docs/technology.xml Runtime + Dependencies + Tooling sections; update docs/requirements.xml constraint-7 to reflect removal (was 'preserved as optional fallback' → now 'removed entirely')" />
+        <removal-tests PURPOSE="DELETE tests/integration/test_mcp_g1.py, tests/integration/test_mcp_g2.py, tests/unit/test_sandbox.py, any tests/unit/test_create.py + tests/unit/test_assemble.py + tests/integration/test_create*.py + test_assemble*.py targeting the deleted modules; tests/integration/test_cli.py loses --engine js + cmd_serve branch coverage" />
+      </interface>
+      <depends>Pre-flight audit completed 2026-05-10 (controller-side, before Wave-15-1 dispatch): tools/article_experiment/ + scripts/ are clean (no legacy imports). Legacy importers found: src/mint/create.py:47-48 (sandbox), src/mint/assemble.py:616-617 (sandbox), src/mint/cli.py:44-45 (mcp_g1+mcp_g2). All 3 in-tree importers are themselves being deleted in this expanded scope; no stub-shim required. Update src/mint/__init__.py + pyproject entry points if mcp_g1/g2/create/assemble were referenced.</depends>
+      <target>
+        <source>src/mint/mcp_g1.py (delete) + src/mint/mcp_g2.py (delete) + src/mint/sandbox/ (delete recursive) + src/mint/create.py (delete; scope-expanded) + src/mint/assemble.py (delete; scope-expanded) + src/mint/cli.py (edit: drop cmd_serve + Engine.JS dispatch) + src/mint/config.py (drop Engine.JS) + pyproject.toml (drop deps + extras + entry points referencing deleted modules) + docs/technology.xml (Runtime/Deps/Tooling sections) + docs/requirements.xml (constraint-7) + .env.example (drop MINT_ENGINE example)</source>
+        <tests>tests/unit/test_legacy_deprecation.py (new — asserts ModuleNotFoundError for ALL deleted modules including mint.create + mint.assemble + absence of JS deps in pyproject + cmd_serve gone from CLI)</tests>
+      </target>
+      <observability>
+        <log-prefix>none — purely subtractive; no new log markers</log-prefix>
+      </observability>
+      <verification-ref>V-MP-LEGACY-DEPRECATION</verification-ref>
+    </MP-LEGACY-DEPRECATION>
   </Modules>
 
   <DataFlow>
@@ -1675,6 +1806,32 @@ writeFileSync('output.docx', buffer);
       <step-7>finally: tmp_path.unlink(missing_ok=True).</step-7>
       <evidence>[MP-Fix][backup][BLOCK_CREATE_BACKUP] + [MP-Fix][apply][BLOCK_APPLY_FIX] at INFO per iteration; ValidationReport (re-validate) emits its own BLOCK_RUN_CHECKS.</evidence>
     </DF-016>
+
+    <DF-017 NAME="Authorized Template Write" TRIGGER="mint_update_template MCP call (Phase-15)">
+      <step-1>update_template receives (name, content, author, ctx). Before any disk I/O it calls MP-AUTH-SHIM.require_template_writer(author).</step-1>
+      <step-2>require_template_writer loads WritersConfig (cached). Sources in priority: MINT_TEMPLATE_WRITERS env, then ~/.config/mint/writers.json. Empty config → open_mode=True (with one-shot BLOCK_AUTH_OPEN_MODE warning per process).</step-2>
+      <step-3>If author NOT in writers AND open_mode is False → raise TEMPLATE_WRITE_FORBIDDEN with author + reason. Tool surfaces structured error; templates/_audit.jsonl gains NO entry; no file written.</step-3>
+      <step-4>If author IS in writers OR open_mode → existing W3 path runs (TemplateRegistry validation → next-semver compute → file write → _audit.jsonl append → GRACE-manifest extension on subsequent create_document calls).</step-4>
+      <evidence>[MP-Auth][check_writer][BLOCK_AUTH_DENY] author=&lt;...&gt; reason=&lt;...&gt; on deny path; [MP-Auth][check_writer][BLOCK_AUTH_OPEN_MODE] once on first open-mode call. The legacy [MP-TemplatesWrite][update][BLOCK_TEMPLATE_WRITE] continues to fire only on the allowed path.</evidence>
+    </DF-017>
+
+    <DF-018 NAME="GRACE Manifest Read" TRIGGER="mint_read_grace_manifest MCP call (Phase-15)">
+      <step-1>mint_read_grace_manifest receives (document_path, ctx). Path normalized via safe_doc — rejects path traversal / absolute traversal patterns with INVALID_DOCUMENT.</step-1>
+      <step-2>MP-MANIFEST-READ delegates to MP-GRACE.describe(path). describe opens the docx zip, locates grace/manifest_*.xml entries, parses XML, returns GRACEManifest dataclass (or None when no GRACE part is present).</step-2>
+      <step-3>None → MANIFEST_NOT_FOUND structured tool error. Parse exception → MANIFEST_PARSE_ERROR. Otherwise canonicalize the dataclass into a dict with keys {audit_id, model_identity, fields_elicited, template, template_version, template_author, timestamp, instructions, fingerprint, namespace} and return.</step-3>
+      <step-4>Multiple manifest_*.xml parts present (W3 append-extension semantics) → return the most recent entry (highest timestamp); earlier entries surfaced under manifest_history if requested via future flag (out of scope for Phase-15).</step-4>
+      <evidence>[MP-Manifest][read][BLOCK_READ_MANIFEST] document_path=&lt;...&gt; manifest_count=&lt;n&gt; on success; [MP-Manifest][read][BLOCK_MANIFEST_NOT_FOUND] when describe returns None.</evidence>
+    </DF-018>
+
+    <DF-019 NAME="Visual QA Hook on create_document" TRIGGER="create_document tool returning (Phase-15)">
+      <step-0>create_document completes the existing pipeline: heuristic → elicit → assemble → save → MP-GRACE.bootstrap. Document is on disk and ready to return.</step-0>
+      <step-1>Hook reads MINT_SKIP_VISUAL_QA. If "1" → emit no marker, omit visual_qa key from structured_content, return.</step-1>
+      <step-2>MP-VISUAL-QA-HOOK.score_document(path, preset_name) probes backend availability: soffice on PATH, pdftoppm on PATH, Ollama VLM endpoint reachable. Any missing → log [MP-VisualQA][score][BLOCK_QA_BACKEND_UNAVAILABLE] reason=&lt;...&gt; at WARNING; structured_content gets visual_qa: {skipped: true, skip_reason: ..., advisory: true}; tool succeeds.</step-2>
+      <step-3>All backends present: soffice headless renders docx → PDF; pdftoppm renders first MINT_VISUAL_QA_PAGES pages (default 5) at 110 DPI to PNGs.</step-3>
+      <step-4>For each page: base64 PNG sent to qwen2.5vl:7b with rubric prompt; response is strict JSON with axis scores. Aggregate axis means → overall score.</step-4>
+      <step-5>structured_content gains visual_qa: {score, axes, issues, pages_scored, preset_name, advisory: true}. Below-threshold (default 70) emits [MP-VisualQA][score][BLOCK_QA_BELOW_THRESHOLD] but NEVER raises — tool result still success. Above-threshold emits [MP-VisualQA][score][BLOCK_QA_SCORE].</step-5>
+      <evidence>[MP-VisualQA][score][BLOCK_QA_SCORE] preset=&lt;...&gt; pages_scored=&lt;n&gt; score=&lt;0-100&gt; axes=&lt;dict&gt;; backend-failure variant emits BLOCK_QA_BACKEND_UNAVAILABLE; below-threshold variant emits BLOCK_QA_BELOW_THRESHOLD. Forbidden: any QA failure mode that prevents the docx from being returned to the caller.</evidence>
+    </DF-019>
   </DataFlow>
 
   <ImplementationOrder>
@@ -1792,6 +1949,14 @@ writeFileSync('output.docx', buffer);
       <step-3 module="MP-TEMPLATES-WRITE" status="done" verification="V-MP-TEMPLATES-WRITE">**W3 — template versioning + cross-model handoff**. New tool `update_template(name, content, author, ctx) -> {name, version, audit_id, predecessor_version}`. Writes `templates/&lt;name&gt;_v&lt;next-semver&gt;.yaml`; never overwrites existing files. Sidecar audit log `templates/_audit.jsonl` records every write with timestamp, author, predecessor version, content hash. GRACE manifest in produced docx now records the template version + author lineage (extending the existing _audit_instructions list). Demo path (manual): frontier Claude edits memo_v1.0 → memo_v1.1 in low-sensitivity context (no client data); local qwen3.5 uses memo_v1.1 to generate a memo with sensitive client data; produced docx's GRACE manifest names the template version Claude authored. Implements audit's Priority-4. The cross-model demo is the closest thing we have to a "wow moment" against ChatGPT/Anthropic-Skills competitors that don't do governance.</step-3>
       <step-4 module="MP-MCP-RESOURCES" status="done" verification="V-MP-MCP-RESOURCES">**W4 — MCP resources for templates + presets**. Wire FastMCP `@server.resource` handlers exposing `mint://template/&lt;name&gt;[/v&lt;version&gt;]` and `mint://preset/&lt;name&gt;` URI schemes. Clients that prefer `resources/list` + `resources/read` over tool-calls (Cursor, VS Code with Insiders MCP) get native enumeration without making a tool call per template. Symmetric tools `list_presets(ctx)` and `get_preset(name, ctx)` for clients that don't support the resources protocol (current Claude Desktop). Implements audit's Priority-1 (design-tokens-as-resources). After this wave, the MCP-audit.md document's gap-analysis section can flip all four differentiators from "absent" to "shipped".</step-4>
     </Phase-14>
+
+    <Phase-15 name="Production hardening (per HANDOVER-phase15-ready.md)" status="planned" ADDED_AT="2026-05-10">
+      <goal>"можно показать клиенту O!Bank, не страшно". Phase-14 made MINT MCP-first; Phase-15 makes it safe to demo externally. Three production-grade modules + one cleanup wave: (a) gate write-path tools behind a config-driven allowlist so a stray sidecar can't clobber governed templates; (b) ship the read counterpart to GRACE injection so callers can audit a docx they didn't generate (closes audit Priority-1 acceptance); (c) attach an advisory VLM rubric scorer to create_document so demo runs surface visual regressions before they reach a customer screen; (d) finally remove the legacy mcp_g1/mcp_g2 surface and the JS-sandbox path the Phase-14 audit promised to delete but didn't. After Phase-15 the public surface is pure-python, every write is authorized, every produced docx is auditable + visually scored, and the legacy Node tail is gone.</goal>
+      <step-1 module="MP-AUTH-SHIM" status="planned" verification="V-MP-AUTH-SHIM">**W1 — Authorization shim (production blocker)**. New module src/mint_python/mcp/auth.py: WritersConfig dataclass, load_writers_config (env + ~/.config/mint/writers.json, cached, AUTH_CONFIG_INVALID on malformed), is_template_writer, require_template_writer (raises TEMPLATE_WRITE_FORBIDDEN). Wire MP-TEMPLATES-WRITE.update_template to call require_template_writer BEFORE any disk mutation; the existing audit-log entry path is unchanged. Empty config = open mode with one-shot BLOCK_AUTH_OPEN_MODE warning per process — backwards-compat for local dev. ~80 LOC + tests + a 10-line config docs section in templates/_README.md.</step-1>
+      <step-2 module="MP-MANIFEST-READ" status="planned" verification="V-MP-MANIFEST-READ">**W1 — GRACE manifest read tool**. New module src/mint_python/mcp/manifest.py exposing @server.tool async mint_read_grace_manifest(document_path, ctx). Thin wrapper over the existing MP-GRACE.describe — opens docx zip via safe_doc, returns canonical dict (audit_id, model_identity, fields_elicited, template, template_version, template_author, timestamp, instructions, fingerprint, namespace) or surfaces MANIFEST_NOT_FOUND / MANIFEST_PARSE_ERROR / INVALID_DOCUMENT structured errors. ~50 LOC + tests. W1-parallel-safe with MP-AUTH-SHIM (independent files; no shared write scope).</step-2>
+      <step-3 module="MP-VISUAL-QA-HOOK" status="planned" verification="V-MP-VISUAL-QA-HOOK">**W2 — Visual QA hook**. Refactor root-level e2e_qa_visual.py into src/mint_python/qa/visual.py as a library: score_document(path, preset_name='klawd') -> VisualQAReport | None. Backend probes (soffice/pdftoppm/Ollama) degrade gracefully — backend-unavailable returns None with a logged warning, tool still succeeds. Hook wired into mcp/document.py post-GRACE step; structured_content gains visual_qa key (or is omitted entirely when MINT_SKIP_VISUAL_QA=1). VLM rubric (qwen2.5vl:7b on Ollama, 0-100 per axis: typography / layout / visual_richness / professional). Default ON; advisory only — visual-QA outcome NEVER blocks document return. ~100 LOC + tests; existing root-level e2e_qa_visual.py becomes a 5-line CLI shim or is retired.</step-3>
+      <step-4 module="MP-LEGACY-DEPRECATION" status="planned" verification="V-MP-LEGACY-DEPRECATION" SCOPE_EXPANDED_AT="2026-05-10">**W3 — Legacy deprecation (subtractive, EXPANDED scope)**. Pre-flight 2026-05-10 found mint.sandbox imported by mint.create + mint.assemble; mcp_g1/mcp_g2 mounted by mint.cli::cmd_serve. Scope expanded by user approval same day. Delete: src/mint/mcp_g1.py, src/mint/mcp_g2.py, src/mint/sandbox/, src/mint/create.py (legacy M-CREATE; ~120 LOC; superseded by mint_python.mcp.document.create_document since Phase-14), src/mint/assemble.py (legacy M-ASSEMBLE; ~700 LOC; only consumer was mint.create). Edit src/mint/cli.py: drop cmd_serve subcommand entirely (legacy MCP server mount path; the MCP entry point is now src/mint_python/mcp/document.py invoked via stdio); drop Engine.JS branch from _select_engine; remove --engine js arg. Drop Engine.JS enum from src/mint/config.py. Purge docx (9.x) / pptxgenjs (3.x) / exceljs (4.x) / vm2 / isolated-vm / vitest / eslint + any project entry points referencing deleted modules from pyproject.toml + uv.lock. Update docs/technology.xml Runtime + Dependencies + Tooling sections + docs/requirements.xml constraint-7. Delete tests/integration/test_mcp_g1.py + tests/integration/test_mcp_g2.py + tests/unit/test_sandbox.py + tests/unit/test_create.py + tests/unit/test_assemble.py + tests/integration/test_create*.py + tests/integration/test_assemble*.py (all that target deleted modules); tests/integration/test_cli.py loses --engine js + cmd_serve branch coverage. Add tests/unit/test_legacy_deprecation.py asserting ModuleNotFoundError for ALL deleted modules + dep absence. tools/article_experiment/ + scripts/ pre-flight CLEAN — no migration needed there. ~1000 LOC removal + test migration + docs sweep. W3 runs LAST — broad subtractive blast radius; SWARM-FORBIDDEN by V-MP-LEGACY-DEPRECATION autonomy-assessment.</step-4>
+    </Phase-15>
   </ImplementationOrder>
 
   <ExecutionPolicy>

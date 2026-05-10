@@ -1,4 +1,4 @@
-<VerificationPlan VERSION="0.8.0">
+<VerificationPlan VERSION="0.9.0">
   <GlobalPolicy>
     <log-format>[Module][function][BLOCK_NAME] message</log-format>
     <deterministic-first>true</deterministic-first>
@@ -441,6 +441,95 @@
       </forbidden-signals>
       <activation-gate>Wave-9-4: un-stubs Document.validate/fix; activates alongside VF-015 e2e harness.</activation-gate>
     </VF-016>
+
+    <VF-017 NAME="AuthorizedTemplateWrite" USE_CASES="cross-cutting (audit Priority-4)" DATA_FLOW="DF-017" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-10">
+      <scenario>External MCP client invokes update_template with author=X. MP-AUTH-SHIM gate decides admit-or-deny BEFORE any disk I/O. On admit, the existing W3 Phase-14 path runs (template version bump + audit-log append + GRACE manifest extension on subsequent create_document). On deny, TEMPLATE_WRITE_FORBIDDEN raises before templates/ is touched. Per HANDOVER-phase15-ready.md: "update_template is currently writable by any connected MCP client. After Phase-14, that includes any local model attached via Cursor / OpenWebUI / etc. — a stray sidecar can clobber the governed templates."</scenario>
+      <expected-outcome>Allowlisted authors complete the existing W3 path with no observable change; non-allowlisted authors are stopped with a structured error and zero side effects on templates/, _audit.jsonl, and the GRACE manifest chain. Empty config (no env, no file) → open mode preserves backwards-compat for local dev; one-shot warning emitted per process so ops notice the unguarded state.</expected-outcome>
+      <invariants>
+        <inv-1 NAME="NO-DISK-WRITE-ON-DENY">Pre-call snapshot of templates/ directory listing + sha256 of templates/_audit.jsonl is byte-identical to the post-call snapshot when require_template_writer raises TEMPLATE_WRITE_FORBIDDEN. Verified by hashing both on every deny scenario.</inv-1>
+        <inv-2 NAME="OPEN-MODE-WARNS-ONCE">In open mode, [MP-Auth][check_writer][BLOCK_AUTH_OPEN_MODE] WARNING fires EXACTLY once per process across N admit calls (N ≥ 5 in test). Subsequent calls see the cached WritersConfig and do not re-emit.</inv-2>
+        <inv-3 NAME="READ-PATH-NEVER-CALLS-AUTH">list_templates / get_template / list_presets / get_preset / mint_read_grace_manifest / mint:// resource handlers MUST NOT call into MP-AUTH-SHIM. Verified by patching require_template_writer with a sentinel that raises AssertionError; running the read tools must NOT trip the sentinel.</inv-3>
+        <inv-4 NAME="CACHE-INVARIANT">load_writers_config() executes its env+file resolution exactly once per process; cache hit on every subsequent call. Verified by counting filesystem reads on ~/.config/mint/writers.json across N calls — count is 0 (env path) or 1 (file path), never N.</inv-4>
+        <inv-5 NAME="AUTH-CONFIG-FAIL-FAST">Malformed writers.json surfaces as AUTH_CONFIG_INVALID at first require_template_writer call (lazy load), NOT at module import. Subsequent calls re-raise the same error from cache; the cache is poisoned, not retried.</inv-5>
+        <inv-6 NAME="WRITER-LIST-NEVER-LOGGED">No log payload at any level contains the full writers tuple. config_source ('env'|'file'|'none') and the rejected author may surface; the allowlist itself stays out of caplog.</inv-6>
+      </invariants>
+      <required-signals>
+        <log-marker>[MP-Auth][check_writer][BLOCK_AUTH_OPEN_MODE] (open mode, once per process)</log-marker>
+        <log-marker>[MP-Auth][check_writer][BLOCK_AUTH_ADMIT] (allowlist hit; payload: author, config_source)</log-marker>
+        <log-marker>[MP-Auth][check_writer][BLOCK_AUTH_DENY] (allowlist miss; payload: author, reason='not_in_writers', config_source)</log-marker>
+        <log-marker>[MP-TemplatesWrite][update][BLOCK_TEMPLATE_WRITE] (existing Phase-14 marker; MUST follow ADMIT or OPEN_MODE)</log-marker>
+        <trace-sequence kind="admit-env">BLOCK_AUTH_ADMIT -> BLOCK_TEMPLATE_WRITE -> BLOCK_AUDIT_APPEND -> RETURNED</trace-sequence>
+        <trace-sequence kind="admit-open-mode-first-call">BLOCK_AUTH_OPEN_MODE -> BLOCK_AUTH_ADMIT -> BLOCK_TEMPLATE_WRITE -> BLOCK_AUDIT_APPEND -> RETURNED</trace-sequence>
+        <trace-sequence kind="deny">BLOCK_AUTH_DENY -> RAISED(TEMPLATE_WRITE_FORBIDDEN)</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>[MP-TemplatesWrite][update][BLOCK_TEMPLATE_WRITE] WITHOUT a preceding BLOCK_AUTH_ADMIT or BLOCK_AUTH_OPEN_MODE marker in the same call's caplog window. Verified by an order-aware caplog assertion.</forbidden-1>
+        <forbidden-2>BLOCK_AUTH_DENY followed by ANY filesystem-touching marker (BLOCK_TEMPLATE_WRITE, BLOCK_AUDIT_APPEND, BLOCK_GRACE_INJECT_MANIFEST) in the same caplog window. The deny path stops cold.</forbidden-2>
+        <forbidden-3>WritersConfig.writers tuple value (the full allowlist) appearing anywhere in caplog records, INFO or DEBUG. Verified by a regex assertion against the rendered allowlist in test fixtures.</forbidden-3>
+        <forbidden-4>Read-path tools (list_templates / get_template / list_presets / get_preset / mint_read_grace_manifest) emitting BLOCK_AUTH_* markers. Read is open by design (V-MP-AUTH-SHIM forbidden-1).</forbidden-4>
+      </forbidden-signals>
+      <activation-gate>Wave-15-1 (MP-AUTH-SHIM ships); VF-017 activates alongside V-MP-AUTH-SHIM module-local scenarios. Headline acceptance signal for the production-blocker resolution.</activation-gate>
+    </VF-017>
+
+    <VF-018 NAME="GraceManifestRoundTrip" USE_CASES="UC-006" DATA_FLOW="DF-018" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+      <scenario>Caller invokes mint_read_grace_manifest(document_path) on a docx authored by create_document. The returned dict must round-trip the manifest written at inject time — same audit_id, fields_elicited, template, template_version, template_author, timestamp. Closes audit Priority-1 acceptance criterion "read_grace_manifest exists and round-trips a manifest written by any other tool" — explicitly named in audit §1 row-7 + §3(c) + §5 roadmap, never shipped during Phase-14.</scenario>
+      <expected-outcome>Round-trip equality: dict == _canonicalize(MP-GRACE.describe(path)). Multiple-manifest case (Phase-14 W3 append-extension) returns the most-recent entry (highest timestamp). Missing manifest, malformed XML, and corrupted zip surface as structured tool errors (MANIFEST_NOT_FOUND / MANIFEST_PARSE_ERROR / INVALID_DOCUMENT). Path traversal rejected before zipfile open. Source docx byte-identical before/after read.</expected-outcome>
+      <invariants>
+        <inv-1 NAME="ROUND-TRIP-EQUALITY">For every audit_id A produced by create_document on a fresh docx, mint_read_grace_manifest(path).audit_id == A; fields_elicited list equality; template_version equality; template_author equality (when post-W3 template was used).</inv-1>
+        <inv-2 NAME="READ-ONLY">sha256(file_bytes) before mint_read_grace_manifest call equals sha256(file_bytes) after the call returns or raises. Verified across all 5 V-MP-MANIFEST-READ scenarios.</inv-2>
+        <inv-3 NAME="NO-AUTH-CALL">BLOCK_AUTH_DENY / BLOCK_AUTH_ADMIT / BLOCK_AUTH_OPEN_MODE all absent in caplog during a mint_read_grace_manifest call (read-path-never-calls-auth invariant from VF-017 inv-3, asserted from the read side).</inv-3>
+        <inv-4 NAME="PATH-TRAVERSAL-PRE-ZIP">safe_doc rejects "../...", absolute paths outside an allowed root, and symlink escapes BEFORE zipfile.ZipFile() is opened. Verified by patching ZipFile.__init__ with a sentinel; path-traversal tests must not trip the sentinel.</inv-4>
+        <inv-5 NAME="MOST-RECENT-WINS">When a docx contains N grace/manifest_*.xml parts (N ≥ 2, simulated via repeated update_template + create_document chain), the returned dict matches the part with the highest timestamp field. Earlier entries are NOT surfaced in Phase-15 (manifest_history is a future enhancement).</inv-5>
+        <inv-6 NAME="MANIFEST-PAYLOAD-NOT-LOGGED">Caplog at INFO contains document_path, manifest_count, and selected_xml_part_name but NOT the full manifest content (audit_id, fields_elicited, instructions). DEBUG may include the dict; INFO must not.</inv-6>
+      </invariants>
+      <required-signals>
+        <log-marker>[MP-Manifest][read][BLOCK_READ_MANIFEST] (success path; payload: document_path, manifest_count, selected_xml_part_name)</log-marker>
+        <log-marker>[MP-Manifest][read][BLOCK_MANIFEST_NOT_FOUND] (no GRACE part present; structured error path)</log-marker>
+        <log-marker>[MP-Manifest][read][BLOCK_MANIFEST_PARSE_ERROR] (parse failure on present manifest XML)</log-marker>
+        <trace-sequence kind="success">BLOCK_READ_MANIFEST -> RETURNED</trace-sequence>
+        <trace-sequence kind="not-found">BLOCK_MANIFEST_NOT_FOUND -> RAISED(MANIFEST_NOT_FOUND)</trace-sequence>
+        <trace-sequence kind="parse-error">BLOCK_MANIFEST_PARSE_ERROR -> RAISED(MANIFEST_PARSE_ERROR)</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>zipfile.ZipFile open with mode='a' or mode='w' anywhere on the mint_read_grace_manifest call path. Verified by patching zipfile.ZipFile.__init__ to raise on non-'r' mode during the test scope.</forbidden-1>
+        <forbidden-2>BLOCK_AUTH_* markers in caplog during the read call (mirrors VF-017 forbidden-4 from the read side).</forbidden-2>
+        <forbidden-3>The full manifest dict serialized into a single INFO log record (e.g. logger.info("manifest=%s", manifest_dict)). DEBUG-level dump is acceptable; INFO is not.</forbidden-3>
+        <forbidden-4>Stack traces leaking to the MCP client on MANIFEST_NOT_FOUND / MANIFEST_PARSE_ERROR / INVALID_DOCUMENT — these MUST surface as structured tool errors, not Python tracebacks.</forbidden-4>
+      </forbidden-signals>
+      <activation-gate>Wave-15-1 (MP-MANIFEST-READ ships parallel-safe alongside MP-AUTH-SHIM); VF-018 activates alongside V-MP-MANIFEST-READ scenarios 1-6. Closes audit Priority-1 acceptance criterion explicitly.</activation-gate>
+    </VF-018>
+
+    <VF-019 NAME="VisualQAAdvisoryHook" USE_CASES="UC-005,UC-001" DATA_FLOW="DF-019" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+      <scenario>create_document completes the existing pipeline (heuristic → elicit → assemble → save → MP-GRACE.bootstrap). After GRACE injection AND BEFORE returning to the caller, MP-VISUAL-QA-HOOK.score_document attaches an advisory visual_qa key to structured_content (or cleanly skips if backend unavailable / env opt-out). The hook is contractually advisory: any QA outcome — high score, low score, backend missing, malformed VLM response — MUST result in a successful tool return. Per HANDOVER-phase15-ready.md: "Currently we validate structure (MP-VALIDATE) but don't visually compare against preset's reference. Optional flag (defaults on); MINT_SKIP_VISUAL_QA=1 to skip." Resolves §discoveries gap that MP-VALIDATE catches OOXML structure errors but never confirms the rendered document visually matches the preset's intent.</scenario>
+      <expected-outcome>Backend present + score ≥ threshold: structured_content.visual_qa = {score, axes, issues, pages_scored, preset_name, advisory: true}; tool result success=True. Backend present + score &lt; threshold: same shape, BLOCK_QA_BELOW_THRESHOLD WARNING fires, tool still success=True. MINT_SKIP_VISUAL_QA=1: structured_content lacks visual_qa key entirely (key absent, not None); no QA log markers fire. Backend unavailable: visual_qa = {skipped: true, skip_reason, advisory: true}; BLOCK_QA_BACKEND_UNAVAILABLE WARNING fires; tool still success=True. VLM returns garbage: hook logs failure, returns None, tool succeeds with skipped: true.</expected-outcome>
+      <invariants>
+        <inv-1 NAME="ADVISORY-ONLY">create_document tool result success=True for ALL VisualQA outcomes. Verified by `pytest.raises` NEVER firing on any QA failure scenario; tool result inspection across all 6 V-MP-VISUAL-QA-HOOK scenarios shows success=True.</inv-1>
+        <inv-2 NAME="POSITION-AFTER-GRACE">In every successful create_document caplog, BLOCK_QA_SCORE (or BLOCK_QA_BACKEND_UNAVAILABLE) appears at a higher record index than BLOCK_INJECT_MANIFEST. The hook MUST run AFTER GRACE injection so the manifest is intact in the visually-scored file.</inv-2>
+        <inv-3 NAME="SKIP-ENV-OMITS-KEY">When MINT_SKIP_VISUAL_QA=1, "visual_qa" is NOT a key in the tool result's structured_content (use `assert "visual_qa" not in structured_content`, not `assert structured_content.get("visual_qa") is None` — the key must be absent, not present-with-None).</inv-3>
+        <inv-4 NAME="BACKEND-DEGRADATION">If shutil.which("soffice") returns None OR shutil.which("pdftoppm") returns None OR Ollama VLM endpoint is unreachable (any of three): score_document returns None; structured_content.visual_qa = {skipped: true, skip_reason: &lt;backend_name&gt;_unavailable, advisory: true}; BLOCK_QA_BACKEND_UNAVAILABLE fires WITH the failing backend named in the payload.</inv-4>
+        <inv-5 NAME="NO-DOC-MUTATION">sha256(saved_docx_bytes) before hook execution equals sha256(saved_docx_bytes) after hook returns or raises. The visual-QA pipeline reads from the saved docx and writes only to tempfiles.</inv-5>
+        <inv-6 NAME="TEMP-FILE-CLEANUP">Tempfiles created during score_document (PDF intermediate, PNG page renders) are unlinked after the hook returns OR on exception. Verified by snapshotting tempdir entries before and after; equality enforced. Mirrors VF-016 inv-1 TEMP-FILE-CLEANUP pattern.</inv-6>
+        <inv-7 NAME="NO-CALLER-INPUT-IN-VLM-PAYLOAD">The VLM HTTP request body contains EXACTLY the rendered PNG (base64) and the fixed rubric prompt. No fields from the create_document caller (intent, source_md, elicited values, MemoSpec field values) are interpolated into the prompt. Verified by patching urllib.request with an introspecting fake; the captured payload is regex-searched for sentinel strings injected via test fixture intent, and finds zero hits.</inv-7>
+      </invariants>
+      <required-signals>
+        <log-marker>[MP-VisualQA][score][BLOCK_QA_SCORE] (success path; payload: preset, pages_scored, score, axes)</log-marker>
+        <log-marker>[MP-VisualQA][score][BLOCK_QA_BELOW_THRESHOLD] WARNING (success path with score &lt; threshold; payload: score, threshold, preset)</log-marker>
+        <log-marker>[MP-VisualQA][score][BLOCK_QA_BACKEND_UNAVAILABLE] WARNING (degraded path; payload: reason)</log-marker>
+        <log-marker>[MP-Grace][inject][BLOCK_INJECT_MANIFEST] (existing Phase-11 marker; MUST precede QA marker in caplog order)</log-marker>
+        <trace-sequence kind="success-above-threshold">... -> BLOCK_INJECT_MANIFEST -> BLOCK_QA_SCORE -> RETURNED(success=True, visual_qa={score,axes,...})</trace-sequence>
+        <trace-sequence kind="success-below-threshold">... -> BLOCK_INJECT_MANIFEST -> BLOCK_QA_SCORE -> BLOCK_QA_BELOW_THRESHOLD -> RETURNED(success=True, visual_qa.advisory=true)</trace-sequence>
+        <trace-sequence kind="skipped-env">... -> BLOCK_INJECT_MANIFEST -> RETURNED(success=True; "visual_qa" key absent)</trace-sequence>
+        <trace-sequence kind="backend-unavailable">... -> BLOCK_INJECT_MANIFEST -> BLOCK_QA_BACKEND_UNAVAILABLE -> RETURNED(success=True, visual_qa.skipped=true)</trace-sequence>
+      </required-signals>
+      <forbidden-signals>
+        <forbidden-1>BLOCK_QA_SCORE appearing BEFORE BLOCK_INJECT_MANIFEST in caplog order on a successful create_document call. Verified by `assert_marker_sequence(caplog, ["BLOCK_INJECT_MANIFEST", "BLOCK_QA_SCORE"])` (existing helper from Phase-7 swarm fixtures).</forbidden-1>
+        <forbidden-2>create_document tool returning success=False due to a visual-QA outcome. The hook is contractually advisory; ANY failure mode that translates to tool failure is a forbidden behavior.</forbidden-2>
+        <forbidden-3>VLM payload containing caller intent, source_md, fields_elicited values, or any other content beyond the rendered PNG + the fixed rubric prompt. Verified by VLM-payload introspection fixture.</forbidden-3>
+        <forbidden-4>Tempfile leakage after hook return. Verified by tempdir snapshot diff fixture.</forbidden-4>
+        <forbidden-5>Hook executing on the create_document path BEFORE BLOCK_INJECT_MANIFEST has fired (i.e. before GRACE injection has stamped the file). The visually-scored file MUST carry its GRACE manifest.</forbidden-5>
+      </forbidden-signals>
+      <activation-gate>Wave-15-2 (MP-VISUAL-QA-HOOK ships; refactor of root-level e2e_qa_visual.py into src/mint_python/qa/visual.py + hook integration into mcp/document.py). VF-019 activates alongside V-MP-VISUAL-QA-HOOK scenarios 1-6. Real-VLM smoke is manual, single-user, NOT in CI scope; CI uses tests/_helpers/fake_vlm fixture.</activation-gate>
+    </VF-019>
 
   </CriticalFlows>
 
@@ -1873,6 +1962,106 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE — read-only resource handlers; no shared state.</autonomy-assessment>
     </V-MP-MCP-RESOURCES>
 
+    <V-MP-AUTH-SHIM MODULE="MP-AUTH-SHIM" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/integration/test_mp_auth_shim.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mp_auth_shim.py -x</check-1>
+        <check-2>ruff check src/mint_python/mcp/auth.py</check-2>
+        <check-3>mypy src/mint_python/mcp/auth.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">MINT_TEMPLATE_WRITERS="alice,bob,Claude-Opus-4.7" set; require_template_writer("alice") returns None (no raise). update_template("memo", new_yaml, author="alice") writes templates/memo_v1.2.yaml + appends _audit.jsonl entry per existing W3 path. test_scenario_1_env_allowlist_admits_writer_and_writes_proceed.</scenario-1>
+        <scenario-2 kind="failure" evidence="deterministic" status="planned">MINT_TEMPLATE_WRITERS="alice"; update_template("memo", new_yaml, author="cursor-sidecar") raises TEMPLATE_WRITE_FORBIDDEN before any disk write. templates/_audit.jsonl line count unchanged; templates/ directory listing unchanged. test_scenario_2_unallowed_author_raises_before_disk_io.</scenario-2>
+        <scenario-3 kind="success" evidence="trace" status="planned">No MINT_TEMPLATE_WRITERS set, no ~/.config/mint/writers.json present → open mode. require_template_writer("anyone") returns None; first call emits [MP-Auth][check_writer][BLOCK_AUTH_OPEN_MODE] WARNING exactly once per process; subsequent open-mode calls do not re-emit. test_scenario_3_open_mode_warns_once_then_admits.</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic" status="planned">~/.config/mint/writers.json contains malformed JSON → load_writers_config raises AUTH_CONFIG_INVALID at first call (lazy + cached after success); naming the path and the parse error in the message. NOT raised at module import time. test_scenario_4_malformed_writers_json_fails_fast_with_path_in_message.</scenario-4>
+        <scenario-5 kind="success" evidence="trace" status="planned">[MP-Auth][check_writer][BLOCK_AUTH_DENY] payload on the deny path carries author=&lt;rejected_id&gt; reason="not_in_writers" config_source="env"|"file" — enough information to debug allowlist mismatches without leaking the full writer list. test_scenario_5_deny_log_carries_author_and_config_source.</scenario-5>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>Read-path tools (list_templates, get_template, list_presets, get_preset, mint_read_grace_manifest, mint:// resource handlers) MUST NOT call into MP-AUTH-SHIM — read remains open by design.</forbidden-1>
+        <forbidden-2>The shim MUST NEVER write or mutate templates/, _audit.jsonl, or any disk state. Pure decision module.</forbidden-2>
+        <forbidden-3>WritersConfig MUST NEVER be logged in full — only config_source surfaces in evidence; the writer list itself stays out of logs.</forbidden-3>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — pure decision module with no shared mutable state; tests use monkeypatch on env + tmp_path-isolated config files; load_writers_config cache cleared per test via fixture.</autonomy-assessment>
+    </V-MP-AUTH-SHIM>
+
+    <V-MP-MANIFEST-READ MODULE="MP-MANIFEST-READ" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/integration/test_mp_manifest_read.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mp_manifest_read.py -x</check-1>
+        <check-2>ruff check src/mint_python/mcp/manifest.py</check-2>
+        <check-3>mypy src/mint_python/mcp/manifest.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="integration" status="planned">create_document(doc_type='memo', ...) produces docx; mint_read_grace_manifest(path) returns dict with audit_id (UUID4 string), fields_elicited (list), template ('memo.yaml'), template_version (semver str), template_author (when post-W3 template was used), timestamp (ISO8601), namespace ('urn:mint:grace:2026:manifest'). Round-trip: dict == _canonicalize(MP-GRACE.describe(path)). test_scenario_1_round_trip_create_then_read_manifest.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="planned">Docx with multiple grace/manifest_*.xml parts (W3 append-extension scenario where template lineage was added on top of an earlier manifest) → return entry with the highest timestamp; older entries NOT surfaced (Phase-15 returns only most-recent). test_scenario_2_multiple_manifest_parts_returns_most_recent.</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic" status="planned">Docx with NO urn:mint:grace:2026:manifest custom XML part → MANIFEST_NOT_FOUND structured error (NOT a stack trace). Message names the document_path. Verified on a docx produced by a non-MINT pipeline (e.g. python-docx newDocument().save()). test_scenario_3_no_grace_part_raises_manifest_not_found.</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic" status="planned">Path is not a valid zip / corrupted docx → INVALID_DOCUMENT. test_scenario_4_a_invalid_zip_raises_invalid_document. Path traversal attempt (e.g. "../../etc/passwd") rejected by safe_doc → INVALID_DOCUMENT before any zipfile open. test_scenario_4_b_path_traversal_rejected.</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic" status="planned">manifest_*.xml part exists but XML is malformed (truncated, mismatched tags) → MANIFEST_PARSE_ERROR with the offending xml_part_name in the message; document_path also surfaced. test_scenario_5_malformed_manifest_xml_raises_parse_error.</scenario-5>
+        <scenario-6 kind="success" evidence="trace" status="planned">[MP-Manifest][read][BLOCK_READ_MANIFEST] payload carries document_path + manifest_count + selected_xml_part_name on success; [MP-Manifest][read][BLOCK_MANIFEST_NOT_FOUND] fires on the not-found path. test_scenario_6_log_markers_on_success_and_not_found.</scenario-6>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>mint_read_grace_manifest MUST NEVER mutate the source docx. Read-only by contract — no zipfile.ZipFile open in 'a' or 'w' mode anywhere in the path.</forbidden-1>
+        <forbidden-2>The tool MUST NOT consult MP-AUTH-SHIM — read is open per V-MP-AUTH-SHIM forbidden-1.</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — pure read over local file; tests use tmp_path docx fixtures; safe_doc enforces path scope.</autonomy-assessment>
+    </V-MP-MANIFEST-READ>
+
+    <V-MP-VISUAL-QA-HOOK MODULE="MP-VISUAL-QA-HOOK" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/integration/test_mp_visual_qa_hook.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mp_visual_qa_hook.py -x</check-1>
+        <check-2>ruff check src/mint_python/qa/visual.py</check-2>
+        <check-3>mypy src/mint_python/qa/visual.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="integration" status="planned">Backend stack available (soffice + pdftoppm + Ollama VLM mocked through a tests/_helpers/fake_vlm fixture returning fixed axis scores). create_document(doc_type='memo') → tool result structured_content carries visual_qa: {score: int, axes: dict[str, int], issues: list, pages_scored: int, preset_name: 'klawd', advisory: True}. score is the mean of axis means across pages. test_scenario_1_hook_attaches_visual_qa_to_structured_content.</scenario-1>
+        <scenario-2 kind="success" evidence="trace" status="planned">Fake VLM returns scores averaging &lt;70 (below default threshold). Tool result is still success=True; visual_qa.advisory remains True; [MP-VisualQA][score][BLOCK_QA_BELOW_THRESHOLD] WARNING fires with payload {score, threshold, preset_name}. The tool MUST NOT raise. test_scenario_2_below_threshold_logs_warning_but_tool_succeeds.</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="planned">MINT_SKIP_VISUAL_QA=1 set; create_document tool result structured_content does NOT include the visual_qa key at all (key absent, not None). No QA log markers fire. Backend probes are never executed. test_scenario_3_skip_env_omits_visual_qa_key_entirely.</scenario-3>
+        <scenario-4 kind="success" evidence="trace" status="planned">Backend unavailable variants: (a) soffice missing on PATH, (b) pdftoppm missing on PATH, (c) Ollama endpoint unreachable. Each variant: score_document returns None; structured_content carries visual_qa: {skipped: true, skip_reason: &lt;backend_name&gt;_unavailable, advisory: true}; [MP-VisualQA][score][BLOCK_QA_BACKEND_UNAVAILABLE] WARNING with reason. Tool result success=True. test_scenario_4_a_soffice_missing + test_scenario_4_b_pdftoppm_missing + test_scenario_4_c_ollama_unreachable.</scenario-4>
+        <scenario-5 kind="success" evidence="trace" status="planned">Successful score path emits [MP-VisualQA][score][BLOCK_QA_SCORE] payload {preset, pages_scored, score, axes}. Cross-module evidence chain in DF-019: BLOCK_GRACE (existing) → BLOCK_QA_SCORE — visual QA always runs AFTER GRACE injection, never before. test_scenario_5_block_qa_score_payload_and_position_after_grace.</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic" status="planned">Hook is invariant-locked to advisory mode: when the VLM returns an unparseable response (broken JSON, network reset mid-stream), score_document logs the failure and returns None — it MUST NEVER raise back into the tool path. test_scenario_6_vlm_response_garbage_returns_none_does_not_raise.</scenario-6>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>Visual-QA outcome MUST NEVER prevent the docx from being returned to the caller. No raise path back into create_document. The hook is advisory by contract.</forbidden-1>
+        <forbidden-2>Hook MUST NOT mutate the saved docx. Read-only inspection over a temp PDF + temp PNGs; tempfiles cleaned up unconditionally (mirrors VF-016 TEMP-FILE-CLEANUP).</forbidden-2>
+        <forbidden-3>VLM payload MUST NOT include the docx content in clear (only the rendered PNG pages); rubric prompt is fixed and contains no caller-supplied text.</forbidden-3>
+        <forbidden-4>Hook MUST run AFTER MP-GRACE.bootstrap so the GRACE manifest is intact in the visually-scored file.</forbidden-4>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-CAREFUL — depends on external binaries (soffice, pdftoppm) and an Ollama endpoint; CI uses a fake-VLM fixture (tests/_helpers/fake_vlm) plus monkeypatched shutil.which for backend-probe scenarios. Real-VLM smoke is manual, single-user, NOT in CI scope.</autonomy-assessment>
+    </V-MP-VISUAL-QA-HOOK>
+
+    <V-MP-LEGACY-DEPRECATION MODULE="MP-LEGACY-DEPRECATION" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10" SCOPE_EXPANDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/unit/test_legacy_deprecation.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_legacy_deprecation.py -x</check-1>
+        <check-2>pytest tests/ -x --timeout=120  # full regression after deletion</check-2>
+        <check-3>ruff check src/mint src/mint_python tests</check-3>
+        <check-4>mypy src/mint src/mint_python</check-4>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="failure" evidence="deterministic" status="planned">import mint.mcp_g1 raises ModuleNotFoundError; same for mint.mcp_g2, mint.sandbox, mint.create, mint.assemble. test_scenario_1_legacy_modules_absent (5 ModuleNotFoundError assertions; one per deleted module).</scenario-1>
+        <scenario-2 kind="failure" evidence="deterministic" status="planned">mint --engine js validate path/to/file.docx exits non-zero with a deprecation message naming the mint_validate Python successor. The Engine.JS enum value either removed entirely from src/mint/config.py or kept as a deprecation stub that raises CONFIG_ENGINE_REMOVED on load_config (decided at implementation time; either path satisfies the scenario as long as the legacy code path no longer executes). test_scenario_2_engine_js_no_longer_dispatches.</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="planned">pyproject.toml [project].dependencies + [project.optional-dependencies] contain none of: docx, pptxgenjs, exceljs, vm2, isolated-vm, vitest, eslint. uv.lock regenerated; no entries for these packages. pyproject.toml [project.scripts] contains no entries pointing at deleted modules (mint.create / mint.assemble / mint.mcp_g1 / mint.mcp_g2). docs/technology.xml Dependencies block reflects removal. docs/requirements.xml constraint-7 updated to reflect that the JS path is removed entirely (no longer "preserved as optional fallback"). test_scenario_3_a_pyproject_no_legacy_deps + test_scenario_3_b_technology_xml_reflects_removal + test_scenario_3_c_requirements_xml_constraint7_updated + test_scenario_3_d_pyproject_no_dangling_entry_points.</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic" status="planned">Pre-Phase-15 test suite minus tests/integration/test_mcp_g1.py + tests/integration/test_mcp_g2.py + tests/unit/test_sandbox.py + any test_create*.py / test_assemble*.py = post-Phase-15 test suite. Full pytest run is green; coverage on src/mint_python remains 100% (legacy src/mint coverage is no longer required since the deletions remove uncovered lines wholesale). test_scenario_4_full_suite_green_after_deletion (run as the W3 gate-check rather than a single test).</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic" status="planned">No remaining importer of mint.mcp_g1 / mcp_g2 / sandbox / create / assemble anywhere in the repo. Verified via grep: `grep -rn "from mint\.mcp_g[12]\|import mint\.mcp_g[12]\|from mint\.sandbox\|import mint\.sandbox\|from mint\.create\|import mint\.create\|from mint\.assemble\|import mint\.assemble" src/ tests/ tools/ scripts/` returns zero hits. (Pre-flight 2026-05-10 found 6 hits across mint/create.py + mint/assemble.py + mint/cli.py + tests/; expanded W3 scope deletes all of them.) test_scenario_5_no_dangling_imports.</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="planned">src/mint/cli.py no longer defines a cmd_serve function; `mint serve` subcommand either absent from build_parser OR routes to a stub that exits non-zero with a pointer at the pure-python FastMCP server (src/mint_python/mcp/document.py). test_scenario_6_cmd_serve_removed_or_stubbed.</scenario-6>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>Phase-15 W3 MUST NOT run before W1 + W2 complete and pass — broad blast radius needs the additive modules stable first.</forbidden-1>
+        <forbidden-2>Deletion MUST be done in a SINGLE PR per Phase-15 commit-protocol — partial deletion (e.g. mcp_g1 deleted, mcp_g2 left) creates a half-broken intermediate state.</forbidden-2>
+        <forbidden-3>tools/article_experiment/ and any external integration script MUST be audited and migrated (or deleted) BEFORE the legacy modules go away. Memory project_article_experiment confirms it uses bank Ollama directly via Python paths, but a grep is still required.</forbidden-3>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-FORBIDDEN — single-worker only. Subtractive cross-tree edit (src/mint/, pyproject.toml, docs/technology.xml, docs/requirements.xml, tests/integration/test_*) cannot run in parallel with other workers; controller serializes W3 after W1+W2 complete.</autonomy-assessment>
+    </V-MP-LEGACY-DEPRECATION>
+
   </ModuleVerification>
 
   <PhaseGates>
@@ -2046,6 +2235,35 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <evidence-10>No test required content edits beyond the new MP-* surface — proof that Phase-13 doesn't regress anything in Phase-1..12.</evidence-10>
       </required-evidence>
     </Gate-Phase-13>
+
+    <Gate-Phase-15 PHASE="Phase-15" STATUS="planned" ADDED_AT="2026-05-10">
+      <goal>Production hardening lands: write-path tools authorized, GRACE manifests round-trip via mint_read_grace_manifest, every create_document call emits an advisory visual-QA score, legacy mcp_g1/mcp_g2 surface and the JS sandbox path are gone. After Phase-15 the public MCP surface is pure-python, the audit's Priority-1 acceptance criterion is closed, the cross-model handoff demo is safe to run in front of a customer (templates can't be silently clobbered by a sidecar), and the Phase-14 unmet promise to remove the JS path is finally honored. End state: O!Bank-demoable.</goal>
+      <commands>
+        <command-1>pytest tests/ -x --timeout=120</command-1>
+        <command-2>ruff check src/mint_python tests</command-2>
+        <command-3>mypy src/mint_python</command-3>
+        <command-4>uv run --with pytest-cov pytest tests/ --cov=src/mint_python --cov-report=term --cov-fail-under=100</command-4>
+        <command-5>uv build  # wheel must build cleanly without docx/pptxgenjs/exceljs Node deps</command-5>
+        <command-6>python -c "import sys; from importlib import import_module; \
+          for m in ('src.mint.mcp_g1', 'src.mint.mcp_g2', 'src.mint.sandbox'): \
+            try: import_module(m); print(f'FAIL: {m} still importable'); sys.exit(1) \
+            except ModuleNotFoundError: pass; \
+          print('OK: legacy modules absent')"  # gate proof for V-MP-LEGACY-DEPRECATION s1</command-6>
+        <command-7>grep -rn "from src\.mint\.mcp_g[12]\|import src\.mint\.mcp_g[12]\|from src\.mint\.sandbox\|import src\.mint\.sandbox" src/ tests/ tools/ scripts/ 2&gt;/dev/null | wc -l | xargs -I{} test {} -eq 0  # gate proof for V-MP-LEGACY-DEPRECATION s5</command-7>
+      </commands>
+      <required-evidence>
+        <evidence-1>All V-MP-AUTH-SHIM scenarios 1-5 pass; MINT_TEMPLATE_WRITERS env round-trips; open-mode warns once per process.</evidence-1>
+        <evidence-2>All V-MP-MANIFEST-READ scenarios 1-6 pass; mint_read_grace_manifest round-trips a manifest written by create_document (closes audit Priority-1 acceptance criterion explicitly).</evidence-2>
+        <evidence-3>All V-MP-VISUAL-QA-HOOK scenarios 1-6 pass; structured_content gains visual_qa key when hook runs; MINT_SKIP_VISUAL_QA=1 omits the key entirely; backend-unavailable paths degrade gracefully.</evidence-3>
+        <evidence-4>All V-MP-LEGACY-DEPRECATION scenarios 1-5 pass; ModuleNotFoundError for src.mint.mcp_g1 / mcp_g2 / sandbox; pyproject.toml has no docx/pptxgenjs/exceljs/vm2/isolated-vm/vitest/eslint entries; docs/technology.xml + docs/requirements.xml constraint-7 reflect removal.</evidence-4>
+        <evidence-5>VF-017 (AuthorizedTemplateWrite) trace-sequence + 6 invariants hold: NO-DISK-WRITE-ON-DENY (inv-1) verified via templates/ + _audit.jsonl byte-equality across deny scenarios; OPEN-MODE-WARNS-ONCE (inv-2) verified via marker_counter == 1 across N=5 admit calls; READ-PATH-NEVER-CALLS-AUTH (inv-3) verified via require_template_writer sentinel patch + read-tool exercise; CACHE-INVARIANT (inv-4) verified via writers.json read-count snapshot; AUTH-CONFIG-FAIL-FAST (inv-5) + WRITER-LIST-NEVER-LOGGED (inv-6) covered.</evidence-5>
+        <evidence-6>VF-018 (GraceManifestRoundTrip) trace-sequence + 6 invariants hold: ROUND-TRIP-EQUALITY (inv-1) verified end-to-end via create_document → mint_read_grace_manifest; READ-ONLY (inv-2) verified via sha256 byte-equality across all V-MP-MANIFEST-READ scenarios; NO-AUTH-CALL (inv-3) verified via VF-017 forbidden-4 mirror; PATH-TRAVERSAL-PRE-ZIP (inv-4) verified via ZipFile.__init__ sentinel; MOST-RECENT-WINS (inv-5) verified via dual-manifest fixture; MANIFEST-PAYLOAD-NOT-LOGGED (inv-6) covered.</evidence-6>
+        <evidence-7>VF-019 (VisualQAAdvisoryHook) trace-sequence + 7 invariants hold: ADVISORY-ONLY (inv-1) verified via pytest.raises NEVER firing across all 6 scenarios; POSITION-AFTER-GRACE (inv-2) verified via assert_marker_sequence(["BLOCK_INJECT_MANIFEST", "BLOCK_QA_SCORE"]); SKIP-ENV-OMITS-KEY (inv-3) verified via "visual_qa" not in structured_content assertion; BACKEND-DEGRADATION (inv-4) covered via 3 backend-unavailable variants (soffice / pdftoppm / Ollama); NO-DOC-MUTATION (inv-5) verified via sha256 snapshot; TEMP-FILE-CLEANUP (inv-6) verified via tempdir snapshot diff; NO-CALLER-INPUT-IN-VLM-PAYLOAD (inv-7) verified via fake_vlm sentinel-injection introspection.</evidence-7>
+        <evidence-8>Manual smoke through Claude Desktop: (a) MINT_TEMPLATE_WRITERS=Claude-Opus-4.7 set; update_template from a different author fails with TEMPLATE_WRITE_FORBIDDEN; (b) mint_read_grace_manifest on a freshly-generated docx returns the expected dict; (c) create_document tool result shows visual_qa.score in structured_content. Documented in docs/phase-15-smoke.md (new manual smoke procedure, mirrors docs/cross-model-handoff-smoke.md).</evidence-8>
+        <evidence-9>100% coverage maintained on src/mint_python/; auth.py + manifest.py + qa/visual.py + the create_document hook integration all covered.</evidence-9>
+        <evidence-10>uv build wheel ships the new modules and DROPS the legacy Node deps. Wheel size shrinks measurably; binary size delta noted in PR description.</evidence-10>
+      </required-evidence>
+    </Gate-Phase-15>
   </PhaseGates>
 
   <SwarmExecutionReadiness UPDATED="2026-05-09">
@@ -2088,6 +2306,15 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <wave-dependencies>Wave-8-1 unlocks Wave-8-2 (Section unstub + SDK re-export depend on Chart class existence).</wave-dependencies>
         <swarm-fixtures-required>(1) tmp_path + tmp_docx_path; (2) caplog_at_info; (3) marker_counter for trace counts; (4) mp_minimal_config for in-process M-VALIDATE; (5) MP_CHART_E2E_WRITE_BASELINE env gate (parallel to MP_E2E_WRITE_BASELINE).</swarm-fixtures-required>
       </target-8>
+      <target-15 MODULES="MP-AUTH-SHIM,MP-MANIFEST-READ,MP-VISUAL-QA-HOOK,MP-LEGACY-DEPRECATION" STATUS="mixed" ADDED_AT="2026-05-10">
+        <evidence>Phase-15 (production hardening) modules split by execution profile: (a) MP-AUTH-SHIM is leaf utility — pure-decision, stdlib-only, swarm-safe with monkeypatch + tmp_path-isolated config files. (b) MP-MANIFEST-READ is read-only over local docx via MP-GRACE.describe — swarm-safe, parallel with MP-AUTH-SHIM in Wave-15-1 (disjoint write scopes). (c) MP-VISUAL-QA-HOOK is single-worker — touches mcp/document.py (high-traffic file) + introduces external-binary deps (soffice, pdftoppm, Ollama); CI uses tests/_helpers/fake_vlm. (d) MP-LEGACY-DEPRECATION is SWARM-FORBIDDEN — broad subtractive cross-tree edit (src/mint/, pyproject.toml, docs/technology.xml, docs/requirements.xml, tests/integration/test_*); MUST run last after W1+W2 land green to avoid disrupting in-flight workers.</evidence>
+        <commands>pytest tests/integration/test_mp_auth_shim.py tests/integration/test_mp_manifest_read.py tests/integration/test_mp_visual_qa_hook.py tests/unit/test_legacy_deprecation.py -x --timeout=120</commands>
+        <wave-dependencies>Wave-15-1 = MP-AUTH-SHIM ‖ MP-MANIFEST-READ (parallel-safe; controller dispatches both workers concurrently). Wave-15-1 unlocks Wave-15-2 = MP-VISUAL-QA-HOOK (single worker; touches mcp/document.py — must serialize with any other mcp/document.py edits). Wave-15-2 unlocks Wave-15-3 = MP-LEGACY-DEPRECATION (single worker; SWARM-FORBIDDEN; runs ONLY after Wave-15-1 + Wave-15-2 are merged green). W3 forbidden-1: MUST NOT run before W1+W2 complete and pass.</wave-dependencies>
+        <swarm-fixtures-required>(1) tmp_path + tmp_docx_path for hook tempfile assertions; (2) caplog_at_info for trace assertions on BLOCK_AUTH_*, BLOCK_READ_MANIFEST, BLOCK_QA_*; (3) marker_counter for VF-017 inv-2 OPEN-MODE-WARNS-ONCE (count BLOCK_AUTH_OPEN_MODE = 1 across N admit calls); (4) NEW: clean_writers_config fixture clearing the WritersConfig process-cache between tests via reload of mint_python.mcp.auth (mirrors clean_env from test_config.py); (5) NEW: tests/_helpers/fake_vlm fixture providing a deterministic VLM response generator (configurable axis scores, malformed-JSON variant, network-failure variant) — controller-owned helper at tests/_helpers/ alongside the existing fake_mcp_context; (6) NEW: zip_byte_snapshot helper for VF-018 inv-2 READ-ONLY + VF-019 inv-5 NO-DOC-MUTATION; (7) NEW: backend_probe_patcher fixture monkeypatching shutil.which for VF-019 inv-4 BACKEND-DEGRADATION variants; (8) tempdir_snapshot helper for VF-019 inv-6 TEMP-FILE-CLEANUP (snapshot tempdir entries; assert equality before/after).</swarm-fixtures-required>
+        <controller-pre-flight>Before Wave-15-1 dispatch: provision (a) tests/_helpers/fake_vlm.py with 4 response variants (above-threshold, below-threshold, malformed-json, http-error); (b) tests/integration/conftest.py shim re-exports for clean_writers_config + backend_probe_patcher + zip_byte_snapshot + tempdir_snapshot; (c) ~/.config/mint/writers.json schema doc note in templates/_README.md (the docs/ entry is owner-side; the template README gets a one-paragraph pointer for ops); (d) confirm e2e_qa_visual.py exists at repo root (verified 2026-05-10) — Wave-15-2 worker refactors it into src/mint_python/qa/visual.py without losing behavior. Before Wave-15-3 dispatch: grep tools/article_experiment/ + scripts/ for any `from src\.mint\.mcp_g[12]` or `from src\.mint\.sandbox` import; report findings to the user before deletion proceeds.</controller-pre-flight>
+        <autonomy-assessment>SWARM-CAREFUL with explicit gates. Wave-15-1 is the safest entry point (two independent additive modules with stdlib-only or local-IO scopes). Wave-15-2 introduces external-process dependencies that complicate CI determinism — fake_vlm carries the load there. Wave-15-3 is single-worker SWARM-FORBIDDEN by contract; controller serializes after W1+W2 merge.</autonomy-assessment>
+      </target-15>
+
       <target-7 MODULES="MP-STYLE,MP-CONTENT,MP-TABLE,MP-SECTION,MP-DOCUMENT,MP-SDK" STATUS="swarm-safe-with-isolated-fixtures" COMPLETED_AT="2026-05-09">
         <evidence>Phase-7 modules are deterministic and tmp_path-isolated. Wave-7-1 (MP-STYLE) is pure deterministic with read-only registry. Wave-7-2 dispatches MP-CONTENT and MP-TABLE in parallel — disjoint files, both depend only on MP-STYLE, no shared state. Wave-7-3 (MP-SECTION), Wave-7-4 (MP-DOCUMENT) are solo. Wave-7-5 closes with MP-SDK + VF-013 e2e — the e2e harness writes to tmp_path; baseline JSON write is gated by MP_E2E_WRITE_BASELINE env. Each MP-* module is forbidden from introducing a module-level mutable singleton (V-MP-* forbidden-3 across the family).</evidence>
         <commands>pytest tests/unit/test_mp_style.py tests/unit/test_mp_content.py tests/unit/test_mp_table.py tests/unit/test_mp_section.py tests/unit/test_mp_document.py tests/unit/test_mp_sdk.py tests/integration/test_mp_e2e.py -x --timeout=120</commands>
@@ -2630,6 +2857,86 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <observed-evidence>/tmp/tmpXXXXXX.docx still exists — validate() saved to temp but forgot to unlink after returning report</observed-evidence>
       <first-divergent-block>src/mint_python/core/document.py validate() — uses NamedTemporaryFile without delete=True or explicit unlink in finally</first-divergent-block>
       <next-action>Use contextlib.closing + NamedTemporaryFile(delete=True) or explicit Path.unlink(missing_ok=True) in try/finally. Add VF-016 inv-1 test that asserts no leftover .docx after validate/fix return.</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>VF-017 inv-1: NO-DISK-WRITE-ON-DENY broken</scenario>
+      <expected-evidence>sha256(_audit.jsonl) and sorted(os.listdir(templates_dir)) before update_template(author='cursor-sidecar') call equals the same after the call (which raised TEMPLATE_WRITE_FORBIDDEN)</expected-evidence>
+      <observed-evidence>templates/memo_v1.2.yaml DID get created on disk; _audit.jsonl gained a row — the deny path mutated state before raising</observed-evidence>
+      <first-divergent-block>src/mint_python/templates/registry.py update_template() — require_template_writer(author) is called AFTER the new-version path is computed and the file is opened in write mode. The auth check must precede ANY filesystem mutation.</first-divergent-block>
+      <next-action>Move require_template_writer(author) to the FIRST line of update_template() body (before semver computation, before _audit.jsonl append, before any open()). Re-run V-MP-AUTH-SHIM scenario-2 + VF-017 inv-1 byte-equality assertion. Mirrors V-MP-FIX forbidden-2 fix-pattern: destructive check at the top, before backup.</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>VF-017 inv-2: OPEN-MODE-WARNS-ONCE broken</scenario>
+      <expected-evidence>marker_counter(caplog, "BLOCK_AUTH_OPEN_MODE") == 1 across 5 update_template calls in the same process with no MINT_TEMPLATE_WRITERS env and no writers.json present</expected-evidence>
+      <observed-evidence>marker_counter == 5 — the warning fires on every call because load_writers_config() is invoked per-call instead of once-then-cached</observed-evidence>
+      <first-divergent-block>src/mint_python/mcp/auth.py load_writers_config() — missing the @functools.cache decorator (or equivalent module-level _writers_config_cache), so each require_template_writer call re-executes the env+file resolution and re-fires the warning</first-divergent-block>
+      <next-action>Add @functools.cache to load_writers_config OR maintain a module-level _writers_config: WritersConfig | None = None with explicit lazy init. Add a separate clean_writers_config fixture that clears the cache between tests (reload module via importlib.reload OR expose a _reset_for_tests() hook). Re-run VF-017 inv-2 with N=5.</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>VF-017 forbidden-3: WRITER-LIST-NEVER-LOGGED broken</scenario>
+      <expected-evidence>caplog records contain config_source='env' or 'file' on the BLOCK_AUTH_DENY path; the writers tuple value (e.g. ['alice', 'bob', 'Claude-Opus-4.7']) does NOT appear in any record's getMessage() output</expected-evidence>
+      <observed-evidence>BLOCK_AUTH_DENY record contains "writers=['alice', 'bob', 'Claude-Opus-4.7']" — debugging convenience leaked the allowlist into logs</observed-evidence>
+      <first-divergent-block>src/mint_python/mcp/auth.py require_template_writer() — using f"writers={config.writers}" or %r formatting that interpolates the tuple into the log message</first-divergent-block>
+      <next-action>Replace any log line that interpolates config.writers with one that surfaces only config_source. The deny record gets author + reason + config_source; nothing else. Add a regex assertion to V-MP-AUTH-SHIM scenario-5 verifying the rendered message is free of allowlist entries (use a fixture that injects a sentinel writer name and asserts the sentinel never appears in caplog).</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>VF-018 inv-2: READ-ONLY broken on mint_read_grace_manifest</scenario>
+      <expected-evidence>sha256(open(path, 'rb').read()) before mint_read_grace_manifest(path) call equals sha256(open(path, 'rb').read()) after the call returns</expected-evidence>
+      <observed-evidence>Hashes differ — the read path opened the docx with zipfile.ZipFile(path, 'a') instead of mode='r', and zipfile rewrote the central directory</observed-evidence>
+      <first-divergent-block>src/mint_python/mcp/manifest.py (or MP-GRACE.describe upstream) — ZipFile constructor missing explicit mode='r'; zipfile defaults to 'r' but if a ZipFile instance is later passed to a writer helper, the file is reopened in append mode</first-divergent-block>
+      <next-action>Audit every zipfile.ZipFile call on the read path; pin mode='r' explicitly. Add a regression test that wraps the ZipFile class with a sentinel asserting __init__ kwargs.get('mode', 'r') in {'r'}. Re-run VF-018 inv-2 byte-equality assertion across all 6 V-MP-MANIFEST-READ scenarios.</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>VF-018 inv-5: MOST-RECENT-WINS broken with multiple manifest parts</scenario>
+      <expected-evidence>Docx with grace/manifest_v1.xml (timestamp T1) + grace/manifest_v2.xml (timestamp T2 &gt; T1) → mint_read_grace_manifest returns the v2 dict (audit_id from T2)</expected-evidence>
+      <observed-evidence>Returned dict carries the v1 audit_id — implementation iterates with a dict-from-zip ordering that doesn't sort by timestamp</observed-evidence>
+      <first-divergent-block>src/mint_python/mcp/manifest.py — manifest selection uses sorted(zipfile.namelist()) as a proxy for chronology. Filename suffix doesn't necessarily correlate with timestamp (Phase-14 W3 names them with the audit_id, not a counter); the right key is the parsed manifest's timestamp field</first-divergent-block>
+      <next-action>Replace the namelist-based selection with: parse all grace/manifest_*.xml entries → sort by parsed manifest.timestamp DESC → return [0]. Add a test fixture that produces a docx with two manifests where the namelist order is INVERTED relative to timestamp (e.g. v1 written second but with an older synthetic timestamp). Re-run VF-018 inv-5.</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>VF-019 inv-1: ADVISORY-ONLY broken — hook raises into create_document</scenario>
+      <expected-evidence>create_document(intent='draft memo', doc_type='memo') with backend unavailable returns success=True; structured_content.visual_qa.skipped is True; no exception propagates to the MCP client</expected-evidence>
+      <observed-evidence>create_document raised VISUAL_QA_BACKEND_UNAVAILABLE — the hook used `raise` instead of returning None, breaking the advisory-only contract</observed-evidence>
+      <first-divergent-block>src/mint_python/qa/visual.py score_document() — the backend-probe failure path raises VisualQAError instead of logging+returning None. The hook caller in src/mint_python/mcp/document.py also lacks a try/except around score_document; even if score_document raises, the create_document path must catch and degrade.</first-divergent-block>
+      <next-action>Two-layer defense: (1) score_document MUST never raise — replace `raise VisualQAError(...)` with `logger.warning(...); return None`. (2) The create_document hook caller wraps score_document in try/except Exception — log + degrade, never propagate. The advisory contract is explicit at BOTH layers because Phase-15 ships a 1-call-site hook today but Phase-16+ may add more callers. Re-run VF-019 inv-1 across all 6 V-MP-VISUAL-QA-HOOK scenarios; pytest.raises(VisualQAError) MUST NOT fire on any of them.</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>VF-019 inv-2: POSITION-AFTER-GRACE broken — QA runs before GRACE injection</scenario>
+      <expected-evidence>assert_marker_sequence(caplog, ["BLOCK_INJECT_MANIFEST", "BLOCK_QA_SCORE"]) holds on every successful create_document call</expected-evidence>
+      <observed-evidence>BLOCK_QA_SCORE fires BEFORE BLOCK_INJECT_MANIFEST — Wave-15-2 worker integrated the hook before Document.inject_grace, so the visually-scored file lacks its GRACE manifest</observed-evidence>
+      <first-divergent-block>src/mint_python/mcp/document.py create_document() pipeline — the score_document call site is between save() and inject_grace() instead of after both</first-divergent-block>
+      <next-action>Move the score_document hook AFTER MP-GRACE.bootstrap completes. The visually-scored file MUST carry its GRACE manifest because: (a) the manifest is part of the document's "shipped" identity; (b) future audits may visually compare against the manifest's preset/template_version metadata. Re-run VF-019 inv-2 + forbidden-1 + forbidden-5.</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>VF-019 inv-7: NO-CALLER-INPUT-IN-VLM-PAYLOAD broken</scenario>
+      <expected-evidence>VLM HTTP request body (captured via fake_vlm fixture's request introspector) contains the rendered PNG (base64) and the fixed rubric prompt; NO sentinel string from the caller's intent appears anywhere in the captured body</expected-evidence>
+      <observed-evidence>The captured request body contains a substring of the caller's intent (e.g. the sentinel "MINT_TEST_INTENT_SENTINEL_42") — a "context-aware" prompt formatting interpolated the create_document intent into the rubric for "better scoring"</observed-evidence>
+      <first-divergent-block>src/mint_python/qa/visual.py — the rubric prompt builder takes the intent or fields_elicited as a parameter for "context", interpolating it into the VLM prompt. This violates the security boundary: visual-QA evaluates the RENDERED document, not the user's intent. The caller's data must not leak to an external VLM endpoint.</first-divergent-block>
+      <next-action>Strip ALL caller-derived parameters from the VLM prompt builder. The rubric is a CONSTANT — same prompt for every call, parameterized only by page_no / total_pages / preset_name (not the user's intent). Re-run VF-019 inv-7 with multiple sentinel injections; the captured body must remain sentinel-free across all variants. Document the constraint in src/mint_python/qa/visual.py module contract: "The VLM prompt is fixed and contains NO caller-supplied data."</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>V-MP-LEGACY-DEPRECATION scenario-5: dangling import in tools/article_experiment</scenario>
+      <expected-evidence>grep -rn "from src\.mint\.mcp_g[12]\|import src\.mint\.mcp_g[12]\|from src\.mint\.sandbox\|import src\.mint\.sandbox" src/ tests/ tools/ scripts/ returns zero hits</expected-evidence>
+      <observed-evidence>tools/article_experiment/run_experiment.py:14: from src.mint.mcp_g2 import mint_create — Wave-15-3 worker deleted the legacy modules without auditing tools/ first</observed-evidence>
+      <first-divergent-block>controller-pre-flight on Wave-15-3 was skipped — the grep audit was supposed to run BEFORE deletion proceeds (verification-plan.xml SwarmExecutionReadiness/target-15/controller-pre-flight)</first-divergent-block>
+      <next-action>Restore the deleted modules in a single rollback commit. Run the grep BEFORE re-attempting deletion. Migrate the article_experiment runner to mint_python.mcp.document.create_document (or delete the runner if it's no longer used per memory project_article_experiment status). Document any external consumer in the PR description so the deletion is traceable. Forbidden-3 in V-MP-LEGACY-DEPRECATION exists exactly to catch this — the worker who skipped pre-flight violated the protocol.</next-action>
+    </packet-example>
+
+    <packet-example added-in="Phase-15">
+      <scenario>V-MP-LEGACY-DEPRECATION forbidden-1: W3 dispatched before W1+W2 merged</scenario>
+      <expected-evidence>Wave-15-3 worker dispatch occurs ONLY after Wave-15-1 (MP-AUTH-SHIM + MP-MANIFEST-READ) AND Wave-15-2 (MP-VISUAL-QA-HOOK) have merged green to main</expected-evidence>
+      <observed-evidence>Controller dispatched Wave-15-3 in parallel with Wave-15-2 to "save time"; the W3 worker's deletion of src/mint/cli.py touched lines that Wave-15-2 needed to add the visual-QA-hook feature flag</observed-evidence>
+      <first-divergent-block>SwarmExecutionReadiness/target-15/wave-dependencies — wave ordering Wave-15-1 → Wave-15-2 → Wave-15-3 is contractually serial; controller violated the ordering</first-divergent-block>
+      <next-action>Stop Wave-15-3, revert the deletion commits. Land Wave-15-2 fully on main first. Then redispatch Wave-15-3 against the post-W2 main. Document the dispatch order as a controller-side check before any future Phase-15-style deprecation phase.</next-action>
     </packet-example>
   </FailurePackets>
 </VerificationPlan>
