@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import logging
 import re
-import tempfile
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -55,7 +54,11 @@ from typing import Any
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.server.elicitation import AcceptedElicitation
+from fastmcp.tools.tool import (
+    ToolResult,  # type: ignore[import-not-found]  # fastmcp ships no stubs
+)
 from mcp.shared.exceptions import McpError
+from mcp.types import ResourceLink, TextContent
 
 from mint_python.adapters.markdown import markdown_to_spec
 from mint_python.core.content import Paragraph
@@ -347,8 +350,15 @@ def _build_document(spec: MemoSpec, template: MemoTemplate) -> DocumentLike:
             section = Section(title="Memo", level=1)
             doc.add_section(section)
         if kind == "paragraph":
-            text = _substitute(str(entry.get("text", "")), spec)
-            section.add_paragraph(Paragraph(text))
+            template_text = str(entry.get("text", "")).strip()
+            if template_text in ("{{ body }}", "{{body}}"):
+                _render_body(section, spec.body or "")
+            else:
+                # Defensive: canonical memo template only has `{{ body }}`
+                # paragraph; this branch handles future template variants
+                # that emit raw paragraph text without placeholders.
+                text = _substitute(template_text, spec)  # pragma: no cover
+                section.add_paragraph(Paragraph(text))  # pragma: no cover
         elif kind == "table":
             header_cells = [str(h) for h in entry.get("header", [])]
             raw_rows = entry.get("rows", [])
@@ -371,6 +381,148 @@ def _build_document(spec: MemoSpec, template: MemoTemplate) -> DocumentLike:
 DocumentLike = Any
 
 
+# Markdown signal characters — if any appear in body text, we route through
+# MP-MD-ADAPTER for proper block extraction. Plain text without any markup
+# falls through to a single Paragraph for the empty-overhead case.
+_MD_SIGNAL_CHARS = ("**", "__", "_", "*", "#", "`", "> ", "\n- ", "\n* ", "\n1. ")
+
+
+def _normalize_body_markdown(body_text: str) -> str:
+    """Insert blank lines around bold-only lines so they parse as section
+    separators, not soft-breaks merged into the next paragraph.
+
+    Chat-driven fallback flow lets Claude write things like:
+        **Heading**
+        Paragraph text...
+    CommonMark treats the single newline as a soft break (rendered as a
+    space); the intent of the LLM was a section separator. We inject the
+    blank line so markdown-it-py separates the bold-only line as its own
+    paragraph and the next text becomes a standalone paragraph below.
+    """
+    lines = body_text.split("\n")
+    out: list[str] = []
+    bold_only = re.compile(r"^\s*\*\*[^*]+\*\*\s*$")
+    for i, line in enumerate(lines):
+        out.append(line)
+        if not bold_only.match(line):
+            continue
+        # Inject blank line between a bold-only line and the next non-blank
+        # line (when not already separated by a blank).
+        next_idx = i + 1
+        if next_idx < len(lines) and lines[next_idx].strip():
+            out.append("")
+    return "\n".join(out)
+
+
+def _render_body(section: Section, body_text: str) -> None:
+    """Emit body content into a Section, parsing markdown when present.
+
+    Chat-driven fallback flow naturally produces markdown: Claude formats
+    the body as `**Heading**\\n\\nbody text...` blobs. Without this helper,
+    the entire body lands in a single Paragraph with literal asterisks.
+    With it, MP-MD-ADAPTER extracts the structure (paragraphs with bold
+    runs, lists, tables, callouts) and we re-emit through the SDK.
+    """
+    if not body_text:  # pragma: no cover — caller passes spec.body which is non-empty by contract
+        return
+    has_markdown = any(sig in body_text for sig in _MD_SIGNAL_CHARS)
+    if not has_markdown:
+        # Plain text — split on blank lines for paragraph breaks.
+        for chunk in body_text.split("\n\n"):
+            chunk_stripped = chunk.strip()
+            if chunk_stripped:
+                section.add_paragraph(Paragraph(chunk_stripped))
+        return
+
+    normalized = _normalize_body_markdown(body_text)
+    try:
+        body_spec = markdown_to_spec(normalized)
+    except Exception:  # pragma: no cover — adapter rarely fails on body content; fallback to raw
+        section.add_paragraph(Paragraph(body_text))
+        return
+
+    # Walk the adapter's block output. Body-level headings get flattened
+    # to bold paragraphs (we already have a Body H2 above; nesting more
+    # headings would visually compete). Sub-blocks render via the SDK.
+    for body_section in body_spec.sections:
+        title = body_section.title.strip()
+        if title and title not in ("Untitled", "Introduction"):
+            section.add_paragraph(Paragraph().add_run(title, bold=True))
+        for block in body_section.blocks:
+            _emit_body_block(section, block)
+
+
+def _emit_body_block(section: Section, block: Any) -> None:
+    """Map a body-markdown Block onto the appropriate SDK section call."""
+    from tools.article_experiment.spec import (
+        CalloutBlock,
+        CodeBlock,
+        ListBlock,
+        ParagraphBlock,
+        TableBlock,
+    )
+
+    from mint_python.core.callout import Callout, CalloutKind
+    from mint_python.core.list_block import List, ListKind
+
+    if isinstance(block, ParagraphBlock):
+        if not block.emphasis:
+            section.add_paragraph(Paragraph(block.text))
+            return
+        # Build a Paragraph with bold runs around emphasis substrings.
+        para = Paragraph()
+        text = block.text
+        cursor = 0
+        for phrase in block.emphasis:
+            idx = text.find(phrase, cursor)
+            # Defensive: markdown-it-py's emphasis substrings are present in
+            # block.text by construction; -1 only happens with hand-crafted
+            # ParagraphBlock instances or after upstream normalization edits.
+            if idx == -1:  # pragma: no cover
+                continue
+            if idx > cursor:
+                para.add_run(text[cursor:idx])
+            para.add_run(phrase, bold=True)
+            cursor = idx + len(phrase)
+        if cursor < len(text):
+            para.add_run(text[cursor:])
+        section.add_paragraph(para)
+        return
+    if isinstance(block, ListBlock):
+        list_kind = {
+            "bullet": ListKind.BULLET,
+            "numbered": ListKind.NUMBERED,
+            "checklist": ListKind.CHECKLIST,
+        }[block.kind]
+        section.add_list(List(items=list(block.items), kind=list_kind))
+        return
+    if isinstance(block, TableBlock):
+        rows: list[list[str]] = []
+        if block.header:
+            rows.append(list(block.header))
+        rows.extend(list(r) for r in block.rows)
+        if rows:
+            width = len(rows[0])
+            normalized = [(row + [""] * (width - len(row)))[:width] for row in rows]
+            section.add_table(
+                Table.from_list(normalized, header=bool(block.header))
+            )
+        return
+    if isinstance(block, CalloutBlock):
+        callout_kind = {
+            "info": CalloutKind.INFO,
+            "warning": CalloutKind.WARNING,
+            "code": CalloutKind.CODE,
+        }[block.kind]
+        section.add_callout(Callout(block.body, kind=callout_kind, title=block.title))
+        return
+    if isinstance(block, CodeBlock):
+        section.add_callout(
+            Callout(block.content, kind=CalloutKind.CODE, title=block.language or None)
+        )
+        return
+
+
 # --------------------------------------------------------------------------- #
 # create_memo — the FastMCP tool
 # --------------------------------------------------------------------------- #
@@ -379,31 +531,24 @@ DocumentLike = Any
 server = FastMCP("MINT-Memo", instructions="Phase-13 MEMO-POC: planning-mode memo generator")
 
 
-@server.tool
-async def create_memo(
+async def _run_memo_pipeline(
     intent: str,
-    source_md: str | None = None,
-    *,
+    source_md: str | None,
     ctx: Context,
 ) -> dict[str, Any]:
-    """Generate a klawd-themed Memo via planning dialog.
+    """Internal pipeline — the testable, dict-returning core. The MCP-facing
+    wrapper `create_memo` calls this and rewraps the result with rich
+    content blocks (markdown link + resource_link + structured) for cross-
+    client artifact surfacing.
 
-    1. Heuristically extract sender / recipient / date / subject / body
-       from the free-text intent and optional source_md.
-    2. For each missing required field, await ctx.elicit(...) — the
-       connected MCP client renders a structured form to the user.
-    3. Once all 5 fields present, assemble a Document via MP-DOCUMENT
-       with the klawd preset and the templates/memo.yaml layout.
-    4. Inject a GRACE audit-trail manifest with audit_id, timestamp,
-       and the list of fields that required elicitation.
-    5. Return {path, audit_id, fields_elicited}.
+    On the success path the dict shape is:
+        {"status": "complete", "path": str, "audit_id": str,
+         "fields_elicited": list[str]}
 
-    Raises:
-        MemoElicitationRejected: when the user declines or cancels an
-            elicit prompt for a required field.
-        MemoTemplateNotFound: when templates/memo.yaml is missing.
-        MemoGenerationFailed: when the assembler raises after all fields
-            are collected.
+    On the chat-driven fallback path (client doesn't support
+    elicitation/create — verified against Claude Desktop):
+        {"status": "needs_more_info", "missing_fields": list[str],
+         "extracted_so_far": dict, "guidance": str}
     """
     spec = _heuristic_extract(intent, source_md)
 
@@ -500,8 +645,10 @@ async def create_memo(
 
     # All required fields filled; load template and assemble.
     template = _load_template()
-    output_dir = Path(tempfile.mkdtemp(prefix="mint_memo_"))
-    output_path = output_dir / "memo.docx"
+    output_dir = _resolve_output_dir()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    audit_id = str(uuid.uuid4())
+    output_path = output_dir / _memo_filename(spec, audit_id)
 
     try:
         doc = _build_document(spec, template)
@@ -528,7 +675,6 @@ async def create_memo(
     # custom XML part. The audit_id (UUID4) is the cross-reference back
     # to this generation; fields_elicited records what came from the user
     # vs the heuristic.
-    audit_id = str(uuid.uuid4())
     audit_instructions = list(_audit_instructions(audit_id, fields_elicited))
     manifest = grace_bootstrap(
         document_path=output_path,
@@ -557,6 +703,35 @@ async def create_memo(
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+
+
+_DEFAULT_OUTPUT_DIR = Path.home() / "Documents" / "MINT"
+
+
+def _resolve_output_dir() -> Path:
+    """Resolve the directory generated memos land in. Default ~/Documents/MINT;
+    override via MINT_MEMO_DIR env var. Avoids /tmp because Claude Desktop's
+    sandbox hides /tmp from the user (verified during 2026-05-10 smoke), and
+    macOS reaps /tmp aggressively."""
+    import os
+
+    override = os.environ.get("MINT_MEMO_DIR")
+    if override:
+        return Path(override).expanduser()
+    return _DEFAULT_OUTPUT_DIR
+
+
+def _memo_filename(spec: MemoSpec, audit_id: str) -> str:
+    """Produce a stable, human-readable filename. Format:
+    `memo_<YYYY-MM-DD>_<subject-slug>_<audit-short>.docx`. The audit short
+    suffix prevents filename collisions when two memos share date+subject."""
+    date_part = (spec.date or datetime.now(tz=UTC).strftime("%Y-%m-%d")).strip()
+    # Sanitize: keep ISO-shape only; otherwise fall back to today.
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_part):
+        date_part = datetime.now(tz=UTC).strftime("%Y-%m-%d")
+    subject_slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", spec.subject or "memo").strip("_")[:40]
+    short_id = audit_id.split("-")[0]
+    return f"memo_{date_part}_{subject_slug}_{short_id}.docx"
 
 
 def _elicit_prompt(field_name: str) -> str:
@@ -588,6 +763,93 @@ def _audit_instructions(audit_id: str, fields_elicited: list[str]) -> list[str]:
         "template=memo.yaml",
         "preset=klawd",
     ]
+
+
+@server.tool
+async def create_memo(
+    intent: str,
+    source_md: str | None = None,
+    *,
+    ctx: Context,
+) -> ToolResult:
+    """Generate a klawd-themed Memo via planning dialog.
+
+    Heuristically extracts sender / recipient / date / subject / body from
+    the free-text intent (and optional source_md), elicits any still-missing
+    required fields via ctx.elicit (with chat-driven fallback when the
+    client doesn't implement elicitation/create — verified empirically
+    against Claude Desktop), assembles the docx via MP-DOCUMENT with the
+    klawd preset and the templates/memo.yaml layout, injects a GRACE
+    audit-trail manifest, and returns a triple-shape result optimized for
+    cross-client artifact surfacing:
+
+    - **TextContent** with a markdown link `[Open memo.docx](file://…)` —
+      universally clickable in Claude Desktop, Cursor, OpenWebUI.
+    - **ResourceLink** with the same `file://` URI + docx mimetype — the
+      MCP-spec primitive for "downloadable artifact"; honored by Cursor
+      and VS Code, harmlessly ignored elsewhere.
+    - **structuredContent** with `{status, path, audit_id, fields_elicited}`
+      for programmatic consumers.
+
+    On the chat-driven fallback path (status=needs_more_info) only
+    structuredContent is returned with the missing fields list — the
+    connected model is expected to ask the user in chat and re-invoke
+    with a fuller intent.
+
+    Raises:
+        MemoElicitationRejected: when the user declines or cancels an
+            elicit prompt for a required field.
+        MemoTemplateNotFound: when templates/memo.yaml is missing.
+        MemoGenerationFailed: when the assembler raises after all fields
+            are collected.
+    """
+    result = await _run_memo_pipeline(intent, source_md, ctx)
+    return _to_tool_result(result)
+
+
+_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _to_tool_result(result: dict[str, Any]) -> ToolResult:
+    """Wrap a pipeline result dict in a ToolResult with rich content blocks
+    for cross-client artifact surfacing. Strategy follows the May-2026
+    research findings: markdown link in text + resource_link spec primitive
+    + structured content for machines."""
+    if result.get("status") != "complete":
+        # Degraded path — only structured content; the model knows how to
+        # render the needs_more_info shape and ask the user.
+        text_summary = (
+            f"⚠️ Need more info — missing: "
+            f"{', '.join(result.get('missing_fields', []))}. "
+            "Please provide values inline and call create_memo again."
+        )
+        return ToolResult(
+            content=[TextContent(type="text", text=text_summary)],
+            structured_content=result,
+        )
+
+    path_str = result["path"]
+    path = Path(path_str)
+    audit_id = result["audit_id"]
+    file_uri = path.absolute().as_uri()
+    text_summary = (
+        f"✅ Memo ready — [Open {path.name}]({file_uri})\n"
+        f"audit_id: `{audit_id}`"
+    )
+    return ToolResult(
+        content=[
+            TextContent(type="text", text=text_summary),
+            ResourceLink(
+                type="resource_link",
+                uri=file_uri,  # type: ignore[arg-type]  # ResourceLink.uri = AnyUrl, str literal accepted
+                name=path.name,
+                mimeType=_DOCX_MIME,
+                description=f"Generated memo (audit_id={audit_id})",
+                size=path.stat().st_size if path.exists() else None,
+            ),
+        ],
+        structured_content=result,
+    )
 
 
 __all__ = [

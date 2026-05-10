@@ -20,7 +20,7 @@ import pytest
 from mint_python.mcp.memo import (
     MEMO_REQUIRED_FIELDS,
     MemoElicitationRejected,
-    create_memo,
+    _run_memo_pipeline,
 )
 from tests._helpers.fake_mcp_context import FakeMCPContext
 
@@ -29,6 +29,14 @@ FIXTURES = Path(__file__).parent.parent / "fixtures" / "memo_poc"
 
 def _read(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_memo_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Override the memo output directory per-test so generated docx files
+    land in pytest's tmp_path rather than the user's ~/Documents/MINT/.
+    Keeps the test suite hermetic — no leakage to the user's filesystem."""
+    monkeypatch.setenv("MINT_MEMO_DIR", str(tmp_path / "memo_out"))
 
 
 # --------------------------------------------------------------------------- #
@@ -44,7 +52,7 @@ async def test_scenario_1_full_intent_no_elicit_calls() -> None:
     # heuristics fire on the intent string; body fills from source_md.)
     ctx = FakeMCPContext(answers={})
 
-    result = await create_memo(intent=intent, source_md=intent, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=intent, ctx=ctx)
 
     assert ctx.elicited_calls == [], (
         "scenario-1 forbids any elicit call — got " + repr(ctx.elicited_calls)
@@ -69,7 +77,7 @@ async def test_scenario_2_single_missing_field() -> None:
         }
     )
 
-    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     elicited_field_names = [field for field, _msg in ctx.elicited_calls]
     assert "recipient" in elicited_field_names
@@ -101,7 +109,7 @@ async def test_scenario_3_multi_round_in_declaration_order() -> None:
         }
     )
 
-    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     elicited_field_names = [field for field, _msg in ctx.elicited_calls]
     # Sender + date + subject + body got elicited; recipient came from intent.
@@ -125,7 +133,7 @@ async def test_scenario_4_elicitation_decline_raises_no_docx() -> None:
     ctx = FakeMCPContext(answers={"recipient": "__DECLINE__"})
 
     with pytest.raises(MemoElicitationRejected) as excinfo:
-        await create_memo(intent=intent, source_md=None, ctx=ctx)
+        await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     assert excinfo.value.field_name == "recipient"
     # The trace must show ONE elicit call (the rejected one) — no further
@@ -141,7 +149,7 @@ async def test_scenario_4_elicitation_cancel_raises_no_docx() -> None:
     ctx = FakeMCPContext(answers={"recipient": "__CANCEL__"})
 
     with pytest.raises(MemoElicitationRejected) as excinfo:
-        await create_memo(intent=intent, source_md=None, ctx=ctx)
+        await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     assert excinfo.value.field_name == "recipient"
 
@@ -160,7 +168,7 @@ async def test_scenario_5_lenient_validation_passes() -> None:
             "body": "Q2 revenue grew 13%.",
         }
     )
-    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     # Re-open the docx through MP-VALIDATE on lenient mode.
     from mint_python.validate import run_checks
@@ -184,7 +192,7 @@ async def test_scenario_6_klawd_visual_applied() -> None:
             "body": "Body content.",
         }
     )
-    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     with zipfile.ZipFile(result["path"]) as z:
         styles_xml = z.read("word/styles.xml").decode("utf-8")
@@ -204,7 +212,7 @@ async def test_scenario_7_grace_manifest_with_audit_trail() -> None:
     ctx = FakeMCPContext(
         answers={"recipient": "Board", "body": "Body."}
     )
-    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     audit_id = result["audit_id"]
     assert audit_id
@@ -241,7 +249,7 @@ async def test_scenario_8_log_markers_in_order(
     ctx = FakeMCPContext(
         answers={"recipient": "Board", "body": "Body."}
     )
-    await create_memo(intent=intent, source_md=None, ctx=ctx)
+    await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
     # Filter to MP-Memo emissions only for the ordering check.
@@ -297,7 +305,7 @@ async def test_scenario_8_no_forbidden_cross_talk(
     caplog.set_level(logging.INFO)
     intent = _read("intent_missing_recipient.txt")
     ctx = FakeMCPContext(answers={"recipient": "Board", "body": "Body."})
-    await create_memo(intent=intent, source_md=None, ctx=ctx)
+    await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     msgs = [r.getMessage() for r in caplog.records]
     forbidden_substrings = ["[Sandbox]", "[Validate]", "openai", "anthropic"]
@@ -330,7 +338,7 @@ async def test_source_md_invokes_md_adapter(
             "subject": "Q2",
         }
     )
-    await create_memo(intent=intent, source_md=_read("source_chat.md"), ctx=ctx)
+    await _run_memo_pipeline(intent=intent, source_md=_read("source_chat.md"), ctx=ctx)
     md_msgs = [
         r.getMessage()
         for r in caplog.records
@@ -351,7 +359,7 @@ async def test_template_yaml_drives_section_layout() -> None:
     should match the expected sequence."""
     intent = _read("intent_full.txt")
     ctx = FakeMCPContext(answers={})
-    result = await create_memo(intent=intent, source_md=intent, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=intent, ctx=ctx)
 
     # We ran without elicitation, so the heuristic populated all fields;
     # re-open the docx and verify it has at least the headings declared in
@@ -423,7 +431,7 @@ async def test_degraded_single_field_unsupported_returns_needs_more_info() -> No
         }
     )
 
-    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     assert result["status"] == "needs_more_info"
     assert "recipient" in result["missing_fields"]
@@ -459,7 +467,7 @@ async def test_degraded_first_unsupported_skips_remaining_elicits(
         }
     )
 
-    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
 
     # Only the first elicit attempt was made (it hit -32601).
     assert len(ctx.elicited_calls) == 1
@@ -483,7 +491,7 @@ async def test_degraded_all_required_missing() -> None:
         answers={"sender": "__UNSUPPORTED__"}  # only need the first to fail
     )
 
-    result = await create_memo(intent="Make a memo.", source_md=None, ctx=ctx)
+    result = await _run_memo_pipeline(intent="Make a memo.", source_md=None, ctx=ctx)
 
     assert result["status"] == "needs_more_info"
     assert set(result["missing_fields"]) == {
@@ -516,7 +524,7 @@ async def test_other_mcp_errors_still_propagate() -> None:
 
     ctx = CtxWithInternalError()
     with pytest.raises(McpError) as excinfo:
-        await create_memo(intent=intent, source_md=None, ctx=ctx)
+        await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
     assert excinfo.value.error.code == -32603
 
 
@@ -643,7 +651,7 @@ async def test_full_labelled_intent_no_elicit() -> None:
         "- Cashless acceleration\n"
     )
     ctx = FakeMCPContext(answers={})
-    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
     assert result["status"] == "complete"
     assert ctx.elicited_calls == []
     assert Path(result["path"]).exists()
@@ -657,6 +665,287 @@ def test_template_loader_returns_required_fields() -> None:
     assert template.layout
 
 
+# --------------------------------------------------------------------------- #
+# Body markdown rendering — _render_body, _emit_body_block, _normalize_body
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_body_bold_pseudo_heading_separates_paragraphs() -> None:
+    """`**Heading**` on its own line followed by content (no blank line)
+    must NOT merge into one paragraph. _normalize_body_markdown injects
+    a blank line so markdown-it-py treats them as separate paragraphs."""
+    import zipfile
+
+    from lxml import etree
+    intent = (
+        "sender: M\nrecipient: B\ndate: 2026-05-15\nsubject: T\n"
+        "Body:\n\n"
+        "**Section One**\n"
+        "Para under section one.\n\n"
+        "**Section Two**\n"
+        "Para under section two.\n"
+    )
+    ctx = FakeMCPContext(answers={})
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
+    assert result["status"] == "complete"
+
+    W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    with zipfile.ZipFile(result["path"]) as z:
+        doc = etree.fromstring(z.read("word/document.xml"))
+    paras_text = [
+        "".join(t.text or "" for t in p.iter(f"{W}t"))
+        for p in doc.iter(f"{W}p")
+    ]
+    # Section One and its body land in separate paragraphs (NOT merged).
+    section_one_idx = next(
+        (i for i, t in enumerate(paras_text) if t.strip() == "Section One"), -1
+    )
+    para_one_idx = next(
+        (i for i, t in enumerate(paras_text) if t.startswith("Para under section one")),
+        -1,
+    )
+    assert section_one_idx >= 0, paras_text
+    assert para_one_idx >= 0, paras_text
+    assert para_one_idx == section_one_idx + 1
+
+
+@pytest.mark.asyncio
+async def test_body_with_real_h2_headings_flatten_to_bold() -> None:
+    """Body with explicit `## Heading` markers — adapter creates SpecSections;
+    _render_body flattens them into bold paragraphs (we already have a
+    Body H2 above, so nesting H1/H2 underneath would visually compete)."""
+    import zipfile
+
+    from lxml import etree
+    intent = (
+        "sender: M\nrecipient: B\ndate: 2026-05-15\nsubject: T\n"
+        "Body:\n\n"
+        "## Real Heading\n\n"
+        "Body paragraph under heading.\n"
+    )
+    ctx = FakeMCPContext(answers={})
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
+
+    W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    with zipfile.ZipFile(result["path"]) as z:
+        document_xml = z.read("word/document.xml").decode()
+    # The "Real Heading" appears as bold text — `<w:b/>` near the run.
+    assert "Real Heading" in document_xml
+
+
+@pytest.mark.asyncio
+async def test_body_with_lists_and_tables() -> None:
+    """Body containing GFM table + bulleted list — adapter extracts blocks,
+    _emit_body_block routes to section.add_table / add_list."""
+    import zipfile
+
+    intent = (
+        "sender: M\nrecipient: B\ndate: 2026-05-15\nsubject: T\n"
+        "Body:\n\n"
+        "Some prose.\n\n"
+        "| col | val |\n|---|---|\n| a | 1 |\n\n"
+        "- bullet one\n"
+        "- bullet two\n"
+    )
+    ctx = FakeMCPContext(answers={})
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
+
+    with zipfile.ZipFile(result["path"]) as z:
+        document_xml = z.read("word/document.xml").decode()
+    # The body table emits a real <w:tbl> in addition to the From/To card.
+    assert document_xml.count("<w:tbl>") >= 2
+    # Bullet list items render as ListBullet-styled paragraphs.
+    assert "bullet one" in document_xml
+    assert "bullet two" in document_xml
+
+
+@pytest.mark.asyncio
+async def test_body_with_blockquote_and_code() -> None:
+    """Body with blockquote (→ info callout) and fenced code (→ code callout).
+    Both route through _emit_body_block CalloutBlock / CodeBlock branches."""
+    import zipfile
+
+    intent = (
+        "sender: M\nrecipient: B\ndate: 2026-05-15\nsubject: T\n"
+        "Body:\n\n"
+        "Lead paragraph.\n\n"
+        "> Quoted insight.\n\n"
+        "```python\nx = 1\n```\n"
+    )
+    ctx = FakeMCPContext(answers={})
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
+
+    with zipfile.ZipFile(result["path"]) as z:
+        document_xml = z.read("word/document.xml").decode()
+    assert "Quoted insight" in document_xml
+    assert "x = 1" in document_xml
+
+
+@pytest.mark.asyncio
+async def test_body_emphasis_run_reconstruction() -> None:
+    """ParagraphBlock with multiple emphasis substrings — exercises the
+    cursor-advancement loop in _emit_body_block: multiple bold phrases in
+    one paragraph reconstruct as alternating plain/bold runs."""
+    import zipfile
+
+    intent = (
+        "sender: M\nrecipient: B\ndate: 2026-05-15\nsubject: T\n"
+        "Body:\n\n"
+        "Lead-in **first bold** middle text **second bold** trailing text.\n"
+    )
+    ctx = FakeMCPContext(answers={})
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
+
+    with zipfile.ZipFile(result["path"]) as z:
+        document_xml = z.read("word/document.xml").decode()
+    # Both emphasis phrases appear as text in the docx.
+    assert "first bold" in document_xml
+    assert "second bold" in document_xml
+    # The trailing plain text after the last emphasis is also present.
+    assert "trailing text" in document_xml
+
+
+@pytest.mark.asyncio
+async def test_plain_text_body_preserved() -> None:
+    """Body without any markdown signals is split into paragraphs by blank
+    lines and emitted as plain Paragraphs — no _normalize / parse round-trip."""
+    import zipfile
+
+    intent = (
+        "sender: M\nrecipient: B\ndate: 2026-05-15\nsubject: T\n"
+        "Body:\n\n"
+        "First plain paragraph.\n\n"
+        "Second plain paragraph.\n"
+    )
+    ctx = FakeMCPContext(answers={})
+    result = await _run_memo_pipeline(intent=intent, source_md=None, ctx=ctx)
+
+    with zipfile.ZipFile(result["path"]) as z:
+        document_xml = z.read("word/document.xml").decode()
+    assert "First plain paragraph" in document_xml
+    assert "Second plain paragraph" in document_xml
+
+
+# --------------------------------------------------------------------------- #
+# Output dir + filename helpers
+# --------------------------------------------------------------------------- #
+
+
+def test_resolve_output_dir_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without env override, resolves to ~/Documents/MINT — verified
+    against the user's home directory."""
+    from mint_python.mcp import memo as memo_module
+
+    monkeypatch.delenv("MINT_MEMO_DIR", raising=False)
+    out = memo_module._resolve_output_dir()
+    assert out == Path.home() / "Documents" / "MINT"
+
+
+def test_resolve_output_dir_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from mint_python.mcp import memo as memo_module
+
+    monkeypatch.setenv("MINT_MEMO_DIR", str(tmp_path / "custom"))
+    assert memo_module._resolve_output_dir() == tmp_path / "custom"
+
+
+def test_memo_filename_iso_date_subject_slug() -> None:
+    from mint_python.mcp.memo import MemoSpec, _memo_filename
+
+    spec = MemoSpec(
+        sender="M",
+        recipient="B",
+        date="2026-05-15",
+        subject="Q2 Revenue Trends",
+        body="...",
+    )
+    name = _memo_filename(spec, audit_id="abc12345-fffe-1111-2222-333344445555")
+    assert name.startswith("memo_2026-05-15_Q2_Revenue_Trends_")
+    assert name.endswith(".docx")
+    # The audit short id is the first dash-segment of the UUID.
+    assert "abc12345" in name
+
+
+def test_memo_filename_falls_back_when_date_unparseable() -> None:
+    from mint_python.mcp.memo import MemoSpec, _memo_filename
+
+    spec = MemoSpec(
+        sender="M",
+        recipient="B",
+        date="next Tuesday",
+        subject="X",
+        body="...",
+    )
+    name = _memo_filename(spec, audit_id="aaaa-bbbb-cccc")
+    # Falls back to today's date in ISO; suffix is short id.
+    import re
+    assert re.match(r"memo_\d{4}-\d{2}-\d{2}_X_aaaa\.docx", name)
+
+
+# --------------------------------------------------------------------------- #
+# create_memo ToolResult wrapper — rich content for cross-client surfacing
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_create_memo_returns_tool_result_with_resource_link() -> None:
+    """The @server.tool wrapper returns a ToolResult with TextContent
+    (markdown link) + ResourceLink (file:// URI) + structured_content."""
+    from mcp.types import ResourceLink, TextContent
+
+    from mint_python.mcp.memo import create_memo
+
+    intent = (
+        "sender: M\nrecipient: B\ndate: 2026-05-15\n"
+        "subject: T\nbody: Plain body content.\n"
+    )
+    ctx = FakeMCPContext(answers={})
+    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+
+    # Content array carries text + resource_link in that order.
+    assert len(result.content) == 2
+    assert isinstance(result.content[0], TextContent)
+    assert "Memo ready" in result.content[0].text
+    assert "file://" in result.content[0].text  # markdown link
+
+    assert isinstance(result.content[1], ResourceLink)
+    assert str(result.content[1].uri).startswith("file://")
+    assert result.content[1].mimeType.endswith("wordprocessingml.document")
+    assert result.content[1].name.endswith(".docx")
+
+    # Structured content carries the full pipeline result dict.
+    assert result.structured_content["status"] == "complete"
+    assert result.structured_content["audit_id"]
+    assert "path" in result.structured_content
+
+
+@pytest.mark.asyncio
+async def test_create_memo_degraded_returns_text_only_no_resource_link() -> None:
+    """When pipeline returns needs_more_info, ToolResult content is text-only
+    (no docx exists yet, so no resource_link). structured_content carries
+    missing_fields + extracted_so_far for the model to read."""
+    from mcp.types import ResourceLink
+
+    from mint_python.mcp.memo import create_memo
+
+    intent = "Make a memo."
+    ctx = FakeMCPContext(answers={"sender": "__UNSUPPORTED__"})
+    result = await create_memo(intent=intent, source_md=None, ctx=ctx)
+
+    assert result.structured_content["status"] == "needs_more_info"
+    assert result.structured_content["missing_fields"]
+
+    # No ResourceLink in content — there's no file to point at.
+    assert all(not isinstance(c, ResourceLink) for c in result.content)
+    # Text summary names the missing fields for the model to read.
+    text_summary = result.content[0].text
+    assert "Need more info" in text_summary
+    assert "missing" in text_summary.lower()
+
+
 @pytest.mark.asyncio
 async def test_memo_template_not_found_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """When templates/memo.yaml is missing, _load_template raises
@@ -668,7 +957,7 @@ async def test_memo_template_not_found_raises(monkeypatch: pytest.MonkeyPatch) -
     intent = _read("intent_full.txt")
     ctx = FakeMCPContext(answers={})
     with pytest.raises(MemoTemplateNotFound, match="MEMO_TEMPLATE_NOT_FOUND"):
-        await create_memo(intent=intent, source_md=intent, ctx=ctx)
+        await _run_memo_pipeline(intent=intent, source_md=intent, ctx=ctx)
 
 
 @pytest.mark.asyncio
@@ -687,4 +976,4 @@ async def test_memo_generation_failed_wraps_builder_exception(
     intent = _read("intent_full.txt")
     ctx = FakeMCPContext(answers={})
     with pytest.raises(MemoGenerationFailed, match="MEMO_GENERATION_FAILED"):
-        await create_memo(intent=intent, source_md=intent, ctx=ctx)
+        await _run_memo_pipeline(intent=intent, source_md=intent, ctx=ctx)
