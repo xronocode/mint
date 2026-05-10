@@ -43,8 +43,14 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 — Phase-14 W2 initial implementation per
-#     V-MP-TEMPLATES-REGISTRY scenarios 1-5.
+#   LAST_CHANGE: Phase-15 Wave-15-1 — gate TemplateRegistry.update
+#     behind MP-AUTH-SHIM.require_template_writer BEFORE any disk I/O.
+#     Closes audit Priority-4 sub-clause "Authorization shim: read =
+#     open; write = config-gated allowlist". See V-MP-AUTH-SHIM +
+#     VF-017 in docs/verification-plan.xml.
+#   PRIOR: v0.1.0 — Phase-14 W2 initial implementation per
+#     V-MP-TEMPLATES-REGISTRY scenarios 1-5; W3 added update + audit
+#     log append.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -64,6 +70,7 @@ from fastmcp import Context
 from fastmcp.server.elicitation import AcceptedElicitation
 from mcp.shared.exceptions import McpError
 
+from mint_python.mcp.auth import require_template_writer
 from mint_python.mcp.document import _TEMPLATES_DIR, server
 
 logger = logging.getLogger(__name__)
@@ -427,6 +434,14 @@ class TemplateRegistry:
             raise TemplateAuthorRequired(
                 "TEMPLATE_AUTHOR_REQUIRED: update_template needs a non-empty author"
             )
+        # Phase-15 Wave-15-1 / VF-017: gate write-path behind
+        # MP-AUTH-SHIM allowlist BEFORE any disk I/O — destructive check
+        # at the top, before semver computation, before audit-log
+        # append, before any file open. Mirrors V-MP-FIX forbidden-2
+        # fix-pattern. Open mode (no env, no file) admits silently;
+        # the once-per-process BLOCK_AUTH_OPEN_MODE warning is the
+        # operator signal there.
+        require_template_writer(author)
         # Predecessor — must exist; we're bumping FROM something.
         predecessor = self.get(name)
         next_version = _bump_minor(predecessor.version)
