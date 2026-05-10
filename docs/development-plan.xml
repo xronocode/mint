@@ -1266,7 +1266,7 @@ writeFileSync('output.docx', buffer);
 
     <!-- Phase 13: MCP-first product shape (markdown adapter + MCP audit + Memo POC with elicitation) -->
 
-    <MP-MD-ADAPTER NAME="Markdown → ArticleSpec walker" TYPE="INTEGRATION" LAYER="1" ORDER="21" STATUS="planned" ADDED_AT="2026-05-10">
+    <MP-MD-ADAPTER NAME="Markdown → ArticleSpec walker" TYPE="INTEGRATION" LAYER="1" ORDER="21" STATUS="done" COMPLETED_AT="2026-05-10" ADDED_AT="2026-05-10">
       <contract>
         <purpose>Convert raw markdown text into an ArticleSpec dataclass deterministically (no LLM). Uses markdown-it-py 4.2 with the gfm-like preset to parse the source into a token tree, then walks the tree producing typed blocks (paragraph, callout, list, table, code) and SpecSections matching the existing tools/article_experiment/spec.ArticleSpec contract. Exists because LLM-driven structuring of dense markdown (especially tables) is unreliable on non-frontier models — confirmed empirically when the Round-3-postfix baseline_report.docx came out of a 4B model with tables flattened into parallel paragraphs. Markdown is a structured input; structure should be extracted by code, not interpreted by a model.</purpose>
         <inputs>
@@ -1296,7 +1296,7 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-MD-ADAPTER</verification-ref>
     </MP-MD-ADAPTER>
 
-    <MP-MCP-AUDIT NAME="MCP server inventory + migration plan (design-only)" TYPE="UTILITY" LAYER="0" ORDER="22" STATUS="planned" ADDED_AT="2026-05-10">
+    <MP-MCP-AUDIT NAME="MCP server inventory + migration plan (design-only)" TYPE="UTILITY" LAYER="0" ORDER="22" STATUS="done" COMPLETED_AT="2026-05-10" ADDED_AT="2026-05-10">
       <contract>
         <purpose>Design-only deliverable: read existing src/mint/mcp_g1.py and src/mint/mcp_g2.py, inventory all FastMCP @mcp.tool registrations, classify each tool (stateful / stateless, elicitation-aware / one-shot, kept / migrate / deprecate), perform gap analysis against the new product shape (design-tokens-as-resources, versioned templates, GRACE-as-audit-trail, elicitation-driven planning), and produce a migration plan. Output is docs/mcp-audit.md as a human-readable architecture review — no runtime code in this module. The doc becomes the brief for Phase-14 (actual migration). Audit-only scope is deliberate: keeps research separate from engineering.</purpose>
         <inputs>
@@ -1324,7 +1324,7 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-MCP-AUDIT</verification-ref>
     </MP-MCP-AUDIT>
 
-    <MP-MEMO-POC NAME="Memo MCP tool with FastMCP elicitation (planning-mode wow-demo)" TYPE="INTEGRATION" LAYER="4" ORDER="23" STATUS="planned" ADDED_AT="2026-05-10">
+    <MP-MEMO-POC NAME="Memo MCP tool with FastMCP elicitation (planning-mode wow-demo)" TYPE="INTEGRATION" LAYER="4" ORDER="23" STATUS="done" COMPLETED_AT="2026-05-10" ADDED_AT="2026-05-10">
       <contract>
         <purpose>End-to-end POC of the planning-mode dialog pattern via the MCP elicitation primitive (spec 2025-06-18, FastMCP Context.elicit). Exposes one tool, create_memo(intent, source_md?, ctx), that: (1) parses intent + optional markdown source via MP-MD-ADAPTER, (2) builds a partial MemoSpec, (3) for each missing required field, calls ctx.elicit(...) which the connected MCP client (Claude Desktop primary; OpenWebUI / Cursor / Copilot follow) renders as a structured form to the end user; (4) once all 5 required fields present, builds a Document via MP-DOCUMENT with the klawd preset and a memo-specific YAML template (templates/memo.yaml); (5) injects a GRACE manifest with audit-trail metadata (model identity from session, timestamp, slot provenance); (6) returns the saved docx path and the audit-trail id. Memo template is a YAML data file (per "design as data, not code" rule), not embedded in Python — sets the precedent for future doc types (Letter, Report, Contract).</purpose>
         <inputs>

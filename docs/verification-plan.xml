@@ -1540,9 +1540,9 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE-WITH-ISOLATED-FIXTURES — ALL mutations target tmp_path copies; backup always first; destructive rejected; cascade bounded.</autonomy-assessment>
     </V-MP-FIX>
 
-    <V-MP-MD-ADAPTER MODULE="MP-MD-ADAPTER" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-10">
+    <V-MP-MD-ADAPTER MODULE="MP-MD-ADAPTER" PRIORITY="high" STATUS="done" ADDED_AT="2026-05-10">
       <test-files>
-        <file status="planned">tests/unit/test_mp_md_adapter.py</file>
+        <file status="done">tests/unit/test_mp_md_adapter.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/unit/test_mp_md_adapter.py -x</check-1>
@@ -1550,17 +1550,17 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <check-3>mypy src/mint_python/adapters/markdown.py</check-3>
       </module-checks>
       <scenarios>
-        <scenario-1 kind="success" evidence="deterministic" status="planned">Heading mapping: source contains `# H1\n## H2\n### H3` → ArticleSpec has 3 SpecSection entries with level 1, 2, 3 respectively. Title fallback is the first H1 text when title_override is None.</scenario-1>
-        <scenario-2 kind="success" evidence="deterministic" status="planned">GFM table: source `| a | b |\n|:--|--:|\n| 1 | 2 |` parses into one TableBlock with header=("a", "b"), rows=(("1", "2"),). Column alignment from `:--` / `--:` is captured but not yet rendered (alignment plumbing is a follow-up; scenario-2 just asserts the alignment metadata is in attrs).</scenario-2>
-        <scenario-3 kind="success" evidence="deterministic" status="planned">Fenced code: ```python\nx=1\n``` block parses into a CodeBlock with language="python" and content="x=1\n".</scenario-3>
-        <scenario-4 kind="success" evidence="deterministic" status="planned">Blockquote: `> note text` parses into a CalloutBlock with kind="info" and body="note text". Multi-line quotes preserve their internal newlines as paragraph breaks within the body string.</scenario-4>
-        <scenario-5 kind="success" evidence="deterministic" status="planned">List kinds: bulleted (`- a`), ordered (`1. a`), and task (`- [ ] a`) lists each parse to a ListBlock with the matching ListKind (BULLET / NUMBERED / CHECKLIST). Items keep their plain-text content; inline emphasis within items is preserved as text for v0.</scenario-5>
-        <scenario-6 kind="success" evidence="deterministic" status="planned">Inline emphasis: paragraph with `**bold phrase**` parses into a ParagraphBlock with text containing the phrase verbatim and emphasis=("bold phrase",). Italic-only emphasis is captured similarly. Mixed inline (bold inside italic) records the longest matching substring.</scenario-6>
-        <scenario-7 kind="success" evidence="deterministic" status="planned">Malformed input: source with unbalanced fence (` ```python\nx=1\n` — no closing fence) does NOT raise. markdown-it-py recovers by emitting a fenced-code block that runs to EOF; the walker accepts it as CodeBlock with content trailing to end of input. Equivalent recovery for unclosed emphasis, mismatched table rows, etc.</scenario-7>
-        <scenario-8 kind="success" evidence="integration" status="planned">Round-trip: markdown_to_spec(md) → build_document_from_spec(spec) → save(out) → MP-VALIDATE.run_checks(out, level="lenient") returns passed=True with hard_count=0. Run on tests/fixtures/sample_article.md as a smoke fixture.</scenario-8>
-        <scenario-9 kind="success" evidence="integration" status="planned">REPORT_COMPARISON.md regression: experiments/2026-05-10-alpha-baseline/REPORT_COMPARISON.md → markdown_to_spec → docx must contain at least 3 actual `&lt;w:tbl&gt;` elements (one per source table) AND zero stray `Normal`-styled paragraphs that quote pipe-table cells. This is the explicit fix for the embarrassing 0.4.0a1 baseline_report.docx where the LLM serialized tables as parallel paragraphs.</scenario-9>
-        <scenario-10 kind="failure" evidence="deterministic" status="planned">Empty input: markdown_to_spec("") raises MD_ADAPTER_EMPTY_INPUT. markdown_to_spec("   \n\n") raises MD_ADAPTER_NO_USABLE_CONTENT (whitespace-only / no extractable blocks).</scenario-10>
-        <scenario-11 kind="success" evidence="trace" status="planned">Logs: every markdown_to_spec call emits exactly one [MP-MdAdapter][parse][BLOCK_PARSE_MD] at INFO with payload {token_count, section_count, block_count_by_type, has_title_override}. No additional INFO emissions per node (the walker is silent at sub-block level).</scenario-11>
+        <scenario-1 kind="success" evidence="deterministic" status="done">Heading mapping: source contains `# H1\n## H2\n### H3` → ArticleSpec has 3 SpecSection entries with level 1, 2, 3 respectively. Title fallback is the first H1 text when title_override is None.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="done">GFM table: source `| a | b |\n|:--|--:|\n| 1 | 2 |` parses into one TableBlock with header=("a", "b"), rows=(("1", "2"),). Column alignment from `:--` / `--:` is captured but not yet rendered (alignment plumbing is a follow-up; scenario-2 just asserts the alignment metadata is in attrs).</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="done">Fenced code: ```python\nx=1\n``` block parses into a CodeBlock with language="python" and content="x=1\n".</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic" status="done">Blockquote: `> note text` parses into a CalloutBlock with kind="info" and body="note text". Multi-line quotes preserve their internal newlines as paragraph breaks within the body string.</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic" status="done">List kinds: bulleted (`- a`), ordered (`1. a`), and task (`- [ ] a`) lists each parse to a ListBlock with the matching ListKind (BULLET / NUMBERED / CHECKLIST). Items keep their plain-text content; inline emphasis within items is preserved as text for v0.</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="done">Inline emphasis: paragraph with `**bold phrase**` parses into a ParagraphBlock with text containing the phrase verbatim and emphasis=("bold phrase",). Italic-only emphasis is captured similarly. Mixed inline (bold inside italic) records the longest matching substring.</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic" status="done">Malformed input: source with unbalanced fence (` ```python\nx=1\n` — no closing fence) does NOT raise. markdown-it-py recovers by emitting a fenced-code block that runs to EOF; the walker accepts it as CodeBlock with content trailing to end of input. Equivalent recovery for unclosed emphasis, mismatched table rows, etc.</scenario-7>
+        <scenario-8 kind="success" evidence="integration" status="done">Round-trip: markdown_to_spec(md) → build_document_from_spec(spec) → save(out) → MP-VALIDATE.run_checks(out, level="lenient") returns passed=True with hard_count=0. Run on tests/fixtures/sample_article.md as a smoke fixture.</scenario-8>
+        <scenario-9 kind="success" evidence="integration" status="done">REPORT_COMPARISON.md regression: experiments/2026-05-10-alpha-baseline/REPORT_COMPARISON.md → markdown_to_spec → docx must contain at least 3 actual `&lt;w:tbl&gt;` elements (one per source table) AND zero stray `Normal`-styled paragraphs that quote pipe-table cells. This is the explicit fix for the embarrassing 0.4.0a1 baseline_report.docx where the LLM serialized tables as parallel paragraphs.</scenario-9>
+        <scenario-10 kind="failure" evidence="deterministic" status="done">Empty input: markdown_to_spec("") raises MD_ADAPTER_EMPTY_INPUT. markdown_to_spec("   \n\n") raises MD_ADAPTER_NO_USABLE_CONTENT (whitespace-only / no extractable blocks).</scenario-10>
+        <scenario-11 kind="success" evidence="trace" status="done">Logs: every markdown_to_spec call emits exactly one [MP-MdAdapter][parse][BLOCK_PARSE_MD] at INFO with payload {token_count, section_count, block_count_by_type, has_title_override}. No additional INFO emissions per node (the walker is silent at sub-block level).</scenario-11>
       </scenarios>
       <required-log-markers>
         <marker-1>[MP-MdAdapter][parse][BLOCK_PARSE_MD] — fires once per markdown_to_spec call; payload as in scenario-11</marker-1>
@@ -1571,13 +1571,13 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <forbidden-3>Must NOT wrap pandoc, mistune, or any other parser. markdown-it-py is the chosen parser; switching is a deliberate Phase-N decision, not an ad-hoc swap.</forbidden-3>
       </forbidden-behaviors>
       <test-fixtures>
-        <fixture path="tests/fixtures/md_adapter/sample_article.md" purpose="Round-trip happy path — H1 title, H2/H3 sections, mixed inline emphasis, GFM table, fenced code, blockquote. Used by scenario-8." status="planned" />
-        <fixture path="tests/fixtures/md_adapter/gfm_table_alignment.md" purpose="GFM table with `:--`/`--:`/`:-:` pipe syntax; verifies the alignment metadata on `attrs` reaches the TableBlock for downstream rendering. Used by scenario-2." status="planned" />
-        <fixture path="tests/fixtures/md_adapter/nested_emphasis.md" purpose="Bold inside italic, emphasis spanning multiple inline tokens, emphasized phrase containing punctuation. Used by scenario-6." status="planned" />
-        <fixture path="tests/fixtures/md_adapter/unbalanced_fence.md" purpose="Code fence opened with ``` but never closed; markdown-it-py recovery path emits a CodeBlock running to EOF. Used by scenario-7." status="planned" />
-        <fixture path="tests/fixtures/md_adapter/report_comparison_excerpt.md" purpose="Slice of the actual experiments/2026-05-10-alpha-baseline/REPORT_COMPARISON.md focused on the table-heavy section. Regression guard for the 0.4.0a1 LLM-flattened-table embarrassment. Used by scenario-9." status="planned" />
-        <fixture path="tests/fixtures/md_adapter/empty.md" purpose="Empty file. Verifies MD_ADAPTER_EMPTY_INPUT raise-path of scenario-10." status="planned" />
-        <fixture path="tests/fixtures/md_adapter/whitespace_only.md" purpose="File with only spaces and newlines. Verifies MD_ADAPTER_NO_USABLE_CONTENT path of scenario-10." status="planned" />
+        <fixture path="tests/fixtures/md_adapter/sample_article.md" purpose="Round-trip happy path — H1 title, H2/H3 sections, mixed inline emphasis, GFM table, fenced code, blockquote. Used by scenario-8." status="done" />
+        <fixture path="tests/fixtures/md_adapter/gfm_table_alignment.md" purpose="GFM table with `:--`/`--:`/`:-:` pipe syntax; verifies the alignment metadata on `attrs` reaches the TableBlock for downstream rendering. Used by scenario-2." status="done" />
+        <fixture path="tests/fixtures/md_adapter/nested_emphasis.md" purpose="Bold inside italic, emphasis spanning multiple inline tokens, emphasized phrase containing punctuation. Used by scenario-6." status="done" />
+        <fixture path="tests/fixtures/md_adapter/unbalanced_fence.md" purpose="Code fence opened with ``` but never closed; markdown-it-py recovery path emits a CodeBlock running to EOF. Used by scenario-7." status="done" />
+        <fixture path="tests/fixtures/md_adapter/report_comparison_excerpt.md" purpose="Slice of the actual experiments/2026-05-10-alpha-baseline/REPORT_COMPARISON.md focused on the table-heavy section. Regression guard for the 0.4.0a1 LLM-flattened-table embarrassment. Used by scenario-9." status="done" />
+        <fixture path="tests/fixtures/md_adapter/empty.md" purpose="Empty file. Verifies MD_ADAPTER_EMPTY_INPUT raise-path of scenario-10." status="done" />
+        <fixture path="tests/fixtures/md_adapter/whitespace_only.md" purpose="File with only spaces and newlines. Verifies MD_ADAPTER_NO_USABLE_CONTENT path of scenario-10." status="done" />
       </test-fixtures>
       <trace-contract>
         <required-blocks-in-order>
@@ -1607,20 +1607,20 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE — pure function, no shared state, no IO. Tests run in any order, in parallel. Fixtures are read-only files in tests/fixtures/md_adapter/.</autonomy-assessment>
     </V-MP-MD-ADAPTER>
 
-    <V-MP-MCP-AUDIT MODULE="MP-MCP-AUDIT" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+    <V-MP-MCP-AUDIT MODULE="MP-MCP-AUDIT" PRIORITY="medium" STATUS="done" ADDED_AT="2026-05-10">
       <test-files>
-        <file status="planned">(none — review checklist, not pytest-based)</file>
+        <file status="done">(none — review checklist, not pytest-based)</file>
       </test-files>
       <module-checks>
         <check-1>docs/mcp-audit.md exists and is non-empty</check-1>
         <check-2>Manual review by user (peer review checkbox)</check-2>
       </module-checks>
       <scenarios>
-        <scenario-1 kind="success" evidence="document" status="planned">Inventory completeness: docs/mcp-audit.md lists every @mcp.tool registration found in src/mint/mcp_g1.py and src/mint/mcp_g2.py. Each entry has: tool name, current signature (params + return type), one-line behavior description, current state classification (stateful / stateless), elicitation usage (yes / no), recommended disposition (kept / migrate / deprecate).</scenario-1>
-        <scenario-2 kind="success" evidence="document" status="planned">Gap analysis covers the three differentiators settled this session: design-tokens-as-resources (currently absent), versioned templates with cross-model handoff (absent), GRACE-as-audit-trail (partially shipped via MP-GRACE — assess what's exposed via MCP vs only available via SDK), elicitation-driven planning dialogs (absent). Each gap has: status, why it matters, what closing it requires, rough effort.</scenario-2>
-        <scenario-3 kind="success" evidence="document" status="planned">Migration plan has prioritized list of changes with acceptance criteria per change. At minimum: (a) which existing tools migrate to elicitation, (b) which new tools to add (list_templates, get_template, update_template, list_presets, generate_document with elicitation), (c) breaking-change call-out for any client-facing API changes, (d) rough sequencing for Phase-14.</scenario-3>
-        <scenario-4 kind="success" evidence="document" status="planned">Roadmap of new tools includes signatures (param names, types, return shape) consistent with FastMCP + the elicitation pattern (`async def, ctx: Context, await ctx.elicit(...)`). Matches the planned MP-MEMO-POC.create_memo signature as the canonical example.</scenario-4>
-        <scenario-5 kind="success" evidence="document" status="planned">Honest assessment of what cannot be salvaged: any legacy tool whose semantics conflict with the new product shape is explicitly listed for deprecation with a 1-line rationale. Empty list is acceptable if everything migrates cleanly; an empty section requires a "no deprecations" note rather than silence.</scenario-5>
+        <scenario-1 kind="success" evidence="document" status="done">Inventory completeness: docs/mcp-audit.md lists every @mcp.tool registration found in src/mint/mcp_g1.py and src/mint/mcp_g2.py. Each entry has: tool name, current signature (params + return type), one-line behavior description, current state classification (stateful / stateless), elicitation usage (yes / no), recommended disposition (kept / migrate / deprecate).</scenario-1>
+        <scenario-2 kind="success" evidence="document" status="done">Gap analysis covers the three differentiators settled this session: design-tokens-as-resources (currently absent), versioned templates with cross-model handoff (absent), GRACE-as-audit-trail (partially shipped via MP-GRACE — assess what's exposed via MCP vs only available via SDK), elicitation-driven planning dialogs (absent). Each gap has: status, why it matters, what closing it requires, rough effort.</scenario-2>
+        <scenario-3 kind="success" evidence="document" status="done">Migration plan has prioritized list of changes with acceptance criteria per change. At minimum: (a) which existing tools migrate to elicitation, (b) which new tools to add (list_templates, get_template, update_template, list_presets, generate_document with elicitation), (c) breaking-change call-out for any client-facing API changes, (d) rough sequencing for Phase-14.</scenario-3>
+        <scenario-4 kind="success" evidence="document" status="done">Roadmap of new tools includes signatures (param names, types, return shape) consistent with FastMCP + the elicitation pattern (`async def, ctx: Context, await ctx.elicit(...)`). Matches the planned MP-MEMO-POC.create_memo signature as the canonical example.</scenario-4>
+        <scenario-5 kind="success" evidence="document" status="done">Honest assessment of what cannot be salvaged: any legacy tool whose semantics conflict with the new product shape is explicitly listed for deprecation with a 1-line rationale. Empty list is acceptable if everything migrates cleanly; an empty section requires a "no deprecations" note rather than silence.</scenario-5>
       </scenarios>
       <required-log-markers>
         <marker-1>(none — design module has no runtime path)</marker-1>
@@ -1657,9 +1657,9 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SOLO — design deliverable, requires human peer review by user. Not parallelizable; not safe for autonomous agents to mark "done" without explicit user sign-off.</autonomy-assessment>
     </V-MP-MCP-AUDIT>
 
-    <V-MP-MEMO-POC MODULE="MP-MEMO-POC" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-10">
+    <V-MP-MEMO-POC MODULE="MP-MEMO-POC" PRIORITY="high" STATUS="done" ADDED_AT="2026-05-10">
       <test-files>
-        <file status="planned">tests/integration/test_mp_memo_poc.py</file>
+        <file status="done">tests/integration/test_mp_memo_poc.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/integration/test_mp_memo_poc.py -x</check-1>
@@ -1668,15 +1668,15 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <check-4>Manual smoke through Claude Desktop (documented procedure in docs/memo-poc-smoke.md)</check-4>
       </module-checks>
       <scenarios>
-        <scenario-1 kind="success" evidence="deterministic" status="planned">Full intent: create_memo(intent="Memo from Mikhail (CFO) to Board on 2026-05-15 about Q2 revenue trends. Q2 revenue grew 13%...", source_md=None, ctx=fake_ctx) extracts all 5 fields heuristically; ctx.elicit is NEVER called. Returns {"path": ..., "audit_id": ..., "fields_elicited": []}.</scenario-1>
-        <scenario-2 kind="success" evidence="trace" status="planned">Single missing field: intent without an explicit recipient triggers exactly one ctx.elicit call with field name "recipient" and a non-empty prompt message. Test injects a fake ctx that records elicit invocations; asserts call count == 1 and the requested field == "recipient".</scenario-2>
-        <scenario-3 kind="success" evidence="trace" status="planned">Multi-round elicitation: intent missing both sender and date triggers two elicit calls in declaration order (sender first, then date). fields_elicited in result == ["sender", "date"].</scenario-3>
-        <scenario-4 kind="failure" evidence="deterministic" status="planned">Elicitation rejected: ctx.elicit returns ElicitResult(action="reject") for the first missing field. Tool raises MEMO_ELICITATION_REJECTED with the rejected field name. No docx is produced; no GRACE manifest emitted.</scenario-4>
-        <scenario-5 kind="success" evidence="integration" status="planned">Lenient validation: the docx produced by a successful create_memo run passes MP-VALIDATE.run_checks(level="lenient") with hard_count=0.</scenario-5>
-        <scenario-6 kind="success" evidence="deterministic" status="planned">Klawd visual: word/styles.xml in the saved docx contains `1B3A5C` (klawd primary), `Arial`, and `333333` (klawd body). This is the same regression guard pattern as test_klawd_preset_visually_applied_to_saved_styles_xml — mismatch indicates apply_preset_to_doc regressed.</scenario-6>
-        <scenario-7 kind="success" evidence="integration" status="planned">GRACE injection: the saved docx has the urn:mint:grace:2026:manifest Custom XML Part. The manifest's instructions list contains a memo-poc-specific entry naming the audit_id, model identity (from ctx if available, else "anonymous"), timestamp, and fields_elicited.</scenario-7>
-        <scenario-8 kind="success" evidence="trace" status="planned">Log markers fire in this order per create_memo run: BLOCK_PARSE_INTENT (once), BLOCK_ELICIT_FIELD (zero or more, one per missing field), BLOCK_BUILD_DOCX (once), BLOCK_INJECT_GRACE (once). All under [MP-Memo] prefix.</scenario-8>
-        <scenario-9 kind="success" evidence="manual" status="planned">Manual Claude Desktop smoke: run the memo-poc-smoke.md procedure end-to-end with a real Claude Desktop client. Expected: form prompts appear in the Claude Desktop UI for missing fields; user-provided values flow back; final docx download link appears in the Claude reply. Failure of any step is documented as a follow-up issue, not a test-suite failure (out of CI's reach).</scenario-9>
+        <scenario-1 kind="success" evidence="deterministic" status="done">Full intent: create_memo(intent="Memo from Mikhail (CFO) to Board on 2026-05-15 about Q2 revenue trends. Q2 revenue grew 13%...", source_md=None, ctx=fake_ctx) extracts all 5 fields heuristically; ctx.elicit is NEVER called. Returns {"path": ..., "audit_id": ..., "fields_elicited": []}.</scenario-1>
+        <scenario-2 kind="success" evidence="trace" status="done">Single missing field: intent without an explicit recipient triggers exactly one ctx.elicit call with field name "recipient" and a non-empty prompt message. Test injects a fake ctx that records elicit invocations; asserts call count == 1 and the requested field == "recipient".</scenario-2>
+        <scenario-3 kind="success" evidence="trace" status="done">Multi-round elicitation: intent missing both sender and date triggers two elicit calls in declaration order (sender first, then date). fields_elicited in result == ["sender", "date"].</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic" status="done">Elicitation rejected: ctx.elicit returns ElicitResult(action="reject") for the first missing field. Tool raises MEMO_ELICITATION_REJECTED with the rejected field name. No docx is produced; no GRACE manifest emitted.</scenario-4>
+        <scenario-5 kind="success" evidence="integration" status="done">Lenient validation: the docx produced by a successful create_memo run passes MP-VALIDATE.run_checks(level="lenient") with hard_count=0.</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="done">Klawd visual: word/styles.xml in the saved docx contains `1B3A5C` (klawd primary), `Arial`, and `333333` (klawd body). This is the same regression guard pattern as test_klawd_preset_visually_applied_to_saved_styles_xml — mismatch indicates apply_preset_to_doc regressed.</scenario-6>
+        <scenario-7 kind="success" evidence="integration" status="done">GRACE injection: the saved docx has the urn:mint:grace:2026:manifest Custom XML Part. The manifest's instructions list contains a memo-poc-specific entry naming the audit_id, model identity (from ctx if available, else "anonymous"), timestamp, and fields_elicited.</scenario-7>
+        <scenario-8 kind="success" evidence="trace" status="done">Log markers fire in this order per create_memo run: BLOCK_PARSE_INTENT (once), BLOCK_ELICIT_FIELD (zero or more, one per missing field), BLOCK_BUILD_DOCX (once), BLOCK_INJECT_GRACE (once). All under [MP-Memo] prefix.</scenario-8>
+        <scenario-9 kind="success" evidence="manual" status="done">Manual Claude Desktop smoke: run the memo-poc-smoke.md procedure end-to-end with a real Claude Desktop client. Expected: form prompts appear in the Claude Desktop UI for missing fields; user-provided values flow back; final docx download link appears in the Claude reply. Failure of any step is documented as a follow-up issue, not a test-suite failure (out of CI's reach).</scenario-9>
       </scenarios>
       <required-log-markers>
         <marker-1>[MP-Memo][create][BLOCK_PARSE_INTENT] — once per create_memo call; payload: source_md_present, fields_extracted_heuristically</marker-1>
@@ -1691,15 +1691,15 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <forbidden-4>MUST NOT introduce a custom session-state convention (start_session / continue_session). All multi-turn dialog goes through ctx.elicit() — the spec-native primitive — so the server composes with elicitation-aware MCP clients (Claude Desktop, Copilot, Cursor, FastMCP-based hosts).</forbidden-4>
       </forbidden-behaviors>
       <test-fixtures>
-        <fixture path="tests/fixtures/memo_poc/intent_full.txt" purpose="All 5 fields embedded inline in plain text — heuristic extractor finds them all, ZERO ctx.elicit calls expected. Used by scenario-1." status="planned" />
-        <fixture path="tests/fixtures/memo_poc/intent_missing_recipient.txt" purpose="4 of 5 fields in intent text, recipient absent — exactly ONE ctx.elicit call for 'recipient' expected. Used by scenario-2." status="planned" />
-        <fixture path="tests/fixtures/memo_poc/intent_missing_two.txt" purpose="3 of 5 fields in intent, sender + date absent — TWO ctx.elicit calls in declaration order (sender first, then date). Used by scenario-3." status="planned" />
-        <fixture path="tests/fixtures/memo_poc/source_chat.md" purpose="Realistic chat transcript fed via source_md kwarg; subject extracted from chat topic line, body extracted from chat content. Sanity-checks the MD-ADAPTER → MEMO-POC integration." status="planned" />
-        <fixture path="tests/fixtures/memo_poc/expected_layout.yaml" purpose="Golden MemoTemplate-rendered layout: ordered list of (section_kind, content_pattern) tuples. Used as the assertion reference for scenario-1 — confirms the YAML template loader produced the documented section sequence." status="planned" />
+        <fixture path="tests/fixtures/memo_poc/intent_full.txt" purpose="All 5 fields embedded inline in plain text — heuristic extractor finds them all, ZERO ctx.elicit calls expected. Used by scenario-1." status="done" />
+        <fixture path="tests/fixtures/memo_poc/intent_missing_recipient.txt" purpose="4 of 5 fields in intent text, recipient absent — exactly ONE ctx.elicit call for 'recipient' expected. Used by scenario-2." status="done" />
+        <fixture path="tests/fixtures/memo_poc/intent_missing_two.txt" purpose="3 of 5 fields in intent, sender + date absent — TWO ctx.elicit calls in declaration order (sender first, then date). Used by scenario-3." status="done" />
+        <fixture path="tests/fixtures/memo_poc/source_chat.md" purpose="Realistic chat transcript fed via source_md kwarg; subject extracted from chat topic line, body extracted from chat content. Sanity-checks the MD-ADAPTER → MEMO-POC integration." status="done" />
+        <fixture path="tests/fixtures/memo_poc/expected_layout.yaml" purpose="Golden MemoTemplate-rendered layout: ordered list of (section_kind, content_pattern) tuples. Used as the assertion reference for scenario-1 — confirms the YAML template loader produced the documented section sequence." status="done" />
       </test-fixtures>
       <test-helpers>
-        <helper path="tests/_helpers/fake_mcp_context.py" purpose="FakeMCPContext class: drop-in replacement for fastmcp.Context in unit/integration tests. Constructor takes a scripted answer dict (e.g. {'recipient': 'Board of Directors', 'date': '2026-05-15'}). Each ctx.elicit(message, response_type) call records (field, message) into self.elicited_calls (list[tuple[str, str]]) and returns the scripted answer wrapped as ElicitResult(action='accept', data=answer). To trigger reject path, scripted dict carries a sentinel '__REJECT__' value for the rejected field. The helper is the primary evidence source for scenarios 1-4 and 8." status="planned" />
-        <helper path="tests/_helpers/__init__.py" purpose="Package marker so the fake_mcp_context import works from tests/integration/." status="planned" />
+        <helper path="tests/_helpers/fake_mcp_context.py" purpose="FakeMCPContext class: drop-in replacement for fastmcp.Context in unit/integration tests. Constructor takes a scripted answer dict (e.g. {'recipient': 'Board of Directors', 'date': '2026-05-15'}). Each ctx.elicit(message, response_type) call records (field, message) into self.elicited_calls (list[tuple[str, str]]) and returns the scripted answer wrapped as ElicitResult(action='accept', data=answer). To trigger reject path, scripted dict carries a sentinel '__REJECT__' value for the rejected field. The helper is the primary evidence source for scenarios 1-4 and 8." status="done" />
+        <helper path="tests/_helpers/__init__.py" purpose="Package marker so the fake_mcp_context import works from tests/integration/." status="done" />
       </test-helpers>
       <trace-contract>
         <required-blocks-in-order>
