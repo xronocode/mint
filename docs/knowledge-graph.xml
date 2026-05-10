@@ -763,5 +763,66 @@
     <CrossLink from="MP-TEMPLATES-WRITE" to="MP-GRACE" relation="Audit log entries flow into GRACE manifest of every produced docx — establishing the cross-model handoff lineage chain." />
     <CrossLink from="MP-MCP-RESOURCES" to="MP-TEMPLATES-REGISTRY" relation="Resource handler for mint://template/* delegates to the registry's get_template; resource enumeration mirrors list_templates." />
     <CrossLink from="MP-MCP-RESOURCES" to="MP-STYLE" relation="Resource handler for mint://preset/* reads from MP-STYLE.BUILTIN_PRESETS." />
+
+    <!-- Phase 15: production hardening (HANDOVER-phase15-ready.md + docs/mcp-audit.md) -->
+
+    <MP-AUTH-SHIM NAME="Authorization shim for write-path MCP tools" TYPE="UTILITY" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>Production-blocker: gate update_template (and any future write tools) behind a config-driven author allowlist. MINT_TEMPLATE_WRITERS env or ~/.config/mint/writers.json define the allowlist; empty config = open mode with one-shot warning. Read tools stay open. Closes audit Priority-4's authorization-shim sub-clause that was left as TODO at Phase-14 close.</purpose>
+      <path>src/mint_python/mcp/auth.py</path>
+      <depends>stdlib only (os, json, pathlib, dataclasses, logging)</depends>
+      <verification-ref>V-MP-AUTH-SHIM</verification-ref>
+      <annotations>
+        <fn-is_template_writer PURPOSE="pure check: bool decision on (author, config); no side effects" />
+        <fn-require_template_writer PURPOSE="raises TEMPLATE_WRITE_FORBIDDEN on deny; called by update_template before any disk write" />
+        <fn-load_writers_config PURPOSE="env > file > none precedence; cached per-process; emits BLOCK_AUTH_OPEN_MODE warning once if empty" />
+        <type-WritersConfig PURPOSE="frozen dataclass: writers tuple, source Literal['env','file','none'], open_mode bool" />
+      </annotations>
+    </MP-AUTH-SHIM>
+
+    <MP-MANIFEST-READ NAME="GRACE manifest read tool (mint_read_grace_manifest)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>Symmetric read counterpart to GRACE injection. mint_read_grace_manifest opens any docx, locates grace/manifest_*.xml, and returns the parsed manifest as a canonical dict. Closes audit Priority-1 acceptance criterion "read_grace_manifest exists and round-trips a manifest written by any other tool" — explicitly named in audit §1 row-7 + §3(c) + §5 roadmap, but never shipped during Phase-14.</purpose>
+      <path>src/mint_python/mcp/manifest.py</path>
+      <depends>MP-GRACE (existing fn-describe), M-SECURITY safe_doc, fastmcp.Context</depends>
+      <verification-ref>V-MP-MANIFEST-READ</verification-ref>
+      <annotations>
+        <fn-mint_read_grace_manifest PURPOSE="@server.tool async; thin wrapper over MP-GRACE.describe; returns canonical dict or surfaces MANIFEST_NOT_FOUND / MANIFEST_PARSE_ERROR / INVALID_DOCUMENT" />
+      </annotations>
+    </MP-MANIFEST-READ>
+
+    <MP-VISUAL-QA-HOOK NAME="Visual QA hook on create_document (VLM rubric)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>Advisory post-create_document visual quality gate. Refactors root-level e2e_qa_visual.py into a library; runs after every successful create_document. Score 0-100 across typography / layout / visual_richness / professional axes via qwen2.5vl:7b on Ollama. Default ON; opt out via MINT_SKIP_VISUAL_QA=1. NEVER fails the tool — backend-unavailable degrades gracefully; below-threshold logs but tool still succeeds.</purpose>
+      <path>src/mint_python/qa/visual.py + edits to src/mint_python/mcp/document.py</path>
+      <depends>soffice (LibreOffice headless), pdftoppm (poppler-utils), Ollama VLM endpoint qwen2.5vl:7b, pillow, urllib.request stdlib; integrated into MP-DOC-GENERIC.create_document via post-step</depends>
+      <verification-ref>V-MP-VISUAL-QA-HOOK</verification-ref>
+      <annotations>
+        <fn-score_document PURPOSE="library function returning VisualQAReport | None; backend-unavailable returns None with logged warning; never raises back into the tool" />
+        <type-VisualQAReport PURPOSE="frozen dataclass: score, axes dict, issues list, pages_scored, preset_name, advisory=True, skipped, skip_reason" />
+      </annotations>
+    </MP-VISUAL-QA-HOOK>
+
+    <MP-LEGACY-DEPRECATION NAME="Remove mcp_g1/mcp_g2 + JS sandbox + legacy create/assemble pipeline" TYPE="UTILITY" STATUS="planned" ADDED_AT="2026-05-10" SCOPE_EXPANDED_AT="2026-05-10">
+      <purpose>Subtractive cleanup honoring audit §6 "Tools to deprecate" + the unmet Phase-14 promise. Pre-flight 2026-05-10 expanded scope: also deletes mint.create + mint.assemble (legacy JS-tier orchestrators superseded by mint_python.mcp.document.create_document since Phase-14) and the cmd_serve CLI subcommand mount path. Drops Engine.JS, purges docx/pptxgenjs/exceljs/vm2/isolated-vm/vitest/eslint from pyproject + uv.lock, updates docs/technology.xml + docs/requirements.xml. Pure-python becomes the only execution surface. Net public surface SHRINKS by 5 legacy MCP tools + 2 legacy orchestration modules + 1 CLI subcommand.</purpose>
+      <path>src/mint/mcp_g1.py (delete) + src/mint/mcp_g2.py (delete) + src/mint/sandbox/ (delete recursive) + src/mint/create.py (delete; scope-expanded) + src/mint/assemble.py (delete; scope-expanded) + src/mint/cli.py (edit: drop cmd_serve + Engine.JS) + src/mint/config.py (drop Engine.JS) + pyproject.toml (drop deps + dangling entry points) + docs/technology.xml + docs/requirements.xml</path>
+      <depends>Pre-flight audit complete 2026-05-10: tools/article_experiment/ + scripts/ clean. In-tree importers (mint.create, mint.assemble, mint.cli) all in deletion scope — no stub-shim needed.</depends>
+      <verification-ref>V-MP-LEGACY-DEPRECATION</verification-ref>
+      <annotations>
+        <removal-mcp_g1 PURPOSE="DELETE src/mint/mcp_g1.py — successors are mint_python.mcp.* tools" />
+        <removal-mcp_g2 PURPOSE="DELETE src/mint/mcp_g2.py — superseded by mint_create_document + mint_python list_templates / mint_edit (TBD)" />
+        <removal-sandbox PURPOSE="DELETE src/mint/sandbox/ — Node.js vm2/isolated-vm sandbox, dead code under pure-python runtime" />
+        <removal-create PURPOSE="DELETE src/mint/create.py — legacy M-CREATE orchestrator (~120 LOC); imports mint.sandbox; superseded by mint_python.mcp.document.create_document since Phase-14. Scope-expansion 2026-05-10." />
+        <removal-assemble PURPOSE="DELETE src/mint/assemble.py — legacy M-ASSEMBLE modular generator (~700 LOC); only consumer was mint.create. Scope-expansion 2026-05-10." />
+        <removal-cmd_serve PURPOSE="REMOVE cmd_serve subcommand from src/mint/cli.py — legacy MCP server mount path (FastMCP('MINT').mount(g1).mount(g2)). MCP entry point becomes src/mint_python/mcp/document.py invoked via stdio. Scope-expansion 2026-05-10." />
+        <removal-engine_js PURPOSE="REMOVE Engine.JS branch from src/mint/cli.py::_select_engine; --engine js arg removed or stubbed to point at pure-python successors" />
+        <removal-deps PURPOSE="REMOVE docx, pptxgenjs, exceljs, vm2, isolated-vm, vitest, eslint from pyproject.toml + uv.lock; update docs/technology.xml Runtime/Deps/Tooling + docs/requirements.xml constraint-7" />
+      </annotations>
+    </MP-LEGACY-DEPRECATION>
+
+    <CrossLink from="MP-AUTH-SHIM" to="MP-TEMPLATES-WRITE" relation="MP-TEMPLATES-WRITE.update_template calls require_template_writer(author) BEFORE any disk write. Empty config = open mode (warns once); explicit allowlist = TEMPLATE_WRITE_FORBIDDEN on miss. Closes audit Priority-4 sub-clause." />
+    <CrossLink from="MP-MANIFEST-READ" to="MP-GRACE" relation="mint_read_grace_manifest is a thin MCP wrapper over MP-GRACE.describe — read counterpart to MP-GRACE.bootstrap. No re-implementation; canonicalizes dict shape and surfaces tool-level errors." />
+    <CrossLink from="MP-MANIFEST-READ" to="MP-DOC-GENERIC" relation="Round-trip evidence chain: docx produced by create_document carries a manifest; mint_read_grace_manifest must return the same audit_id / fields_elicited / template_version / template_author back." />
+    <CrossLink from="MP-VISUAL-QA-HOOK" to="MP-DOC-GENERIC" relation="Hook integrated as a post-step in create_document, AFTER MP-GRACE.bootstrap. Attaches visual_qa to structured_content as advisory; never blocks document return." />
+    <CrossLink from="MP-VISUAL-QA-HOOK" to="MP-STYLE" relation="score_document accepts preset_name (currently always 'klawd' via the create_document hook). Future presets parameterize the rubric or the reference comparison." />
+    <CrossLink from="MP-LEGACY-DEPRECATION" to="MP-DOC-GENERIC" relation="The deprecation removes mint_create / mint_extract_style / mint_list_templates legacy registrations; mint_create_document + mint_python list_templates + (TBD) mint_edit successors carry the surface forward." />
+    <CrossLink from="MP-LEGACY-DEPRECATION" to="MP-MANIFEST-READ" relation="Legacy mint_create stripped GRACE injection altogether; pure-python create_document + mint_read_grace_manifest are the only paths after Phase-15. The 'GRACE-as-audit-trail story is now enforced' line in audit §3(c) finally becomes literally true." />
   </Project>
 </KnowledgeGraph>

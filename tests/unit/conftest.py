@@ -19,10 +19,20 @@
 #   marker_counter - callable: caplog -> Counter[BLOCK_NAME -> count]
 #   golden_doc_builder - returns _mp_helpers.build_golden_document
 #   schema_violation_factory - parametrized broken-preset producer for V-MP-STYLE
+#   mpl_figure_cleanup - autouse: matplotlib rcParams snapshot/leak guard (Phase-8)
+#   chart_baseline_path - tests/fixtures/mp_chart_e2e_baseline.json (Phase-8)
+#   clean_writers_config - clear MP-AUTH-SHIM cache + scrub MINT_TEMPLATE_WRITERS env (Phase-15)
+#   zip_byte_snapshot - sha256 round-trip helper for VF-018/VF-019 read-only invariants (Phase-15)
+#   tempdir_snapshot - tempdir entry diff for VF-019 inv-6 TEMP-FILE-CLEANUP (Phase-15)
+#   backend_probe_patcher - monkeypatch shutil.which + urllib.request for VF-019 inv-4 (Phase-15)
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Phase-7 pre-Wave-7-1: initial provisioning per SwarmFixtures/conftest-spec
+#   LAST_CHANGE: Phase-15 pre-Wave-15-1: provision controller pre-flight fixtures
+#     (clean_writers_config, zip_byte_snapshot, tempdir_snapshot, backend_probe_patcher)
+#     per docs/verification-plan.xml SwarmExecutionReadiness/target-15/controller-pre-flight.
+#   PRIOR: Phase-8 - mpl_figure_cleanup + chart_baseline_path additions for VF-014.
+#   PRIOR: Phase-7 pre-Wave-7-1: initial provisioning per SwarmFixtures/conftest-spec.
 # END_CHANGE_SUMMARY
 from __future__ import annotations
 
@@ -253,3 +263,139 @@ def chart_baseline_path() -> Path:
     """
     return Path(__file__).resolve().parent.parent / "fixtures" / "mp_chart_e2e_baseline.json"
 # END_BLOCK_CHART_BASELINE_PATH
+
+
+# START_BLOCK_CLEAN_WRITERS_CONFIG
+@pytest.fixture
+def clean_writers_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Phase-15 / V-MP-AUTH-SHIM: clear the MP-AUTH-SHIM WritersConfig
+    process-cache + scrub MINT_TEMPLATE_WRITERS env between tests.
+
+    The shim caches load_writers_config() to satisfy VF-017 inv-2
+    OPEN-MODE-WARNS-ONCE + inv-4 CACHE-INVARIANT. Tests that exercise
+    different env or file states need a fresh cache. Lazy-imports
+    mint_python.mcp.auth so the fixture is usable before Wave-15-1 lands.
+    """
+    monkeypatch.delenv("MINT_TEMPLATE_WRITERS", raising=False)
+    auth_module = sys.modules.get("mint_python.mcp.auth")
+    if auth_module is not None:
+        if hasattr(auth_module, "_reset_for_tests"):
+            auth_module._reset_for_tests()
+        elif hasattr(auth_module, "load_writers_config") and hasattr(
+            auth_module.load_writers_config, "cache_clear"
+        ):
+            auth_module.load_writers_config.cache_clear()
+    yield
+    auth_module = sys.modules.get("mint_python.mcp.auth")
+    if auth_module is not None:
+        if hasattr(auth_module, "_reset_for_tests"):
+            auth_module._reset_for_tests()
+        elif hasattr(auth_module, "load_writers_config") and hasattr(
+            auth_module.load_writers_config, "cache_clear"
+        ):
+            auth_module.load_writers_config.cache_clear()
+# END_BLOCK_CLEAN_WRITERS_CONFIG
+
+
+# START_BLOCK_ZIP_BYTE_SNAPSHOT
+@pytest.fixture
+def zip_byte_snapshot():
+    """Phase-15 / VF-018 inv-2 READ-ONLY + VF-019 inv-5 NO-DOC-MUTATION:
+    return a callable that snapshots a file's sha256 and asserts equality
+    on a second call. Use as `snap = zip_byte_snapshot(path); ...; snap()`.
+
+    The returned callable raises AssertionError if the file's bytes
+    changed between the snapshot point and the assertion point.
+    """
+    import hashlib
+
+    def _snapshot(path: Path) -> "callable":
+        before = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+        def _assert_unchanged() -> None:
+            after = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+            assert before == after, (
+                f"File bytes changed during read-only operation: {path} "
+                f"({before[:12]}... -> {after[:12]}...)"
+            )
+
+        return _assert_unchanged
+
+    return _snapshot
+# END_BLOCK_ZIP_BYTE_SNAPSHOT
+
+
+# START_BLOCK_TEMPDIR_SNAPSHOT
+@pytest.fixture
+def tempdir_snapshot():
+    """Phase-15 / VF-019 inv-6 TEMP-FILE-CLEANUP: snapshot tempdir entries
+    matching a glob, return a callable that asserts no leftover entries.
+
+    Use as `snap = tempdir_snapshot('mint_qa_*'); run_hook(); snap()`.
+    The fixture pins to tempfile.gettempdir() and matches via glob; this
+    catches PDF/PNG temp leaks from MP-VISUAL-QA-HOOK without requiring
+    the hook to expose its tempfile names. Mirrors VF-016 inv-1
+    TEMP-FILE-CLEANUP pattern.
+    """
+    import tempfile
+    from pathlib import Path as _P
+
+    def _snapshot(glob_pattern: str = "mint_qa_*") -> "callable":
+        tmpdir = _P(tempfile.gettempdir())
+        before = set(tmpdir.glob(glob_pattern))
+
+        def _assert_no_leak() -> None:
+            after = set(tmpdir.glob(glob_pattern))
+            leaked = after - before
+            assert not leaked, (
+                f"Tempfile leak detected (glob={glob_pattern!r}): "
+                f"{sorted(p.name for p in leaked)}"
+            )
+
+        return _assert_no_leak
+
+    return _snapshot
+# END_BLOCK_TEMPDIR_SNAPSHOT
+
+
+# START_BLOCK_BACKEND_PROBE_PATCHER
+@pytest.fixture
+def backend_probe_patcher(monkeypatch: pytest.MonkeyPatch):
+    """Phase-15 / VF-019 inv-4 BACKEND-DEGRADATION: monkeypatch shutil.which
+    to simulate missing soffice / pdftoppm + monkeypatch urllib.request to
+    simulate Ollama unreachable. Returns a configurator callable.
+
+    Usage:
+        backend_probe_patcher(missing={"soffice"})  # only soffice missing
+        backend_probe_patcher(missing={"pdftoppm"}, ollama_unreachable=True)
+        backend_probe_patcher(missing=set())        # all backends present
+
+    Default (no call): all backends present.
+    """
+    import shutil
+    import urllib.request
+
+    real_which = shutil.which
+    real_urlopen = urllib.request.urlopen
+    state: dict = {"missing": set(), "ollama_unreachable": False}
+
+    def _fake_which(cmd: str, *args, **kwargs):
+        if cmd in state["missing"]:
+            return None
+        return real_which(cmd, *args, **kwargs)
+
+    def _fake_urlopen(*args, **kwargs):
+        if state["ollama_unreachable"]:
+            raise ConnectionError("Simulated: Ollama endpoint unreachable")
+        return real_urlopen(*args, **kwargs)
+
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    def _configure(*, missing: set[str] | None = None,
+                   ollama_unreachable: bool = False) -> None:
+        state["missing"] = set(missing or ())
+        state["ollama_unreachable"] = ollama_unreachable
+
+    return _configure
+# END_BLOCK_BACKEND_PROBE_PATCHER

@@ -15,11 +15,17 @@
 # START_MODULE_MAP
 #   (re-exports) - mp_clean_env, tmp_docx_path, mp_minimal_config,
 #     caplog_at_info, marker_counter, golden_doc_builder, mpl_figure_cleanup,
-#     chart_baseline_path
+#     chart_baseline_path, clean_writers_config, zip_byte_snapshot,
+#     tempdir_snapshot, backend_probe_patcher
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: Wave-8-2 - extend re-exports with mpl_figure_cleanup (autouse)
+#   LAST_CHANGE: Phase-15 pre-Wave-15-1 - extend re-exports with the four
+#     Phase-15 fixtures (clean_writers_config, zip_byte_snapshot,
+#     tempdir_snapshot, backend_probe_patcher) so V-MP-AUTH-SHIM /
+#     V-MP-MANIFEST-READ / V-MP-VISUAL-QA-HOOK integration tests can consume
+#     them without redefining locally (SwarmFixtures rule-5).
+#   PRIOR: Wave-8-2 - extend re-exports with mpl_figure_cleanup (autouse)
 #     and chart_baseline_path (session-scoped) so VF-014 chart e2e under
 #     tests/integration/ can consume the Phase-8 fixture additions.
 #   PRIOR: Wave-7-5 - shim added so VF-013 e2e under tests/integration/
@@ -32,23 +38,31 @@ from __future__ import annotations
 # available to tests under tests/integration/ without re-registering the
 # tests.unit.conftest module as a plugin.
 from tests.unit.conftest import (
+    backend_probe_patcher,
     caplog_at_info,
     chart_baseline_path,
+    clean_writers_config,
     golden_doc_builder,
     marker_counter,
     mp_clean_env,
     mp_minimal_config,
     mpl_figure_cleanup,
+    tempdir_snapshot,
     tmp_docx_path,
+    zip_byte_snapshot,
 )
 
 __all__ = [
+    "backend_probe_patcher",
     "caplog_at_info",
     "chart_baseline_path",
+    "clean_writers_config",
     "golden_doc_builder",
     "marker_counter",
     "mp_clean_env",
     "mp_minimal_config",
     "mpl_figure_cleanup",
+    "tempdir_snapshot",
     "tmp_docx_path",
+    "zip_byte_snapshot",
 ]
