@@ -1038,3 +1038,22 @@ __all__ = [
     "create_document",
     "server",
 ]
+
+# --------------------------------------------------------------------------- #
+# Deferred surface registration
+# --------------------------------------------------------------------------- #
+#
+# Phase-14 W2/W3/W4 modules attach @server.tool and @server.resource
+# handlers to the shared `server` instance defined above. They have to
+# import FROM this module (for `server` and `_TEMPLATES_DIR`), so we
+# import them HERE at module-load tail — by this point `server` is fully
+# defined, and importing them now triggers their decorator registrations
+# without circularity.
+#
+# Without these tail imports, claude_desktop_config.json (which loads
+# `from mint_python.mcp.memo import server`) sees ONLY create_document
+# and create_memo — list_templates, get_template, update_template,
+# list_presets, get_preset, and the mint:// resource handlers stay
+# unregistered and invisible to live MCP clients.
+from mint_python.mcp import resources as _resources  # noqa: E402, F401
+from mint_python.templates import registry as _registry  # noqa: E402, F401
