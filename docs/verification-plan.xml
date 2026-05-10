@@ -1827,10 +1827,10 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE — read-only over a known directory; no shared state; tests use tmp_path-isolated registry instances.</autonomy-assessment>
     </V-MP-TEMPLATES-REGISTRY>
 
-    <V-MP-TEMPLATES-WRITE MODULE="MP-TEMPLATES-WRITE" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+    <V-MP-TEMPLATES-WRITE MODULE="MP-TEMPLATES-WRITE" PRIORITY="medium" STATUS="done" ADDED_AT="2026-05-10" COMPLETED_AT="2026-05-10">
       <test-files>
-        <file status="planned">tests/integration/test_mp_templates_write.py</file>
-        <file status="planned">tests/integration/test_mp_cross_model_handoff.py</file>
+        <file status="done">tests/integration/test_mp_templates_write.py</file>
+        <file status="manual">docs/cross-model-handoff-smoke.md</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/integration/test_mp_templates_write.py -x</check-1>
@@ -1838,11 +1838,11 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <check-3>mypy src/mint_python/templates/registry.py</check-3>
       </module-checks>
       <scenarios>
-        <scenario-1 kind="success" evidence="deterministic" status="planned">update_template('memo', new_yaml, author='Claude') writes templates/memo_v1.1.yaml (semver bump from existing 1.0); returns {name, version, audit_id, predecessor_version}; templates/_audit.jsonl gains one entry.</scenario-1>
-        <scenario-2 kind="failure" evidence="deterministic" status="planned">update_template without author elicits author via ctx.elicit; on decline raises with reason naming the missing field.</scenario-2>
-        <scenario-3 kind="success" evidence="deterministic" status="planned">After update, list_templates surfaces both memo_v1.0 and memo_v1.1; get_template('memo', version='latest') returns 1.1; older versions remain accessible.</scenario-3>
-        <scenario-4 kind="success" evidence="integration" status="planned">create_document with the new template version produces a docx whose GRACE manifest names {template, template_version, template_author} — lineage embedded in audit-trail.</scenario-4>
-        <scenario-5 kind="success" evidence="manual" status="planned">Cross-model handoff demo per docs/cross-model-handoff-smoke.md: Claude Desktop edits template (low-sensitivity), local-LLM client uses updated version with sensitive data, GRACE manifest reflects the chain.</scenario-5>
+        <scenario-1 kind="success" evidence="deterministic" status="done">update_template('memo', new_yaml, author='Claude') writes templates/memo_v1.1.yaml (semver bump from existing 1.0); returns {name, version, audit_id, predecessor_version}; templates/_audit.jsonl gains one entry. test_scenario_1_update_writes_versioned_sibling_and_audit_entry.</scenario-1>
+        <scenario-2 kind="failure" evidence="deterministic" status="done">update_template without author elicits author via ctx.elicit; on decline raises TemplateAuthorRequired naming the missing field. Variants test the elicit-success path, the decline path, and the unsupported-elicitation fallback. test_scenario_2_missing_author_elicits_then_writes + test_scenario_2_b_decline_raises_author_required + test_scenario_2_c_unsupported_elicit_raises_author_required.</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="done">After update, list_templates surfaces both memo_v1.0 and memo_v1.1; get_template('memo', version='latest') returns 1.1; older versions remain accessible. test_scenario_3_versions_coexist_and_latest_resolves_to_bumped + MCP-tool variant test_scenario_3_b_mcp_tools_see_new_version_after_update.</scenario-3>
+        <scenario-4 kind="success" evidence="integration" status="done">create_document with the new template version produces a docx whose GRACE manifest names {template, template_version, template_author} — lineage embedded in audit-trail. test_scenario_4_grace_manifest_carries_template_author_lineage.</scenario-4>
+        <scenario-5 kind="success" evidence="manual" status="documented">Cross-model handoff demo per docs/cross-model-handoff-smoke.md: Claude Desktop edits template (low-sensitivity), local-LLM client uses updated version with sensitive data, GRACE manifest reflects the chain. Procedure committed; awaiting on-demand smoke run.</scenario-5>
       </scenarios>
       <forbidden-behaviors>
         <forbidden-1>update_template MUST NEVER overwrite an existing version file. Conflicts surface as TEMPLATE_VERSION_CONFLICT.</forbidden-1>
