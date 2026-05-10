@@ -153,13 +153,13 @@ def _parse_block(data: Any) -> Block | None:
         if not body:
             return None
         kind_raw = _as_str(data.get("kind", "info")).lower().strip()
-        kind: CalloutKind = (
-            kind_raw if kind_raw in ("info", "warning", "code") else "info"
+        callout_kind: CalloutKind = (
+            kind_raw if kind_raw in ("info", "warning", "code") else "info"  # type: ignore[assignment]
         )
         title = data.get("title")
         return CalloutBlock(
             body=body,
-            kind=kind,
+            kind=callout_kind,
             title=_as_str(title) if title else None,
         )
 
@@ -168,10 +168,10 @@ def _parse_block(data: Any) -> Block | None:
         if not items:
             return None
         kind_raw = _as_str(data.get("kind", "bullet")).lower().strip()
-        kind: ListKind = (
-            kind_raw if kind_raw in ("bullet", "numbered", "checklist") else "bullet"
+        list_kind: ListKind = (
+            kind_raw if kind_raw in ("bullet", "numbered", "checklist") else "bullet"  # type: ignore[assignment]
         )
-        return ListBlock(items=items, kind=kind)
+        return ListBlock(items=items, kind=list_kind)
 
     if btype == "table":
         header = _as_str_tuple(data.get("header", ()))
