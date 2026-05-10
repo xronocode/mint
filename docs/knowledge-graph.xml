@@ -766,26 +766,45 @@
 
     <!-- Phase 15: production hardening (HANDOVER-phase15-ready.md + docs/mcp-audit.md) -->
 
-    <MP-AUTH-SHIM NAME="Authorization shim for write-path MCP tools" TYPE="UTILITY" STATUS="planned" ADDED_AT="2026-05-10">
-      <purpose>Production-blocker: gate update_template (and any future write tools) behind a config-driven author allowlist. MINT_TEMPLATE_WRITERS env or ~/.config/mint/writers.json define the allowlist; empty config = open mode with one-shot warning. Read tools stay open. Closes audit Priority-4's authorization-shim sub-clause that was left as TODO at Phase-14 close.</purpose>
+    <MP-AUTH-SHIM NAME="Authorization shim for write-path MCP tools" TYPE="UTILITY" STATUS="shipped" ADDED_AT="2026-05-10" ACTIVATION_GATE="Wave-15-1" COMMIT="ec44ef6">
+      <purpose>Production-blocker: gate update_template (and any future write tools) behind a config-driven author allowlist. MINT_TEMPLATE_WRITERS env or ~/.config/mint/writers.json define the allowlist; empty config = open mode with one-shot warning. Whitespace-only env value also falls through to open mode (deployment safety: a misconfigured env doesn't lock everyone out). Read tools stay open. Closes audit Priority-4's authorization-shim sub-clause that was left as TODO at Phase-14 close.</purpose>
       <path>src/mint_python/mcp/auth.py</path>
       <depends>stdlib only (os, json, pathlib, dataclasses, logging)</depends>
+      <consumed-by>MP-TEMPLATES-WRITE (TemplateRegistry.update calls require_template_writer immediately after the empty-author guard, before any disk I/O)</consumed-by>
       <verification-ref>V-MP-AUTH-SHIM</verification-ref>
       <annotations>
-        <fn-is_template_writer PURPOSE="pure check: bool decision on (author, config); no side effects" />
-        <fn-require_template_writer PURPOSE="raises TEMPLATE_WRITE_FORBIDDEN on deny; called by update_template before any disk write" />
-        <fn-load_writers_config PURPOSE="env > file > none precedence; cached per-process; emits BLOCK_AUTH_OPEN_MODE warning once if empty" />
-        <type-WritersConfig PURPOSE="frozen dataclass: writers tuple, source Literal['env','file','none'], open_mode bool" />
+        <fn-is_template_writer PURPOSE="pure bool check on (author, config); no side effects" />
+        <fn-require_template_writer PURPOSE="raises TemplateWriteForbidden on deny; admit path silent in open mode (only BLOCK_AUTH_OPEN_MODE on first call); admit emits BLOCK_AUTH_ADMIT in env/file mode" />
+        <fn-load_writers_config PURPOSE="env > file > none precedence; cached per-process; cache-poisons on AuthConfigInvalid (re-raises from cache); emits BLOCK_AUTH_OPEN_MODE WARNING once when empty" />
+        <fn-_reset_for_tests PURPOSE="test-only cache reset; consumed by tests/unit/conftest.py::clean_writers_config fixture" />
+        <type-WritersConfig PURPOSE="frozen dataclass: writers tuple[str, ...], source Literal['env','file','none'], open_mode bool" />
+        <type-TemplateWriteForbidden PURPOSE="exception raised when author is not on the allowlist; carries author + config_source" />
+        <type-AuthConfigInvalid PURPOSE="exception raised at first call when writers.json is malformed; cache-poisoned for the rest of the process" />
+        <log-marker-BLOCK_AUTH_OPEN_MODE PURPOSE="WARNING; once per process when config resolves to open mode; subsequent admits silent" />
+        <log-marker-BLOCK_AUTH_ADMIT PURPOSE="INFO; payload author=&lt;id&gt; config_source=&lt;env|file&gt;; not emitted on open-mode admits" />
+        <log-marker-BLOCK_AUTH_DENY PURPOSE="INFO; payload author=&lt;id&gt; reason=not_in_writers config_source=&lt;env|file&gt;; full writers tuple never logged (forbidden-3)" />
       </annotations>
     </MP-AUTH-SHIM>
 
-    <MP-MANIFEST-READ NAME="GRACE manifest read tool (mint_read_grace_manifest)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
-      <purpose>Symmetric read counterpart to GRACE injection. mint_read_grace_manifest opens any docx, locates grace/manifest_*.xml, and returns the parsed manifest as a canonical dict. Closes audit Priority-1 acceptance criterion "read_grace_manifest exists and round-trips a manifest written by any other tool" — explicitly named in audit §1 row-7 + §3(c) + §5 roadmap, but never shipped during Phase-14.</purpose>
-      <path>src/mint_python/mcp/manifest.py</path>
-      <depends>MP-GRACE (existing fn-describe), M-SECURITY safe_doc, fastmcp.Context</depends>
+    <MP-MANIFEST-READ NAME="GRACE manifest read tool (mint_read_grace_manifest)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-10" ACTIVATION_GATE="Wave-15-1" COMMIT="674a873">
+      <purpose>Symmetric read counterpart to GRACE injection. mint_read_grace_manifest opens any docx, locates grace/manifest_*.xml, and returns the parsed manifest as a canonical dict (10 keys; missing values surface as None for forward-compat). Most-recent-wins selection across multi-manifest docx (parsed timestamp, NOT namelist order). Closes audit Priority-1 acceptance criterion "read_grace_manifest exists and round-trips a manifest written by any other tool" — explicitly named in audit §1 row-7 + §3(c) + §5 roadmap, but never shipped during Phase-14.</purpose>
+      <path>src/mint_python/mcp/manifest.py + module-tail deferred-import in src/mint_python/mcp/document.py to register @server.tool</path>
+      <depends>MP-GRACE (existing fn-describe + _parse_manifest_xml), mint._security.safe_doc (raises ValueError on traversal; tool re-raises as InvalidDocument), fastmcp.Context, fastmcp.exceptions.ToolError</depends>
+      <consumed-by>External MCP clients via mint_read_grace_manifest tool; future audit-flow consumers of the canonical 10-key dict</consumed-by>
       <verification-ref>V-MP-MANIFEST-READ</verification-ref>
       <annotations>
-        <fn-mint_read_grace_manifest PURPOSE="@server.tool async; thin wrapper over MP-GRACE.describe; returns canonical dict or surfaces MANIFEST_NOT_FOUND / MANIFEST_PARSE_ERROR / INVALID_DOCUMENT" />
+        <fn-mint_read_grace_manifest PURPOSE="@server.tool async; wraps MP-GRACE.describe; canonicalizes to 10-key dict; surfaces ManifestNotFound / ManifestParseError / InvalidDocument as structured tool errors (no traceback to client)" />
+        <fn-_canonicalize PURPOSE="GRACEManifest dataclass + _audit_instructions list → canonical 10-key dict; parses key=value strings from instructions list into typed fields; missing keys surface as None for forward-compat" />
+        <fn-_select_most_recent PURPOSE="across N grace/manifest_*.xml parts, returns the parsed manifest with highest timestamp; tie-break on missing-timestamp deterministic" />
+        <fn-_read_all_manifests PURPOSE="enumerates grace/manifest_*.xml entries in the docx zip; opens with mode='r' explicitly; returns list of (xml_part_name, parsed_manifest) tuples" />
+        <type-ManifestNotFound PURPOSE="structured tool error: docx has no urn:mint:grace:2026:manifest custom XML part" />
+        <type-ManifestParseError PURPOSE="structured tool error: manifest XML present but unparseable; carries xml_part_name + document_path" />
+        <type-InvalidDocument PURPOSE="structured tool error: not a valid .docx zip OR path traversal rejected by safe_doc" />
+        <const-CANONICAL_KEYS PURPOSE="tuple of the 10 keys always present in returned dict (audit_id, model_identity, fields_elicited, template, template_version, template_author, timestamp, instructions, fingerprint, namespace)" />
+        <const-GRACE_NAMESPACE PURPOSE="urn:mint:grace:2026:manifest — always returned as the namespace value" />
+        <log-marker-BLOCK_READ_MANIFEST PURPOSE="INFO; payload document_path manifest_count selected_xml_part_name; full dict NEVER in INFO records (forbidden-3)" />
+        <log-marker-BLOCK_MANIFEST_NOT_FOUND PURPOSE="INFO; payload document_path" />
+        <log-marker-BLOCK_MANIFEST_PARSE_ERROR PURPOSE="INFO; payload document_path xml_part_name" />
       </annotations>
     </MP-MANIFEST-READ>
 
