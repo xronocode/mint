@@ -731,7 +731,7 @@
       </annotations>
     </MP-TEMPLATES-REGISTRY>
 
-    <MP-TEMPLATES-WRITE NAME="Template versioning + cross-model handoff" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+    <MP-TEMPLATES-WRITE NAME="Template versioning + cross-model handoff" TYPE="INTEGRATION" STATUS="done" ADDED_AT="2026-05-10" COMPLETED_AT="2026-05-10">
       <purpose>Versioned write side of the template registry. update_template authors a new semver-bumped YAML file; never overwrites. Sidecar audit log records every write. GRACE manifest in produced docx records template lineage. Closes audit's Priority-4 — frontier model edits in low-sensitivity context, local model later consumes on sensitive data, manifest names the chain.</purpose>
       <path>src/mint_python/templates/registry.py (extended) + templates/_audit.jsonl (gitignored)</path>
       <depends>MP-TEMPLATES-REGISTRY (validation + version detection), MP-GRACE (manifest extension carries template lineage), pyyaml</depends>
