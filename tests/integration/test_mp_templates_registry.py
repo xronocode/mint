@@ -77,7 +77,7 @@ def test_scenario_1_registry_lists_memo_and_letter(
     fixture_templates_dir: Path,
 ) -> None:
     registry = TemplateRegistry(templates_dir=fixture_templates_dir)
-    summaries = registry.list()
+    summaries = registry.summaries()
 
     names = sorted(s.name for s in summaries)
     assert names == ["letter", "memo"]
@@ -234,7 +234,7 @@ def test_forbidden_1_read_paths_do_not_mutate_templates_dir(
 ) -> None:
     before = {p: p.stat().st_mtime_ns for p in fixture_templates_dir.iterdir()}
     registry = TemplateRegistry(templates_dir=fixture_templates_dir)
-    registry.list()
+    registry.summaries()
     registry.get("memo")
     registry.get("letter")
     after = {p: p.stat().st_mtime_ns for p in fixture_templates_dir.iterdir()}
