@@ -78,6 +78,7 @@ from mint_python.core.content import Paragraph
 from mint_python.core.section import Section
 from mint_python.core.table import Table
 from mint_python.grace import bootstrap as grace_bootstrap
+from mint_python.qa.visual import score_document as _score_document
 
 logger = logging.getLogger(__name__)
 
@@ -916,7 +917,15 @@ async def _run_pipeline(
     )
     # END_BLOCK_INJECT_GRACE
 
-    return {
+    # MP-VISUAL-QA-HOOK — advisory post-create_document visual quality gate.
+    # The hook NEVER fails the tool: every error path collapses to a logged
+    # WARNING (score_document handles its own try/except internally; this
+    # outer try/except is defense-in-depth per VF-019 inv-1 ADVISORY-ONLY).
+    # When MINT_SKIP_VISUAL_QA=1, score_document returns None and the
+    # `visual_qa` key is omitted from structured_content entirely (env-skip
+    # is "user opted out, don't show anything"; backend-skip is "we tried
+    # but couldn't, ops should know" — different signals, different shapes).
+    result_dict: dict[str, Any] = {
         "status": "complete",
         "path": str(output_path),
         "audit_id": audit_id,
@@ -924,6 +933,17 @@ async def _run_pipeline(
         "doc_type": doc_type,
         "template_version": template.version,
     }
+    try:
+        qa_report = _score_document(output_path, preset_name="klawd")
+    except Exception as exc:
+        logger.warning(
+            "[MP-VisualQA][score][BLOCK_QA_BACKEND_UNAVAILABLE] reason=%s",
+            type(exc).__name__,
+        )
+        qa_report = None
+    if qa_report is not None:
+        result_dict["visual_qa"] = qa_report.to_dict()
+    return result_dict
 
 
 # --------------------------------------------------------------------------- #
