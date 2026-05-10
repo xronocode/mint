@@ -54,9 +54,7 @@ from typing import Any
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.server.elicitation import AcceptedElicitation
-from fastmcp.tools.tool import (
-    ToolResult,  # type: ignore[import-not-found]  # fastmcp ships no stubs
-)
+from fastmcp.tools.tool import ToolResult  # type: ignore[import-not-found]
 from mcp.shared.exceptions import McpError
 from mcp.types import ResourceLink, TextContent
 
