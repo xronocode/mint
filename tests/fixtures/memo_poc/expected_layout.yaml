@@ -1,0 +1,18 @@
+# Golden expected layout — the structural sequence templates/memo.yaml
+# produces when assembled. Asserted by V-MP-MEMO-POC scenario-1 to confirm
+# the YAML template loader produces the documented section sequence.
+#
+# Each entry: section_kind + a content_pattern. Patterns use {{field}}
+# substitution and verify against the rendered Document._sections after
+# build_document_from_spec runs.
+expected_sections:
+  - title: MEMORANDUM
+    level: 1
+    block_kinds:
+      - paragraph    # spacer
+      - table        # the From/To/Date/Subject card
+  - title: Body
+    level: 2
+    block_kinds:
+      - paragraph    # spacer
+      - paragraph    # body content
