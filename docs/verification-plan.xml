@@ -1794,7 +1794,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <scenario-1 kind="success" evidence="deterministic" status="done">create_document(intent, doc_type='memo') reproduces V-MP-MEMO-POC scenario-1 byte-for-byte (same docx structure, same klawd visual, same GRACE manifest schema). Backwards-compat baseline. test_scenario_1_create_document_memo_parity_with_memo_poc.</scenario-1>
         <scenario-2 kind="success" evidence="trace" status="done">Legacy create_memo alias delegates to create_document(doc_type='memo'); existing FakeMCPContext-driven tests in test_mp_memo_poc.py continue to pass without edits during the transition window. Verified empirically: 43/43 V-MP-MEMO-POC scenarios still green. Alias path keeps emitting [MP-Memo] log markers per test_scenario_2_create_memo_alias_keeps_mp_memo_log_prefix.</scenario-2>
         <scenario-3 kind="failure" evidence="deterministic" status="done">create_document(doc_type='nonexistent') raises DOC_TYPE_NOT_FOUND with the available doc_types listed in the message. test_scenario_3_unknown_doc_type_raises_with_available_list.</scenario-3>
-        <scenario-4 kind="success" evidence="integration" status="deferred-to-W2">create_document(doc_type='letter') uses templates/letter.yaml — different required_fields drive different elicitation order, different layout, klawd preset still applied. Deferred to W2 (MP-TEMPLATES-REGISTRY) which ships templates/letter.yaml as a committed asset. W1 instead exercises doc-type agnosticism via test_pipeline_is_doc_type_agnostic_via_fixture_template (monkeypatched _TEMPLATES_DIR + ad-hoc letter_fixture.yaml in tmp_path).</scenario-4>
+        <scenario-4 kind="success" evidence="integration" status="done">create_document(doc_type='letter') uses templates/letter.yaml — different required_fields drive different elicitation order, different layout, klawd preset still applied. Promoted to done in W2 alongside the templates/letter.yaml commit. test_scenario_4_letter_doc_type_uses_real_letter_yaml.</scenario-4>
         <scenario-5 kind="success" evidence="trace" status="done">[MP-Doc][create][BLOCK_PARSE_INTENT] carries doc_type and template_version in the payload. Cross-module evidence chain otherwise unchanged. test_scenario_5_parse_intent_log_carries_doc_type_and_template_version.</scenario-5>
         <scenario-6 kind="success" evidence="deterministic" status="done">structured_content shape extends MEMO-POC's with doc_type and template_version fields. Existing consumers reading {status, path, audit_id, fields_elicited} still work. test_scenario_6_structured_content_extends_with_doc_type_fields.</scenario-6>
       </scenarios>
@@ -1805,9 +1805,9 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-CAREFUL — refactor of an existing tested module; high regression risk if the alias breaks. Module-local tests must include a parity-with-MEMO-POC baseline before scope expands.</autonomy-assessment>
     </V-MP-DOC-GENERIC>
 
-    <V-MP-TEMPLATES-REGISTRY MODULE="MP-TEMPLATES-REGISTRY" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+    <V-MP-TEMPLATES-REGISTRY MODULE="MP-TEMPLATES-REGISTRY" PRIORITY="medium" STATUS="done" ADDED_AT="2026-05-10" COMPLETED_AT="2026-05-10">
       <test-files>
-        <file status="planned">tests/integration/test_mp_templates_registry.py</file>
+        <file status="done">tests/integration/test_mp_templates_registry.py</file>
       </test-files>
       <module-checks>
         <check-1>pytest tests/integration/test_mp_templates_registry.py -x</check-1>
@@ -1815,11 +1815,11 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <check-3>mypy src/mint_python/templates/registry.py</check-3>
       </module-checks>
       <scenarios>
-        <scenario-1 kind="success" evidence="deterministic" status="planned">list_templates returns at least two entries (memo + letter) after templates/letter.yaml lands; each entry carries name, version, doc_type, description, last_modified.</scenario-1>
-        <scenario-2 kind="success" evidence="deterministic" status="planned">get_template('memo') returns the parsed YAML as a dict matching templates/memo.yaml content; required_fields tuple matches MEMO_REQUIRED_FIELDS.</scenario-2>
-        <scenario-3 kind="failure" evidence="deterministic" status="planned">get_template('nonexistent') raises TEMPLATE_NOT_FOUND naming the available templates.</scenario-3>
-        <scenario-4 kind="failure" evidence="deterministic" status="planned">A malformed YAML in templates/ surfaces as TEMPLATE_INVALID_SCHEMA at registry-load time, not at create_document call-time. Fail-fast.</scenario-4>
-        <scenario-5 kind="success" evidence="trace" status="planned">[MP-Templates][load][BLOCK_LOAD_REGISTRY] fires once at registry init with payload {templates_count, doc_types, total_versions}.</scenario-5>
+        <scenario-1 kind="success" evidence="deterministic" status="done">list_templates returns at least two entries (memo + letter) after templates/letter.yaml lands; each entry carries name, version, doc_type, description, last_modified. test_scenario_1_registry_lists_memo_and_letter + test_list_templates_tool_returns_summary_dicts.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="done">get_template('memo') returns the parsed YAML as a dict matching templates/memo.yaml content; required_fields tuple matches MEMO_REQUIRED_FIELDS. test_scenario_2_get_memo_matches_yaml_and_required_fields.</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic" status="done">get_template('nonexistent') raises TEMPLATE_NOT_FOUND naming the available templates. test_scenario_3_unknown_template_raises_with_available_list + test_get_template_tool_unknown_name_raises.</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic" status="done">A malformed YAML in templates/ surfaces as TEMPLATE_INVALID_SCHEMA at registry-load time, not at create_document call-time. Fail-fast. test_scenario_4_malformed_template_fails_at_load_not_at_use + variants (b non-mapping, c wrong field types, d non-string name).</scenario-4>
+        <scenario-5 kind="success" evidence="trace" status="done">[MP-Templates][load][BLOCK_LOAD_REGISTRY] fires once at registry init with payload {templates_count, doc_types, total_versions}. test_scenario_5_load_registry_log_marker.</scenario-5>
       </scenarios>
       <forbidden-behaviors>
         <forbidden-1>Registry MUST NOT mutate templates/ on read paths. Write side lives in MP-TEMPLATES-WRITE.</forbidden-1>
