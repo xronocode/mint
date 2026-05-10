@@ -718,7 +718,7 @@
       </annotations>
     </MP-DOC-GENERIC>
 
-    <MP-TEMPLATES-REGISTRY NAME="Template registry + read MCP tools" TYPE="UTILITY" STATUS="planned" ADDED_AT="2026-05-10">
+    <MP-TEMPLATES-REGISTRY NAME="Template registry + read MCP tools" TYPE="UTILITY" STATUS="done" ADDED_AT="2026-05-10" COMPLETED_AT="2026-05-10">
       <purpose>Read-only registry over templates/ — discovers YAML files (and semver-versioned siblings), validates against TemplateSchema, exposes them through list_templates / get_template MCP tools. First half of audit's Priority-2.</purpose>
       <path>src/mint_python/templates/registry.py + templates/letter.yaml (new doc_type)</path>
       <depends>pyyaml</depends>
