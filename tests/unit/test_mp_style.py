@@ -403,3 +403,72 @@ def test_registry_is_immutable_view():
         BUILTIN_PRESETS["new"] = Path("/tmp/x.json")  # type: ignore[index]
     with pytest.raises(TypeError):
         del BUILTIN_PRESETS["alga_corporate"]  # type: ignore[attr-defined]
+
+
+# --------------------------------------------------------------------------- #
+# apply_preset_to_doc — defensive branches
+# --------------------------------------------------------------------------- #
+
+
+def test_apply_preset_skips_missing_preset_fields():
+    """A preset SimpleNamespace lacking a docx-mapped field (e.g. caption)
+    must skip that field instead of crashing."""
+    from types import SimpleNamespace
+
+    from docx import Document as DocxDocument
+
+    from mint_python.core.style import Style, apply_preset_to_doc
+
+    body_style = Style(
+        font="TestFont",
+        size_pt=10,
+        color_hex="#112233",
+        spacing_before_pt=0,
+        spacing_after_pt=4,
+    )
+    # Deliberately omit caption / heading2 / heading3 — apply must continue
+    # past the missing fields without raising.
+    preset = SimpleNamespace(heading1=body_style, body=body_style)
+    doc = DocxDocument()
+    apply_preset_to_doc(doc, preset)  # must not raise
+
+    # Verify the fields we DID provide reached the docx style.
+    assert doc.styles["Heading 1"].font.name == "TestFont"
+    assert doc.styles["Normal"].font.name == "TestFont"
+
+
+def test_apply_preset_skips_styles_missing_in_template():
+    """If the docx template is missing a built-in style we expect (rare —
+    python-docx's default carries Heading 1-9, Normal, Caption), the helper
+    must skip it cleanly rather than raising KeyError. python-docx's Styles
+    collection doesn't support deletion, so we use a stub that raises
+    KeyError for one of the looked-up names."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from mint_python.core.style import Style, apply_preset_to_doc
+
+    fake_style = Style(font="X", size_pt=10, color_hex="#FFFFFF")
+    preset = SimpleNamespace(
+        heading1=fake_style,
+        body=fake_style,
+        caption=fake_style,
+    )
+
+    # Stub doc.styles[name] to raise KeyError for "Caption" but return a
+    # mock for the rest. The helper must skip Caption silently.
+    real_styles = {"Heading 1": MagicMock(), "Normal": MagicMock()}
+
+    def _styles_getitem(name: str):
+        if name in real_styles:
+            return real_styles[name]
+        raise KeyError(name)
+
+    doc = MagicMock()
+    doc.styles.__getitem__.side_effect = _styles_getitem
+
+    apply_preset_to_doc(doc, preset)  # must NOT raise
+
+    # Heading 1 + Normal got configured; Caption was skipped.
+    assert real_styles["Heading 1"].font.name == "X"
+    assert real_styles["Normal"].font.name == "X"

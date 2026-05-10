@@ -77,7 +77,11 @@ from docx.oxml.ns import qn
 from lxml import etree
 
 from mint_python.core.section import Section
-from mint_python.core.style import STYLE_PRESET_NOT_FOUND, load_preset
+from mint_python.core.style import (
+    STYLE_PRESET_NOT_FOUND,
+    apply_preset_to_doc,
+    load_preset,
+)
 from mint_python.fix import FixReport
 from mint_python.fix import fix as mp_fix
 from mint_python.validate import SeverityMode, ValidationReport, run_checks
@@ -331,6 +335,12 @@ class Document:
 
         try:
             doc = DocxDocumentFactory()
+            # Apply the preset's typography to docx's built-in styles BEFORE
+            # any content is rendered — this way every add_heading/add_paragraph
+            # call inherits the preset's font, color, and spacing through the
+            # style chain, with no per-block override needed.
+            if self._preset is not None:
+                apply_preset_to_doc(doc, self._preset)
             self._render_cover(doc)
             self._render_toc(doc)
             for section in self._sections:

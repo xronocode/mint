@@ -1,0 +1,91 @@
+# claret_serif — editorial claret + gold serif preset
+#
+# Ported from src/mint/themes/claret_serif.toml (the v1 js-engine theme).
+# Designed to be different in every axis from klawd: serif body (Georgia
+# vs Arial), claret + gold palette (vs navy + accent blue), looser
+# spacing rhythm, Internal-Memorandum feel rather than Technical-Report.
+#
+# Unit conversions from the v1 TOML:
+#   half-points → points       (size 36 hp → 18 pt)
+#   DXA → points               (spacing 160 dxa → 8 pt)
+#   line twentieths → multiplier (line 300 → 1.25)
+$schema: https://mint.dev/schema/style-preset-1.0.json
+name: claret_serif
+version: "1.0"
+description: Editorial claret + antique gold serif theme — alternative to klawd
+
+color_palette:
+  primary:    "#7A1F2B"   # Deep claret — H1, table headers, accent bar
+  secondary:  "#C9A227"   # Antique gold — links, accents (was v1 "accent")
+  accent:     "#F8F4EE"   # Cream — zebra-stripe table fill (was v1 "alt_row")
+  text:       "#1F1F1F"   # Near-black body
+  text_muted: "#8A8076"   # Warm grey — captions, page footer
+  background: "#FFF8EC"   # Cream paper — text drawn on primary
+  border:     "#E8E2D8"   # Subtle warm grey — table & callout borders
+  success:    "#5A7D3F"   # Forest green — was v1 callouts.tip border
+  warning:    "#C76B17"   # Burnt orange — was v1 callouts.warning border
+  error:      "#8B1A1A"   # Dark red — was v1 callouts.caution border
+
+typography:
+  heading1:
+    font: Georgia
+    size_pt: 18                # v1 36 hp
+    color: "@primary"
+    bold: true
+    alignment: left
+    spacing_before_pt: 16      # v1 320 dxa
+    spacing_after_pt: 8        # v1 160 dxa
+    line_height: 1.25
+    keep_with_next: true
+  heading2:
+    font: Georgia
+    size_pt: 15                # v1 30 hp
+    color: "@primary"
+    bold: true
+    alignment: left
+    spacing_before_pt: 14
+    spacing_after_pt: 8
+    line_height: 1.3
+    keep_with_next: true
+  heading3:
+    font: Georgia
+    size_pt: 13                # v1 26 hp
+    color: "@text"             # v1 promoted body color for h3
+    bold: true
+    alignment: left
+    spacing_before_pt: 10
+    spacing_after_pt: 6
+    line_height: 1.35
+    keep_with_next: true
+  body:
+    font: Georgia
+    size_pt: 11                # v1 22 hp — same body as klawd for parity
+    color: "@text"
+    alignment: left
+    spacing_before_pt: 0
+    spacing_after_pt: 8        # v1 160 dxa — looser than klawd's 6pt
+    line_height: 1.25          # v1 300 / 240 = 1.25 — looser for serif
+  table_header:
+    font: Georgia
+    size_pt: 11
+    color: "@background"       # cream text drawn on primary fill
+    bold: true
+    alignment: left
+    spacing_before_pt: 0
+    spacing_after_pt: 0
+    line_height: 1.2
+  caption:
+    font: Georgia
+    size_pt: 9                 # v1 18 hp
+    color: "@text_muted"
+    italic: true
+    alignment: left
+    spacing_before_pt: 2
+    spacing_after_pt: 6
+    line_height: 1.3
+
+spacing:
+  paragraph_default_before_pt: 0
+  paragraph_default_after_pt: 8   # v1 body_after 160 dxa — looser rhythm
+  default_line_height: 1.25       # v1 300 line / 240 base
+  table_cell_padding_pt: 5        # v1 100 dxa — roomier than klawd's 4pt

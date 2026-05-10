@@ -386,6 +386,67 @@ def test_klawd_preset_loads_via_yaml() -> None:
     assert ns.heading1.font == ns.body.font == "Arial"
 
 
+def test_klawd_preset_visually_applied_to_saved_styles_xml(tmp_path: Path) -> None:
+    """After Document.save(), styles.xml must carry klawd's typography.
+
+    Regression guard for the silent gap discovered post-alpha: before
+    apply_preset_to_doc was wired into Document.save(), with_style_preset
+    only stored the preset; render emitted python-docx's stock theme styles
+    (Calibri-themed accent1, NOT klawd's Arial #1B3A5C).
+    """
+    import zipfile
+
+    doc = (
+        Document(format="docx", title="visual-fidelity check")
+        .with_style_preset("klawd")
+    )
+    doc.add_section(Section("S", level=1).add_paragraph("body"))
+    out = tmp_path / "klawd_visual.docx"
+    doc.save(out)
+
+    with zipfile.ZipFile(out) as z:
+        styles_xml = z.read("word/styles.xml").decode("utf-8")
+
+    # Klawd primary blue must reach Heading 1's color attribute.
+    assert "1B3A5C" in styles_xml, "klawd primary #1B3A5C missing from styles.xml"
+    # Arial must be specified at least once (Heading and/or Normal).
+    assert "Arial" in styles_xml, "klawd's Arial font missing from styles.xml"
+    # Body color #333333 (Dark Gray) must reach Normal style.
+    assert "333333" in styles_xml, "klawd body #333333 missing from styles.xml"
+
+
+def test_klawd_vs_claret_serif_produce_visually_distinct_styles(tmp_path: Path) -> None:
+    """Same content under different presets must produce different styles.xml.
+
+    This is the litmus test for "preset is a real abstraction": same builder,
+    same blocks, same docx — only the preset name flipped. styles.xml must
+    differ on font + color so a downstream reader sees a different document.
+    """
+    import zipfile
+
+    def _styles_for(preset: str) -> str:
+        doc = (
+            Document(format="docx", title=f"check-{preset}")
+            .with_style_preset(preset)
+        )
+        doc.add_section(Section("Heading", level=1).add_paragraph("body"))
+        out = tmp_path / f"{preset}.docx"
+        doc.save(out)
+        with zipfile.ZipFile(out) as z:
+            return z.read("word/styles.xml").decode("utf-8")
+
+    s_klawd = _styles_for("klawd")
+    s_claret = _styles_for("claret_serif")
+
+    assert s_klawd != s_claret, "presets must produce visibly different styles.xml"
+    # Each preset's signature colors land in their own output.
+    assert "1B3A5C" in s_klawd and "1B3A5C" not in s_claret
+    assert "7A1F2B" in s_claret and "7A1F2B" not in s_klawd
+    # Font families differ.
+    assert "Arial" in s_klawd
+    assert "Georgia" in s_claret
+
+
 def test_yaml_preset_invalid_yaml_raises_schema_error(tmp_path: Path) -> None:
     """Malformed YAML at the parser stage surfaces as STYLE_PRESET_INVALID_SCHEMA.
 
