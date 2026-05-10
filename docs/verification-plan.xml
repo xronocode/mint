@@ -1570,7 +1570,41 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <forbidden-2>Must NOT import from tools/article_experiment/runner — that module is the LLM-driven path. Reuse types from tools/article_experiment/spec only (or move shared types into src/mint_python/spec/ in a follow-up).</forbidden-2>
         <forbidden-3>Must NOT wrap pandoc, mistune, or any other parser. markdown-it-py is the chosen parser; switching is a deliberate Phase-N decision, not an ad-hoc swap.</forbidden-3>
       </forbidden-behaviors>
-      <autonomy-assessment>SWARM-SAFE — pure function, no shared state, no IO. Tests run in any order, in parallel.</autonomy-assessment>
+      <test-fixtures>
+        <fixture path="tests/fixtures/md_adapter/sample_article.md" purpose="Round-trip happy path — H1 title, H2/H3 sections, mixed inline emphasis, GFM table, fenced code, blockquote. Used by scenario-8." status="planned" />
+        <fixture path="tests/fixtures/md_adapter/gfm_table_alignment.md" purpose="GFM table with `:--`/`--:`/`:-:` pipe syntax; verifies the alignment metadata on `attrs` reaches the TableBlock for downstream rendering. Used by scenario-2." status="planned" />
+        <fixture path="tests/fixtures/md_adapter/nested_emphasis.md" purpose="Bold inside italic, emphasis spanning multiple inline tokens, emphasized phrase containing punctuation. Used by scenario-6." status="planned" />
+        <fixture path="tests/fixtures/md_adapter/unbalanced_fence.md" purpose="Code fence opened with ``` but never closed; markdown-it-py recovery path emits a CodeBlock running to EOF. Used by scenario-7." status="planned" />
+        <fixture path="tests/fixtures/md_adapter/report_comparison_excerpt.md" purpose="Slice of the actual experiments/2026-05-10-alpha-baseline/REPORT_COMPARISON.md focused on the table-heavy section. Regression guard for the 0.4.0a1 LLM-flattened-table embarrassment. Used by scenario-9." status="planned" />
+        <fixture path="tests/fixtures/md_adapter/empty.md" purpose="Empty file. Verifies MD_ADAPTER_EMPTY_INPUT raise-path of scenario-10." status="planned" />
+        <fixture path="tests/fixtures/md_adapter/whitespace_only.md" purpose="File with only spaces and newlines. Verifies MD_ADAPTER_NO_USABLE_CONTENT path of scenario-10." status="planned" />
+      </test-fixtures>
+      <trace-contract>
+        <required-blocks-in-order>
+          <block-1 prefix="MP-MdAdapter" function="parse" name="BLOCK_PARSE_MD" cardinality="exactly-once" position="end-of-call (after walker completes)" />
+        </required-blocks-in-order>
+        <payload-schema block="BLOCK_PARSE_MD">
+          <key name="token_count" type="int" desc="Number of root-level markdown-it tokens consumed (proxy for input size)" />
+          <key name="section_count" type="int" desc="len(spec.sections) in the produced ArticleSpec" />
+          <key name="block_count_by_type" type="dict[str, int]" desc="Histogram: keys ⊆ {paragraph, table, callout, list, code}; values are non-negative ints" />
+          <key name="has_title_override" type="bool" desc="True iff title_override kwarg was supplied (vs derived from first H1 / fallback)" />
+        </payload-schema>
+        <forbidden-cross-talk>No INFO/WARNING emissions from prefixes other than MP-MdAdapter inside markdown_to_spec. The walker is silent at sub-block level — no per-token, per-section, or per-block logging. Importing markdown-it-py must NOT pull in noisy library loggers (suppress at module load if needed).</forbidden-cross-talk>
+      </trace-contract>
+      <verification-levels>
+        <module-level>pytest tests/unit/test_mp_md_adapter.py + ruff + mypy. ~10 unit tests covering scenarios 1-11 against the 7 fixture files. Wall time &lt; 1s. Required before any wave merges.</module-level>
+        <wave-level>(none — adapter is a pure function with no surface beyond ArticleSpec; integration with MP-DOCUMENT round-trip is asserted at module level via scenario-8 fixture)</wave-level>
+        <phase-level>End-to-end regen of experiments/2026-05-10-alpha-baseline/baseline_report.docx via the adapter (no LLM). Manually inspect that tables render as actual `&lt;w:tbl&gt;` elements, not parallel paragraphs. This is the embarrassment-fix evidence; one-shot manual check, not gated in CI.</phase-level>
+      </verification-levels>
+      <failure-packet>
+        <field-1 name="failed_scenario" desc="V-MP-MD-ADAPTER scenario id (1..11)" />
+        <field-2 name="input_fixture" desc="Path to the .md fixture or inline string that triggered failure" />
+        <field-3 name="observed_spec_repr" desc="ArticleSpec.__repr__ truncated to 500 chars" />
+        <field-4 name="expected_block_types" desc="dict {block_type: count} expected per scenario" />
+        <field-5 name="observed_block_types" desc="dict {block_type: count} actually produced" />
+        <field-6 name="suggested-action" desc="Drop down to markdown_it.tree.SyntaxTreeNode dump for the failing input; check token.type vs walker dispatch table; if mismatch is in attrs (alignment, language) — the issue is metadata extraction, not block dispatch" />
+      </failure-packet>
+      <autonomy-assessment>SWARM-SAFE — pure function, no shared state, no IO. Tests run in any order, in parallel. Fixtures are read-only files in tests/fixtures/md_adapter/.</autonomy-assessment>
     </V-MP-MD-ADAPTER>
 
     <V-MP-MCP-AUDIT MODULE="MP-MCP-AUDIT" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
@@ -1595,7 +1629,32 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <forbidden-1>This module ships NO runtime code. If the audit produces code recommendations, they go in Phase-14 module entries, not here.</forbidden-1>
         <forbidden-2>Audit must NOT propose merging the legacy mcp_g1 + mcp_g2 into a single new package without first surfacing what's in each — inventory before consolidation.</forbidden-2>
       </forbidden-behaviors>
-      <autonomy-assessment>SOLO — design deliverable, requires human peer review by user. Not parallelizable.</autonomy-assessment>
+      <doc-structure>
+        <section-1 heading="1. Tool Inventory" required="true">Markdown table with columns: tool name, signature (params + return type), one-line behavior description, current state classification (stateful / stateless), elicitation usage (yes / no), recommended disposition (kept / migrate / deprecate). One row per @mcp.tool registration found across mcp_g1.py + mcp_g2.py. Sorted alphabetically within each source file.</section-1>
+        <section-2 heading="2. State Analysis" required="true">Narrative paragraph per non-trivial tool group; explicit call-out for any tool reading or writing shared mutable state, any tool whose behavior depends on call ordering, any tool that holds resources across calls (file handles, sockets, in-memory caches).</section-2>
+        <section-3 heading="3. Gap Analysis" required="true">Four sub-headings — one per differentiator settled in Phase-13 planning: (a) design-tokens-as-resources, (b) versioned templates with cross-model handoff, (c) GRACE-as-audit-trail, (d) elicitation-driven planning dialogs. Each sub-section: Status (absent / partial / shipped), Why-it-matters (one paragraph), Closing-it-requires (bullet list of work items), Rough-effort (T-shirt size or hour estimate).</section-3>
+        <section-4 heading="4. Migration Plan" required="true">Prioritized list of changes with acceptance criteria per change. Required content: (a) which existing tools migrate to elicitation, (b) which new tools to add (list_templates, get_template, update_template, list_presets, generate_document with elicitation), (c) breaking-change call-out for any client-facing API changes, (d) rough sequencing for Phase-14 (which migrations gate which others).</section-4>
+        <section-5 heading="5. New-Tool Roadmap" required="true">Concrete signatures (param names + types + return shape) for the new tools. All async, all take ctx: Context, all use ctx.elicit for missing required arguments. Match the planned MP-MEMO-POC.create_memo signature as the canonical example.</section-5>
+        <section-6 heading="6. Honest Assessment" required="true">What cannot be salvaged: any legacy tool whose semantics conflict with the new product shape is explicitly listed for deprecation with a 1-line rationale. Empty list is acceptable, but the section MUST contain an explicit "no deprecations needed" note rather than silence.</section-6>
+      </doc-structure>
+      <trace-contract>
+        <required-blocks-in-order>
+          <block-1 prefix="(none)" function="(none)" name="(none)" cardinality="zero" position="(no runtime path)" />
+        </required-blocks-in-order>
+        <forbidden-cross-talk>(no runtime — N/A)</forbidden-cross-talk>
+      </trace-contract>
+      <verification-levels>
+        <module-level>docs/mcp-audit.md exists; grep confirms all 6 H1/H2 section headings; no "TODO" / "TBD" / "..." placeholders in section bodies; tool inventory has at least one row per source file (asserts the file was actually read end-to-end).</module-level>
+        <wave-level>(none — design-only)</wave-level>
+        <phase-level>User peer review checkbox in PR description; user signs off on the migration plan acceptance criteria before Phase-14 kicks off. The audit is the brief that Phase-14 is built against — sign-off here gates the next phase.</phase-level>
+      </verification-levels>
+      <failure-packet>
+        <field-1 name="missing_section" desc="Which of the 6 required sections is missing or empty" />
+        <field-2 name="placeholder_count" desc="Count of TODO/TBD/... markers found in section bodies" />
+        <field-3 name="inventory_row_count" desc="Number of rows in the inventory table; should match @mcp.tool count from grep across mcp_g1.py + mcp_g2.py" />
+        <field-4 name="suggested-action" desc="Re-read source mcp_g{1,2}.py for the missing inventory rows; cross-reference each gap against the four differentiator list items in section 3 to confirm coverage" />
+      </failure-packet>
+      <autonomy-assessment>SOLO — design deliverable, requires human peer review by user. Not parallelizable; not safe for autonomous agents to mark "done" without explicit user sign-off.</autonomy-assessment>
     </V-MP-MCP-AUDIT>
 
     <V-MP-MEMO-POC MODULE="MP-MEMO-POC" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-10">
@@ -1631,7 +1690,95 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <forbidden-3>Memo template structure (which fields, in what order, what blocks) MUST live in templates/memo.yaml, NOT embedded in src/mint_python/mcp/memo.py. This is the "design as data, not code" rule applied to this module.</forbidden-3>
         <forbidden-4>MUST NOT introduce a custom session-state convention (start_session / continue_session). All multi-turn dialog goes through ctx.elicit() — the spec-native primitive — so the server composes with elicitation-aware MCP clients (Claude Desktop, Copilot, Cursor, FastMCP-based hosts).</forbidden-4>
       </forbidden-behaviors>
-      <autonomy-assessment>SWARM-CAREFUL — integration tests use a fake fastmcp.Context; manual smoke is single-user against a single Claude Desktop instance. Module-local pytest runs are parallel-safe; the manual step is not parallelizable but isn't gated by CI.</autonomy-assessment>
+      <test-fixtures>
+        <fixture path="tests/fixtures/memo_poc/intent_full.txt" purpose="All 5 fields embedded inline in plain text — heuristic extractor finds them all, ZERO ctx.elicit calls expected. Used by scenario-1." status="planned" />
+        <fixture path="tests/fixtures/memo_poc/intent_missing_recipient.txt" purpose="4 of 5 fields in intent text, recipient absent — exactly ONE ctx.elicit call for 'recipient' expected. Used by scenario-2." status="planned" />
+        <fixture path="tests/fixtures/memo_poc/intent_missing_two.txt" purpose="3 of 5 fields in intent, sender + date absent — TWO ctx.elicit calls in declaration order (sender first, then date). Used by scenario-3." status="planned" />
+        <fixture path="tests/fixtures/memo_poc/source_chat.md" purpose="Realistic chat transcript fed via source_md kwarg; subject extracted from chat topic line, body extracted from chat content. Sanity-checks the MD-ADAPTER → MEMO-POC integration." status="planned" />
+        <fixture path="tests/fixtures/memo_poc/expected_layout.yaml" purpose="Golden MemoTemplate-rendered layout: ordered list of (section_kind, content_pattern) tuples. Used as the assertion reference for scenario-1 — confirms the YAML template loader produced the documented section sequence." status="planned" />
+      </test-fixtures>
+      <test-helpers>
+        <helper path="tests/_helpers/fake_mcp_context.py" purpose="FakeMCPContext class: drop-in replacement for fastmcp.Context in unit/integration tests. Constructor takes a scripted answer dict (e.g. {'recipient': 'Board of Directors', 'date': '2026-05-15'}). Each ctx.elicit(message, response_type) call records (field, message) into self.elicited_calls (list[tuple[str, str]]) and returns the scripted answer wrapped as ElicitResult(action='accept', data=answer). To trigger reject path, scripted dict carries a sentinel '__REJECT__' value for the rejected field. The helper is the primary evidence source for scenarios 1-4 and 8." status="planned" />
+        <helper path="tests/_helpers/__init__.py" purpose="Package marker so the fake_mcp_context import works from tests/integration/." status="planned" />
+      </test-helpers>
+      <trace-contract>
+        <required-blocks-in-order>
+          <block-1 prefix="MP-Memo" function="create" name="BLOCK_PARSE_INTENT" cardinality="exactly-once" position="first emission of any kind in the trace" />
+          <block-2 prefix="MP-MdAdapter" function="parse" name="BLOCK_PARSE_MD" cardinality="zero-or-once" condition="source_md is not None" position="immediately after BLOCK_PARSE_INTENT" />
+          <block-3 prefix="MP-Memo" function="elicit" name="BLOCK_ELICIT_FIELD" cardinality="zero-to-five" position="after BLOCK_PARSE_INTENT (and BLOCK_PARSE_MD if present); ordering across multiple emissions follows MemoSpec field declaration order: sender, recipient, date, subject, body" />
+          <block-4 prefix="MP-Memo" function="build" name="BLOCK_BUILD_DOCX" cardinality="exactly-once" condition="success path only — absent if MEMO_ELICITATION_REJECTED was raised" position="after the last BLOCK_ELICIT_FIELD" />
+          <block-5 prefix="MP-Document" function="save" name="BLOCK_SAVE_DOCX" cardinality="exactly-once" condition="nested inside BLOCK_BUILD_DOCX execution" position="emitted by MP-DOCUMENT during the save call create_memo invokes" />
+          <block-6 prefix="MP-Style" function="apply_preset_to_doc" name="BLOCK_APPLY_PRESET" cardinality="exactly-once" condition="nested inside BLOCK_SAVE_DOCX execution" position="emitted by MP-STYLE during Document.save preset wiring" />
+          <block-7 prefix="MP-Memo" function="grace" name="BLOCK_INJECT_GRACE" cardinality="exactly-once" condition="success path only" position="after BLOCK_BUILD_DOCX" />
+          <block-8 prefix="MP-Grace" function="inject" name="BLOCK_INJECT_MANIFEST" cardinality="exactly-once" condition="nested inside BLOCK_INJECT_GRACE" position="emitted by MP-GRACE during the bootstrap call" />
+        </required-blocks-in-order>
+        <payload-schema>
+          <block name="BLOCK_PARSE_INTENT">
+            <key name="source_md_present" type="bool" />
+            <key name="fields_extracted_heuristically" type="list[str]" desc="Subset of {sender, recipient, date, subject, body} — fields the heuristic populated from intent + source_md without elicitation" />
+          </block>
+          <block name="BLOCK_ELICIT_FIELD">
+            <key name="field_name" type="Literal['sender','recipient','date','subject','body']" />
+            <key name="action" type="Literal['accept','reject']" desc="ElicitResult outcome from the connected MCP client (or FakeMCPContext in tests)" />
+            <key name="attempt" type="int" desc="1-based; current implementation never retries an elicitation, so always 1. Kept in payload for forward-compat with future retry policies." />
+          </block>
+          <block name="BLOCK_BUILD_DOCX">
+            <key name="output_path" type="str" desc="Absolute path to the saved .docx" />
+            <key name="docx_size_bytes" type="int" />
+            <key name="sections_count" type="int" desc="len(doc._sections) at save time" />
+          </block>
+          <block name="BLOCK_INJECT_GRACE">
+            <key name="audit_id" type="str" desc="UUID4 of the audit-trail record" />
+            <key name="instructions_count" type="int" desc="Number of GRACE instruction rules in the manifest (memo-poc bootstrap adds at minimum the audit-trail entry to the default instruction set)" />
+            <key name="manifest_size_bytes" type="int" />
+          </block>
+        </payload-schema>
+        <forbidden-cross-talk>
+          <item-1>NO httpx, openai, anthropic, or other LLM-client logger emissions during create_memo. The only LLM interaction is via ctx.elicit, which goes through the MCP client process — not directly from the tool process.</item-1>
+          <item-2>NO [Sandbox] or [JS-Engine] markers. create_memo is pure Python through MP-DOCUMENT; the legacy js engine is not on this path.</item-2>
+          <item-3>NO [Validate][run_checks][BLOCK_RUN_CHECKS] emissions inside create_memo. Validation is a separate step the caller performs after create_memo returns; bundling it inside the tool would couple the MCP-tool surface to a second concern.</item-3>
+        </forbidden-cross-talk>
+        <on-rejection-trace>
+          When MEMO_ELICITATION_REJECTED is raised: the trace ends after the rejecting BLOCK_ELICIT_FIELD with action="reject". BLOCK_BUILD_DOCX, BLOCK_SAVE_DOCX, BLOCK_APPLY_PRESET, BLOCK_INJECT_GRACE, and BLOCK_INJECT_MANIFEST MUST NOT appear in the trace. Verifies via caplog assertion that only the prefix-set {MP-Memo, MP-MdAdapter} appears in INFO records up to the rejection point, and nothing after.
+        </on-rejection-trace>
+      </trace-contract>
+      <cross-module-evidence>
+        Module-level evidence chain for the success path (fixture: intent_missing_recipient.txt with FakeMCPContext({'recipient': 'Board of Directors'})):
+
+          [MP-Memo][create][BLOCK_PARSE_INTENT]
+            └→ [MP-MdAdapter][parse][BLOCK_PARSE_MD]              (only if source_md present)
+          [MP-Memo][elicit][BLOCK_ELICIT_FIELD] field=recipient action=accept
+          [MP-Memo][build][BLOCK_BUILD_DOCX]
+            └→ [MP-Document][save][BLOCK_SAVE_DOCX]
+                  └→ [MP-Style][apply_preset_to_doc][BLOCK_APPLY_PRESET]
+          [MP-Memo][grace][BLOCK_INJECT_GRACE]
+            └→ [MP-Grace][inject][BLOCK_INJECT_MANIFEST]
+
+        caplog-based scenarios verify the chain holds. A break in the chain (e.g. BLOCK_APPLY_PRESET missing) signals a regression in the intermediate module — the failure packet's `trace_break_at` field names the FIRST missing block to localize the divergent module without re-running the whole stack.
+
+        Diagnostic mapping for missing blocks:
+          BLOCK_PARSE_MD missing      → source_md handling in create_memo skipped MP-MD-ADAPTER call
+          BLOCK_BUILD_DOCX missing    → elicitation completed but Document assembly failed silently
+          BLOCK_SAVE_DOCX missing     → Document.save() not called inside build
+          BLOCK_APPLY_PRESET missing  → Document.save() didn't invoke apply_preset_to_doc (regression in MP-DOCUMENT or MP-STYLE)
+          BLOCK_INJECT_GRACE missing  → success-path skipped GRACE injection (audit-trail broken)
+          BLOCK_INJECT_MANIFEST missing → MP-GRACE.bootstrap() not actually called from create_memo
+      </cross-module-evidence>
+      <verification-levels>
+        <module-level>pytest tests/integration/test_mp_memo_poc.py with FakeMCPContext + ruff + mypy. ~8 scenarios (1-8 deterministic + integration), wall time 3-5s. Covers full intent / partial intent / multi-round elicit / rejection / lenient validation / klawd visual / GRACE injection / log marker presence and ordering. Required gate before any wave merges.</module-level>
+        <wave-level>End-to-end through a stdio FastMCP harness (FastMCP test fixture; no real MCP client). FakeMCPContext-replay still in use, but the tool is reached through the actual FastMCP transport surface. Asserts: tool registers correctly, accepts JSON-serializable args, returns JSON-serializable result, errors propagate as MCP-protocol error responses (not Python tracebacks). 1-2 scenarios, ~2s wall time.</wave-level>
+        <phase-level>Manual smoke through Claude Desktop per docs/memo-poc-smoke.md (procedure to be authored as part of step-3). Out of CI; documented procedure with screenshots, single-user, single Claude Desktop instance, not parallelizable. Pass criteria: form prompts appear in Claude UI for each missing field; user-provided values flow back to the tool; final response in the chat references the saved docx path / audit_id.</phase-level>
+      </verification-levels>
+      <failure-packet>
+        <field-1 name="failed_scenario" desc="V-MP-MEMO-POC scenario id (1..9)" />
+        <field-2 name="trace_break_at" desc="Name of the first missing or out-of-order block per the cross-module-evidence diagnostic mapping; localizes the failing intermediate module" />
+        <field-3 name="elicited_calls_observed" desc="list[tuple[field, action]] from FakeMCPContext.elicited_calls at the point of failure" />
+        <field-4 name="elicited_calls_expected" desc="list[tuple[field, action]] derived from the intent fixture (which fields are absent → which elicitations are expected)" />
+        <field-5 name="docx_styles_excerpt" desc="word/styles.xml::Heading1 rPr block (truncated 500 chars) — populated only when scenario-6 fails (klawd visual regression)" />
+        <field-6 name="grace_manifest_excerpt" desc="urn:mint:grace:2026:manifest XML excerpt (truncated 500 chars) — populated only when scenario-7 fails" />
+        <field-7 name="suggested-action" desc="If trace_break_at = BLOCK_APPLY_PRESET — check Document.save() actually invokes apply_preset_to_doc for the configured preset; if BLOCK_INJECT_MANIFEST — check MP-GRACE.bootstrap result is not None and writes the namespace; if elicited-calls mismatch — check the heuristic field-extractor in create_memo against the intent fixture text (a regex or token-sequence change in the extractor would cause field-detection drift); if scenario-9 manual smoke fails — re-read the user-provided Claude Desktop log, check for elicit-related errors in stderr" />
+      </failure-packet>
+      <autonomy-assessment>SWARM-CAREFUL — integration tests use FakeMCPContext (deterministic) and are parallel-safe within tests/integration/test_mp_memo_poc.py. The wave-level FastMCP-stdio harness uses an isolated subprocess per test; safe for parallel runs. The manual smoke through Claude Desktop is single-user, single-instance, NOT parallelizable, and explicitly out of CI scope.</autonomy-assessment>
     </V-MP-MEMO-POC>
 
   </ModuleVerification>
@@ -1783,6 +1930,30 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <evidence-7>No existing test required content edits beyond the test_cli _run helper — proof that Phase 0 is non-invasive to the legacy modules' behavior</evidence-7>
       </required-evidence>
     </Gate-Phase-6>
+
+    <Gate-Phase-13 PHASE="Phase-13" STATUS="planned" ADDED_AT="2026-05-10">
+      <goal>MCP-first product shape lands: deterministic markdown adapter (MD-ADAPTER) closes the embarrassing baseline_report regression; design-only MCP audit (MCP-AUDIT) becomes the brief for Phase-14 migration; Memo POC (MEMO-POC) demonstrates the elicitation-driven planning dialog end-to-end through Claude Desktop. The differentiating bundle (design-tokens / governed templates / GRACE audit / elicitation dialogs) is now demonstrable as a coherent story, not just a slide.</goal>
+      <commands>
+        <command-1>pytest tests/unit/test_mp_md_adapter.py tests/integration/test_mp_memo_poc.py -x --timeout=120</command-1>
+        <command-2>pytest tests/ -x --timeout=120 --cov=src/mint_python --cov-fail-under=100</command-2>
+        <command-3>ruff check src/mint_python/adapters src/mint_python/mcp tests/unit/test_mp_md_adapter.py tests/integration/test_mp_memo_poc.py tests/_helpers</command-3>
+        <command-4>mypy src/mint_python/adapters src/mint_python/mcp</command-4>
+        <command-5>test -f docs/mcp-audit.md &amp;&amp; grep -E '^## [1-6]\. ' docs/mcp-audit.md | wc -l | xargs -I{} test {} -ge 6</command-5>
+        <command-6>python -c "from tools.article_experiment.spec import parse_spec; from src.mint_python.adapters.markdown import markdown_to_spec; from pathlib import Path; spec = markdown_to_spec(Path('experiments/2026-05-10-alpha-baseline/REPORT_COMPARISON.md').read_text()); print(f'sections={len(spec.sections)}')" — proves MD-ADAPTER round-trip on the embarrassment-fix fixture</command-6>
+      </commands>
+      <required-evidence>
+        <evidence-1>All V-MP-MD-ADAPTER scenarios 1-11 pass; the 7 fixtures in tests/fixtures/md_adapter/ exist and produce deterministic ArticleSpec outputs.</evidence-1>
+        <evidence-2>docs/mcp-audit.md exists with all 6 H2 sections present and non-empty; user has signed off on the migration plan acceptance criteria (peer review checkbox in PR).</evidence-2>
+        <evidence-3>All V-MP-MEMO-POC scenarios 1-8 pass against FakeMCPContext (scenario-9 manual smoke is documented as a follow-up evidence; not a CI gate).</evidence-3>
+        <evidence-4>The cross-module evidence chain in V-MP-MEMO-POC holds end-to-end on the success path — caplog asserts each block fires once, in order, with the documented payload schema.</evidence-4>
+        <evidence-5>Forbidden cross-talk asserted: no httpx / openai / anthropic / [Sandbox] markers during create_memo; no [Validate] inside create_memo (validation is post-tool, separate concern).</evidence-5>
+        <evidence-6>Klawd visual fidelity intact: scenario-6 confirms saved docx carries #1B3A5C / Arial / #333333 in styles.xml — the apply_preset_to_doc fix from 0.4.0a2 still reaches the Memo path.</evidence-6>
+        <evidence-7>GRACE audit-trail intact: scenario-7 confirms the urn:mint:grace:2026:manifest custom XML part is present and carries audit_id + fields_elicited + timestamp.</evidence-7>
+        <evidence-8>tests/_helpers/fake_mcp_context.py exists and is importable from both unit and integration tests; FakeMCPContext.elicited_calls is a list[tuple[field, message]] populated by every elicit call.</evidence-8>
+        <evidence-9>The embarrassment-fix evidence (command-6 above) produces a docx whose word/document.xml contains at least 3 actual `&lt;w:tbl&gt;` elements when run on the REPORT_COMPARISON.md excerpt — the regression that motivated this entire phase is closed.</evidence-9>
+        <evidence-10>No test required content edits beyond the new MP-* surface — proof that Phase-13 doesn't regress anything in Phase-1..12.</evidence-10>
+      </required-evidence>
+    </Gate-Phase-13>
   </PhaseGates>
 
   <SwarmExecutionReadiness UPDATED="2026-05-09">
