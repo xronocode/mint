@@ -55,6 +55,7 @@ from typing import Any
 import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.server.elicitation import AcceptedElicitation
+from mcp.shared.exceptions import McpError
 
 from mint_python.adapters.markdown import markdown_to_spec
 from mint_python.core.content import Paragraph
@@ -358,15 +359,47 @@ async def create_memo(
     # END_BLOCK_PARSE_INTENT
 
     fields_elicited: list[str] = []
+    fields_pending: list[str] = []  # filled when elicitation isn't supported
+    elicitation_supported = True
+
     for field_name in MEMO_REQUIRED_FIELDS:
         if getattr(spec, field_name):
             continue
+
+        if not elicitation_supported:
+            # Client doesn't support server→client elicitation/create
+            # (verified in this session against Claude Desktop's MCP impl).
+            # Skip this field; we'll surface the full missing list to the
+            # caller as a "needs_more_info" response.
+            fields_pending.append(field_name)
+            continue
+
         prompt = _elicit_prompt(field_name)
-        result = await ctx.elicit(
-            message=prompt,
-            response_type=str,  # type: ignore[arg-type]  # fastmcp overload picks str via response_type=str
-            response_title=field_name,
-        )
+        try:
+            result = await ctx.elicit(
+                message=prompt,
+                response_type=str,  # type: ignore[arg-type]  # fastmcp overload picks str via response_type=str
+                response_title=field_name,
+            )
+        except McpError as exc:
+            # -32601 "Method not found" → client doesn't implement the
+            # elicitation primitive. Switch to chat-driven mode for the rest
+            # of this call: collect all remaining missing fields, return a
+            # structured needs_more_info response.
+            if getattr(exc.error, "code", None) == -32601:
+                elicitation_supported = False
+                fields_pending.append(field_name)
+
+                # START_BLOCK_ELICIT_FIELD
+                logger.info(
+                    "[MP-Memo][elicit][BLOCK_ELICIT_FIELD] "
+                    "field_name=%s action=unsupported attempt=1",
+                    field_name,
+                )
+                # END_BLOCK_ELICIT_FIELD
+                continue
+            raise  # other MCP errors propagate
+
         action = "accept" if isinstance(result, AcceptedElicitation) else "reject"
 
         # START_BLOCK_ELICIT_FIELD
@@ -386,6 +419,26 @@ async def create_memo(
         # AcceptedElicitation[T] carries .data
         setattr(spec, field_name, str(result.data))
         fields_elicited.append(field_name)
+
+    # If the client couldn't elicit, return a structured needs_more_info
+    # response. The connected model is expected to ask the user in chat
+    # for the missing fields and re-invoke create_memo with a fuller intent.
+    if fields_pending:
+        return {
+            "status": "needs_more_info",
+            "missing_fields": fields_pending,
+            "extracted_so_far": {
+                name: getattr(spec, name)
+                for name in MEMO_REQUIRED_FIELDS
+                if getattr(spec, name)
+            },
+            "guidance": (
+                "Your MCP client doesn't support server-driven elicitation "
+                "forms. Ask the user in chat for the missing fields listed "
+                "in `missing_fields`, then call create_memo again with a "
+                "richer intent that contains those values inline."
+            ),
+        }
 
     # All required fields filled; load template and assemble.
     template = _load_template()
@@ -436,6 +489,7 @@ async def create_memo(
     # END_BLOCK_INJECT_GRACE
 
     return {
+        "status": "complete",
         "path": str(output_path),
         "audit_id": audit_id,
         "fields_elicited": fields_elicited,

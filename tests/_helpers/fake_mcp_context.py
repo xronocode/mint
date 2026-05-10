@@ -17,6 +17,12 @@ Decline path:
 Cancel path:
     ctx = FakeMCPContext(answers={"recipient": "__CANCEL__"})
 
+Elicitation-unsupported (Claude Desktop reality as of 2026-05-10):
+    ctx = FakeMCPContext(answers={"body": "__UNSUPPORTED__"})
+  triggers an McpError(-32601 "Method not found"), simulating an MCP
+  client that doesn't implement server-driven elicitation. The tool is
+  expected to catch the error and switch to chat-driven fallback mode.
+
 The fake matches fastmcp's elicit return-type contract: AcceptedElicitation
 on accept (with .data), DeclinedElicitation on decline, CancelledElicitation
 on cancel. Tests assert against `ctx.elicited_calls` (a list of (field_name,
@@ -38,9 +44,12 @@ from fastmcp.server.elicitation import (
     CancelledElicitation,
     DeclinedElicitation,
 )
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData
 
 _DECLINE_SENTINEL = "__DECLINE__"
 _CANCEL_SENTINEL = "__CANCEL__"
+_UNSUPPORTED_SENTINEL = "__UNSUPPORTED__"
 
 
 @dataclass
@@ -79,4 +88,9 @@ class FakeMCPContext:
             return DeclinedElicitation()
         if answer == _CANCEL_SENTINEL:
             return CancelledElicitation()
+        if answer == _UNSUPPORTED_SENTINEL:
+            # Simulate an MCP client that doesn't implement
+            # elicitation/create — what Claude Desktop actually does at
+            # the time of this writing. Tool must catch and degrade.
+            raise McpError(ErrorData(code=-32601, message="Method not found"))
         return AcceptedElicitation(data=answer)
