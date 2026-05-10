@@ -5,7 +5,7 @@
 #   SCOPE: Provides mp_clean_env autouse + 6 opt-in fixtures consumed by V-MP-* tests
 #     and the VF-013 e2e harness. Does NOT redefine the central clean_env fixture in
 #     tests/unit/test_config.py — V-M-CONFIG forbidden-4 keeps that as the single
-#     chokepoint for MINT_ENGINE / required-LLM env scrubbing.
+#     chokepoint for required-LLM env scrubbing. (Phase-15 W3 removed MINT_ENGINE.)
 #   DEPENDS: pytest, mint_python.sdk (lazy; only the fixtures that touch presets
 #     import it; absence is tolerated until Wave-7-1 lands MP-STYLE).
 #   LINKS: docs/verification-plan.xml#SwarmFixtures, docs/verification-plan.xml#V-MP-STYLE
@@ -14,7 +14,7 @@
 # START_MODULE_MAP
 #   mp_clean_env - autouse: scrub MP_E2E_WRITE_BASELINE + restore presets registry
 #   tmp_docx_path - tmp_path / "out.docx"
-#   mp_minimal_config - frozen MintConfig(engine=PYTHON, severity=LENIENT)
+#   mp_minimal_config - frozen MintConfig(severity=LENIENT) — pure-python only
 #   caplog_at_info - caplog wrapper with set_level(INFO)
 #   marker_counter - callable: caplog -> Counter[BLOCK_NAME -> count]
 #   golden_doc_builder - returns _mp_helpers.build_golden_document
@@ -91,12 +91,14 @@ def tmp_docx_path(tmp_path: Path) -> Path:
 # START_BLOCK_MP_MINIMAL_CONFIG
 @pytest.fixture
 def mp_minimal_config(tmp_path: Path):
-    """Frozen MintConfig with engine=PYTHON, severity=LENIENT, sentinel LLM fields.
+    """Frozen MintConfig with severity=LENIENT + sentinel LLM fields.
 
     Used by VF-013 e2e harness to invoke mint.validate.validate(saved, config)
-    in-process without going through M-CLI.
+    in-process without going through M-CLI. Phase-15 Wave-15-3 removed the
+    Engine StrEnum and MintConfig.engine field along with the legacy JS
+    runtime path; pure-python is now the only execution surface.
     """
-    from mint.config import Engine, MintConfig, SeverityMode, Tier
+    from mint.config import MintConfig, SeverityMode, Tier
 
     return MintConfig(
         llm_base_url="http://x:1",
@@ -108,7 +110,6 @@ def mp_minimal_config(tmp_path: Path):
         skills_dir=tmp_path / "skills",
         templates_dir=tmp_path / "templates",
         tokens_dir=tmp_path / "tokens",
-        engine=Engine.PYTHON,
     )
 # END_BLOCK_MP_MINIMAL_CONFIG
 

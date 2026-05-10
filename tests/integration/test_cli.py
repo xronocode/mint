@@ -15,8 +15,11 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 def _run(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    # Phase-15 Wave-15-3 (MP-LEGACY-DEPRECATION): the legacy --engine flag
+    # was removed; pure-python is the only execution surface. Tests now
+    # invoke `python -m mint.cli` with no engine override.
     return subprocess.run(
-        [sys.executable, "-m", "mint.cli", "--engine", "js", *args],
+        [sys.executable, "-m", "mint.cli", *args],
         capture_output=True,
         text=True,
         cwd=str(cwd) if cwd else None,

@@ -1,15 +1,12 @@
-<TechnologyStack VERSION="0.4.0">
-  <Runtime>From Phase-7 (Pure Python Edition Phase 1): Python 3.12 is the strategic runtime. Node.js 22.x sandbox + docx-js/pptxgenjs/exceljs path retained as MINT_ENGINE=js fallback. Pure-python rollout Phase 4 (handover §6) lands RestrictedPython sandbox; until then python tier=frontier code must be invoked via direct trusted import.</Runtime>
-  <Language>Python (primary, from v0.3 onward) + JavaScript (legacy fallback for MINT_ENGINE=js)</Language>
+<TechnologyStack VERSION="0.5.0">
+  <Runtime>Python 3.12 is the sole strategic runtime. Phase-15 Wave-15-3 (MP-LEGACY-DEPRECATION) removed the Node.js sandbox + docx-js/pptxgenjs/exceljs path entirely; the legacy optional fallback engine is gone. Tier=frontier python code is invoked via direct trusted import; the eventual RestrictedPython sandbox lands in handover §6 Phase-4.</Runtime>
+  <Language>Python</Language>
   <Framework>FastMCP (MCP server) + FastAPI (internal APIs)</Framework>
 
   <Dependencies>
     <dep name="python-docx" version="1.1.x" purpose="DOCX construction backbone for the Pure Python Edition (Phase-7 onward); MP-DOCUMENT.save uses it for paragraph/table primitives, drops down to lxml for cover and header/footer" />
     <dep name="pillow" version="10.x" purpose="Image embed + format probing for MP-CONTENT.Image (Phase-7 onward)" />
-    <dep name="docx" version="9.x" purpose="Word document generation via docx-js in Node.js sandbox (legacy MINT_ENGINE=js path)" />
-    <dep name="pptxgenjs" version="3.x" purpose="PowerPoint generation in Node.js sandbox (legacy)" />
-    <dep name="exceljs" version="4.x" purpose="Excel generation in Node.js sandbox (legacy)" />
-    <dep name="lxml" version="5.x" purpose="OOXML parsing, validation, style extraction, GRACE injection; Phase-7+ also direct-write fallback for parts python-docx doesn't expose" />
+    <dep name="lxml" version="5.x" purpose="OOXML parsing, validation, style extraction, GRACE injection; also direct-write fallback for parts python-docx doesn't expose" />
     <dep name="pyyaml" version="6.x" purpose="Validation rule definitions" />
     <dep name="fastmcp" version="2.x" purpose="MCP tool server for LLM integration" />
     <dep name="gotenberg-client" version="1.x" purpose="PDF/PNG rendering via Gotenberg for QA" />
@@ -18,24 +15,21 @@
     <dep name="seaborn" version="optional" purpose="Convenience wrapper for Chart.from_seaborn (Phase-8); lazy-imported only when called — NOT a hard dep" />
     <dep name="plotly" version="optional" purpose="Source for Chart.from_plotly (Phase-12); user-supplied plotly.graph_objs.Figure converted to PNG via plotly.io.to_image; lazy-imported, raises ImportError with `pip install plotly kaleido` hint when missing — NOT a hard dep" />
     <dep name="kaleido" version="optional" purpose="PNG export backend used by plotly.io.to_image in Chart.from_plotly (Phase-12); lazy-imported via plotly's call chain; without kaleido, plotly fig.to_image raises and Chart.from_plotly surfaces it as ImportError with kaleido install hint — NOT a hard dep" />
-    <future-dep name="RestrictedPython" version="7.x" purpose="Phase-4 (handover §6): sandbox for tier=frontier python tier execution; not added in Phase-7" />
+    <future-dep name="RestrictedPython" version="7.x" purpose="Phase-4 (handover §6): sandbox for tier=frontier python tier execution; not added in Phase-15" />
   </Dependencies>
 
   <VersionConstraints>
-    <constraint lib="docx" min="9.0.0" max="9.x" reason="API surface for OOXML generation stabilized in 9.x" />
     <constraint lib="lxml" min="5.0.0" max="5.x" reason="Custom XML Part manipulation relies on lxml 5.x API" />
     <constraint lib="fastmcp" min="2.0.0" max="2.x" reason="MCP tool registration patterns" />
+    <constraint lib="python-docx" min="1.1.0" max="1.x" reason="Stable paragraph/table API surface used by MP-DOCUMENT.save" />
   </VersionConstraints>
 
   <Tooling>
-    <tool name="runtime" value="Node.js 22.x + Python 3.12" />
-    <tool name="sandbox" value="Node.js VM (vm2 or isolated-vm)" />
+    <tool name="runtime" value="Python 3.12" />
     <tool name="linter-python" value="ruff" version="0.11.x" />
-    <tool name="linter-js" value="eslint" version="9.x" />
     <tool name="typecheck" value="mypy" version="1.15.x" />
     <tool name="formatter" value="ruff format" />
     <tool name="test-runner-python" value="pytest" version="8.x" />
-    <tool name="test-runner-js" value="vitest" version="3.x" />
     <tool name="containers" value="docker-compose" />
     <tool name="render" value="gotenberg" version="8.x" />
   </Tooling>
@@ -50,8 +44,8 @@
       <focus>End-to-end flows: skill → model → execute → validate → output</focus>
     </wave-level>
     <phase-level>
-      <command>pytest tests/ -x &amp;&amp; vitest run</command>
-      <focus>Full regression across Python validation + Node.js execution</focus>
+      <command>pytest tests/ -x --timeout=120</command>
+      <focus>Full regression across the pure-python runtime</focus>
     </phase-level>
     <mocking-policy>Prefer fakes for model responses and file fixtures over mocking internal APIs.</mocking-policy>
   </Testing>
@@ -64,6 +58,6 @@
   </Observability>
 
   <DeliveryShape>
-    <shape>Three-container Docker Compose: LibreChat (UI), MINT (Python MCP + Node.js sandbox), Gotenberg (render). Optional fourth container for local model (Ollama/vLLM). Single docker-compose up.</shape>
+    <shape>Three-container Docker Compose: LibreChat (UI), MINT (pure-Python MCP server), Gotenberg (render). Optional fourth container for local model (Ollama/vLLM). Single docker-compose up.</shape>
   </DeliveryShape>
 </TechnologyStack>
