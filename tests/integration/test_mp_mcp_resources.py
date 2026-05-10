@@ -350,3 +350,34 @@ def test_list_mint_resources_collapses_versioned_siblings(
     # And the served content is the bumped version.
     parsed = yaml.safe_load(_template_resource_content("memo"))
     assert parsed["version"] == "1.1"
+
+
+# --------------------------------------------------------------------------- #
+# Brand-promotion guard: every public MCP tool name starts with `mint_`,
+# so any client (Claude Desktop, Cursor, etc.) renders the brand
+# prominently in tool pickers / chat UI. The server identity itself is
+# "MINT" too. Catches accidental @server.tool registrations that forget
+# the prefix.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_all_registered_tools_carry_mint_brand_prefix() -> None:
+    """All @server.tool registrations must use a `mint_*` name. New
+    tools added without the prefix break this — the failure pinpoints
+    which one missed the convention."""
+    from mint_python.mcp.memo import server
+
+    tools = await server.list_tools()
+    bad = [t.name for t in tools if not t.name.startswith("mint_")]
+    assert not bad, f"tools missing mint_ brand prefix: {bad}"
+    # Sanity floor — at least the seven we know about (memo + document
+    # + 3 templates + 2 presets).
+    assert len(tools) >= 7
+
+
+@pytest.mark.asyncio
+async def test_server_name_promotes_brand() -> None:
+    from mint_python.mcp.memo import server
+
+    assert server.name == "MINT"

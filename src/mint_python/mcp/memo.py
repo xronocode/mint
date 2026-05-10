@@ -99,7 +99,7 @@ async def _run_memo_pipeline(
     )
 
 
-@server.tool
+@server.tool(name="mint_create_memo")
 async def create_memo(
     intent: str,
     source_md: str | None = None,

@@ -316,7 +316,7 @@ async def preset_resource(name: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-@server.tool
+@server.tool(name="mint_list_presets")
 async def list_presets(ctx: Context) -> list[dict[str, str]]:
     """Enumerate the design-token presets the server can apply when
     generating a document. Mirrors the resources/list surface for
@@ -332,7 +332,7 @@ async def list_presets(ctx: Context) -> list[dict[str, str]]:
     ]
 
 
-@server.tool
+@server.tool(name="mint_get_preset")
 async def get_preset(name: str, *, ctx: Context) -> dict[str, str]:
     """Return the raw content + mimeType of a preset.
 

@@ -38,7 +38,7 @@ Pro / Anthropic Skills. Run it before any external demo.
 
 In Claude Desktop, ask Claude to read the canonical `memo` template and
 propose a v1.1 that adds a "Confidentiality" callout. Claude should call
-`get_template("memo")` first, then `update_template("memo", new_yaml,
+`mint_get_template("memo")` first, then `mint_update_template("memo", new_yaml,
 "Claude-Opus-4.7")`.
 
 Expected: Claude returns
@@ -71,7 +71,7 @@ audit log), not through model context.
 
 Ask the local model to produce a memo with realistic sensitive content
 (e.g. salary figures, client names, internal financials). The local model
-should call `create_document(intent, doc_type="memo", ...)` — which now
+should call `mint_create_document(intent, doc_type="memo", ...)` — which now
 serves the v1.1 template authored in step 1.
 
 The "Confidentiality" callout introduced by Claude appears in the
@@ -111,7 +111,7 @@ The smoke fails if:
   layout) — the GRACE manifest would then NOT carry the template_author
   field, breaking the chain
 - `_audit.jsonl` is empty or missing — write path silently no-op'd
-- The frontier model's `update_template` returned `version=1.0` (semver
+- The frontier model's `mint_update_template` returned `version=1.0` (semver
   bump didn't fire)
 - `template/memo_v1.1.yaml` was overwritten on a re-run instead of
   surfacing TEMPLATE_VERSION_CONFLICT (forbidden-1 violated)

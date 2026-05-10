@@ -722,12 +722,12 @@ def _emit_body_block(section: Section, block: Any) -> None:
 # --------------------------------------------------------------------------- #
 
 
-# FastMCP server name preserved as "MINT-Memo" so the existing
-# claude_desktop_config.json entries from Phase-13 keep matching the
-# server identity Claude Desktop discovered. W4 (MP-MCP-RESOURCES)
-# revisits the brand once the resources surface lands.
+# FastMCP server name promotes the MINT brand. The user's
+# claude_desktop_config.json keys ("mint-memo" or whatever they chose)
+# are independent of this — that's the user's local alias for the
+# server entry, not a discovered identity.
 server = FastMCP(
-    "MINT-Memo",
+    "MINT",
     instructions="MINT document generator: governed templates + GRACE audit trail",
 )
 
@@ -1019,7 +1019,7 @@ def _audit_instructions(
     return instructions
 
 
-@server.tool
+@server.tool(name="mint_create_document")
 async def create_document(
     intent: str,
     doc_type: str,

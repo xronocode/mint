@@ -534,7 +534,7 @@ def reset_default_registry() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@server.tool
+@server.tool(name="mint_list_templates")
 async def list_templates(ctx: Context) -> list[dict[str, str]]:
     """Enumerate the templates the server can author documents from.
 
@@ -546,7 +546,7 @@ async def list_templates(ctx: Context) -> list[dict[str, str]]:
     return [summary.to_dict() for summary in get_default_registry().summaries()]
 
 
-@server.tool
+@server.tool(name="mint_update_template")
 async def update_template(
     name: str,
     content: str,
@@ -601,7 +601,7 @@ async def update_template(
     return outcome
 
 
-@server.tool
+@server.tool(name="mint_get_template")
 async def get_template(
     name: str,
     *,
