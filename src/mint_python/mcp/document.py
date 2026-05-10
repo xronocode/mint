@@ -457,14 +457,37 @@ def _load_template(doc_type: str) -> DocumentTemplate:
 
 
 def _substitute(text: str, spec: DocumentSpec) -> str:
-    """Replace `{{ field }}` placeholders with the spec's field values."""
+    """Replace `{{ field }}` placeholders with the spec's field values.
+
+    Supports an optional Jinja-style `default:` filter:
+      `{{ name | default: "fallback" }}` — uses the field value when set,
+      else the literal between the quotes. Both `"..."` and `'...'`
+      delimiters accepted. Closes #2.
+    """
 
     def _resolve(match: re.Match[str]) -> str:
         name = match.group(1).strip()
+        # group(2) is the double-quoted default; group(3) the single-
+        # quoted variant. At most one is non-None for any single match.
+        default_dq = match.group(2)
+        default_sq = match.group(3)
+        default = default_dq if default_dq is not None else default_sq
         value = getattr(spec, name, None)
-        return str(value) if value is not None else ""
+        if value:
+            return str(value)
+        return default if default is not None else ""
 
-    return re.sub(r"\{\{\s*(\w+)\s*\}\}", _resolve, text)
+    return _SUBSTITUTE_RE.sub(_resolve, text)
+
+
+# {{ name }}  OR  {{ name | default: "..." }}  OR  {{ name | default: '...' }}
+# Whitespace around the pipe and the colon is generous (Jinja-2 conventions);
+# the inner string is non-greedy so adjacent placeholders don't merge.
+_SUBSTITUTE_RE = re.compile(
+    r'\{\{\s*(\w+)'
+    r'(?:\s*\|\s*default\s*:\s*(?:"([^"]*)"|\'([^\']*)\'))?'
+    r'\s*\}\}'
+)
 
 
 def _build_document(spec: DocumentSpec, template: DocumentTemplate) -> DocumentLike:
@@ -515,6 +538,32 @@ def _build_document(spec: DocumentSpec, template: DocumentTemplate) -> DocumentL
             )
         elif kind == "spacer":
             section.add_paragraph(Paragraph(""))
+        elif kind == "callout":
+            # Field name leniency — the comment-documented vocab uses
+            # `kind_of` / `body` / `title`; Claude's natural output
+            # (smoke 2026-05-10) used `type` / `text` / `label`. Accept
+            # both shapes so template authors aren't punished for the
+            # historical naming inconsistency. Closes #1.
+            from mint_python.core.callout import Callout, CalloutKind
+
+            kind_str = str(
+                entry.get("kind_of") or entry.get("type") or "info"
+            ).lower()
+            callout_kind = {
+                "info": CalloutKind.INFO,
+                "warning": CalloutKind.WARNING,
+                "code": CalloutKind.CODE,
+            }.get(kind_str, CalloutKind.INFO)
+            body_text = _substitute(
+                str(entry.get("body") or entry.get("text") or ""), spec
+            )
+            title_text = entry.get("title") or entry.get("label")
+            title_str = (
+                _substitute(str(title_text), spec) if title_text else None
+            )
+            section.add_callout(
+                Callout(body_text, kind=callout_kind, title=title_str)
+            )
         # Unknown layout kinds are silently skipped — defensive against
         # template-yaml drift; tests cover the supported set.
     return doc
@@ -991,6 +1040,13 @@ async def create_document(
     manifest carrying doc_type + template_version, and returns a
     triple-shape result optimized for cross-client artifact surfacing.
 
+    IMPORTANT — relaying the file path to the user: when this tool
+    succeeds, the response text contains a file:// URI pointing at the
+    saved document. Always include that URI verbatim in your reply to
+    the user; do not paraphrase it away or omit it. The user opens the
+    document by clicking that link, and a summary that drops the path
+    leaves them unable to reach the file (closes #3).
+
     Raises:
         DocumentTypeNotFound: when no template exists for doc_type.
         DocumentElicitationRejected: when the user declines or cancels an
@@ -1029,8 +1085,13 @@ def _to_tool_result(result: dict[str, Any]) -> ToolResult:
     audit_id = result["audit_id"]
     doc_type = result.get("doc_type", "document")
     file_uri = path.absolute().as_uri()
+    # Imperative-style format with the file:// URI on its own line —
+    # easier for orchestrating models to relay verbatim than a
+    # markdown link buried in prose. Closes #3.
     text_summary = (
-        f"✅ {doc_type.title()} ready — [Open {path.name}]({file_uri})\n"
+        f"✅ {doc_type.title()} ready.\n"
+        f"**Open:** [{path.name}]({file_uri})\n"
+        f"**File path:** {file_uri}\n"
         f"audit_id: `{audit_id}`"
     )
     return ToolResult(
