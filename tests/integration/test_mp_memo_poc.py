@@ -948,15 +948,17 @@ async def test_create_memo_degraded_returns_text_only_no_resource_link() -> None
 
 @pytest.mark.asyncio
 async def test_memo_template_not_found_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When templates/memo.yaml is missing, _load_template raises
-    MemoTemplateNotFound. The error message names the resolved path."""
-    from mint_python.mcp import memo as memo_module
-    from mint_python.mcp.memo import MemoTemplateNotFound
+    """When templates/memo.yaml is missing, the loader raises
+    DocumentTypeNotFound (Phase-14 W1 renamed MemoTemplateNotFound for the
+    missing-file condition; the error code became DOC_TYPE_NOT_FOUND).
+    The message names the resolved doc_type and the available alternatives."""
+    from mint_python.mcp import document as document_module
+    from mint_python.mcp.memo import DocumentTypeNotFound
 
-    monkeypatch.setattr(memo_module, "_TEMPLATE_PATH", Path("/nonexistent/memo.yaml"))
+    monkeypatch.setattr(document_module, "_TEMPLATES_DIR", Path("/nonexistent"))
     intent = _read("intent_full.txt")
     ctx = FakeMCPContext(answers={})
-    with pytest.raises(MemoTemplateNotFound, match="MEMO_TEMPLATE_NOT_FOUND"):
+    with pytest.raises(DocumentTypeNotFound, match="DOC_TYPE_NOT_FOUND"):
         await _run_memo_pipeline(intent=intent, source_md=intent, ctx=ctx)
 
 
@@ -965,15 +967,17 @@ async def test_memo_generation_failed_wraps_builder_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When the document assembler raises after all required fields are
-    collected, MemoGenerationFailed wraps the underlying error."""
-    from mint_python.mcp import memo as memo_module
+    collected, MemoGenerationFailed wraps the underlying error.
+    Phase-14 W1 renamed the error code to DOC_GENERATION_FAILED;
+    MemoGenerationFailed is preserved as a backwards-compat alias."""
+    from mint_python.mcp import document as document_module
     from mint_python.mcp.memo import MemoGenerationFailed
 
     def _explode(*_args: object, **_kwargs: object) -> object:
         raise RuntimeError("synthetic builder failure")
 
-    monkeypatch.setattr(memo_module, "_build_document", _explode)
+    monkeypatch.setattr(document_module, "_build_document", _explode)
     intent = _read("intent_full.txt")
     ctx = FakeMCPContext(answers={})
-    with pytest.raises(MemoGenerationFailed, match="MEMO_GENERATION_FAILED"):
+    with pytest.raises(MemoGenerationFailed, match="DOC_GENERATION_FAILED"):
         await _run_memo_pipeline(intent=intent, source_md=intent, ctx=ctx)
