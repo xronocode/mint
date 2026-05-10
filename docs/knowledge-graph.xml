@@ -660,5 +660,48 @@
     </MP-HASH>
 
     <CrossLink from="MP-DOCUMENT" to="MP-GRACE" relation="Document.inject_grace is a delegation chokepoint: the public API lives on Document per handover §3.1; MP-GRACE.bootstrap writes the urn:mint:grace:2026:manifest Custom XML Parts into the saved .docx (Phase-11 unstub)." />
+
+    <!-- Phase 13: MCP-first product shape (markdown adapter + MCP audit + Memo POC with elicitation) -->
+
+    <MP-MD-ADAPTER NAME="Markdown → ArticleSpec walker" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>Deterministic walker — markdown text in, ArticleSpec dataclass out. Uses markdown-it-py 4.2 with the gfm-like preset to parse the source into a token tree, then walks the tree producing typed blocks (paragraph / callout / list / table / code) and SpecSections. No LLM. Exists because LLM-driven structuring of dense markdown (especially tables) is unreliable on non-frontier models — confirmed empirically with the 0.4.0a1 baseline_report regression. Markdown is structured input; structure should be extracted by code.</purpose>
+      <path>src/mint_python/adapters/markdown.py</path>
+      <depends>markdown-it-py (4.2, new dep), tools/article_experiment/spec (ArticleSpec + block dataclasses, types reused)</depends>
+      <verification-ref>V-MP-MD-ADAPTER</verification-ref>
+      <annotations>
+        <fn-markdown_to_spec PURPOSE="Convert markdown text to ArticleSpec via markdown-it-py walker; deterministic; emits [MP-MdAdapter][parse][BLOCK_PARSE_MD] at INFO with token / section / block counts" />
+        <type-MarkdownAdapterError PURPOSE="Base error for adapter-level failures (empty input, no usable content)" />
+      </annotations>
+    </MP-MD-ADAPTER>
+
+    <MP-MCP-AUDIT NAME="MCP server inventory + migration plan (design-only)" TYPE="UTILITY" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>Design-only deliverable: read existing src/mint/mcp_g1.py and src/mint/mcp_g2.py, inventory all FastMCP @mcp.tool registrations, classify each (stateful/stateless, elicitation-aware/one-shot, kept/migrate/deprecate), perform gap analysis vs the new product shape (design-tokens-as-resources, versioned templates, GRACE-as-audit-trail, elicitation-driven planning), produce a migration plan. Output is docs/mcp-audit.md as a human-readable architecture review — NO runtime code in this module. The doc becomes the brief for Phase-14 (actual migration). Audit-only scope is deliberate: keeps research separate from engineering.</purpose>
+      <path>docs/mcp-audit.md (deliverable)</path>
+      <depends>src/mint/mcp_g1.py (read), src/mint/mcp_g2.py (read), src/mint/llm.py (read for client patterns)</depends>
+      <verification-ref>V-MP-MCP-AUDIT</verification-ref>
+      <annotations>
+        <doc-mcp-audit PURPOSE="Sectioned report — inventory, state analysis, gap analysis, migration plan, new-tool roadmap. Reviewed by user as the verification mechanism." />
+      </annotations>
+    </MP-MCP-AUDIT>
+
+    <MP-MEMO-POC NAME="Memo MCP tool with FastMCP elicitation (planning-mode wow-demo)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-10">
+      <purpose>End-to-end POC of the planning-mode dialog pattern via the MCP elicitation primitive (spec 2025-06-18, FastMCP Context.elicit). Single tool create_memo(intent, source_md?, ctx) parses intent + optional markdown source via MP-MD-ADAPTER, populates a partial MemoSpec (5 required fields: sender / recipient / date / subject / body), elicits each missing field through ctx.elicit (the connected MCP client renders a structured form to the user — Claude Desktop primary, OpenWebUI / Cursor / Copilot follow), assembles the docx with the klawd preset and a memo-specific YAML template (templates/memo.yaml), injects a GRACE audit-trail manifest, returns path + audit_id + fields_elicited. Memo template is a YAML data file (per the "design as data, not code" rule) — sets the precedent for future doc types (Letter, Report, Contract).</purpose>
+      <path>src/mint_python/mcp/memo.py + templates/memo.yaml</path>
+      <depends>MP-MD-ADAPTER, MP-DOCUMENT, MP-STYLE, MP-GRACE, fastmcp.Context (elicit), pyyaml</depends>
+      <verification-ref>V-MP-MEMO-POC</verification-ref>
+      <annotations>
+        <fn-create_memo PURPOSE="@mcp.tool async function. Parses intent + optional source_md, fills MemoSpec heuristically, elicits each missing required field via ctx.elicit, builds the docx with klawd preset + memo template, injects GRACE manifest, returns {path, audit_id, fields_elicited}. Emits [MP-Memo][create][BLOCK_PARSE_INTENT], [MP-Memo][elicit][BLOCK_ELICIT_FIELD] per field, [MP-Memo][build][BLOCK_BUILD_DOCX], [MP-Memo][grace][BLOCK_INJECT_GRACE]" />
+        <type-MemoSpec PURPOSE="Frozen dataclass with 5 required POC fields: sender, recipient, date, subject, body. Extends in Phase-14+ with cc, signature, classification, distribution_list" />
+        <type-MemoTemplate PURPOSE="Loader for templates/memo.yaml — declares field order, layout (header / body / signature blocks), klawd-derived styling refinements" />
+        <type-MemoElicitationRejected PURPOSE="MEMO_ELICITATION_REJECTED — raised when the user declines to provide a required field via the MCP client" />
+      </annotations>
+    </MP-MEMO-POC>
+
+    <CrossLink from="MP-MD-ADAPTER" to="MP-DOCUMENT" relation="markdown_to_spec produces an ArticleSpec consumed by build_document_from_spec via the standard MP-DOCUMENT save pipeline (DF-009). Closes the loop md → docx without any LLM in the production path." />
+    <CrossLink from="MP-MEMO-POC" to="MP-MD-ADAPTER" relation="create_memo calls markdown_to_spec on the optional source_md to extract structured content for fact-finding (subject / date / body candidates) before elicitation kicks in for whatever's still missing." />
+    <CrossLink from="MP-MEMO-POC" to="MP-DOCUMENT" relation="create_memo assembles the final docx through MP-DOCUMENT — the MemoTemplate maps MemoSpec fields onto Document.add_section / set_header calls; klawd preset is applied via apply_preset_to_doc on Document.save (DF-010 step 5)." />
+    <CrossLink from="MP-MEMO-POC" to="MP-STYLE" relation="create_memo applies the klawd preset (apply_preset_to_doc) so generated memos visually match the Anthropic baseline. Verified by V-MP-MEMO-POC scenario-6: styles.xml carries 1B3A5C / Arial / 333333." />
+    <CrossLink from="MP-MEMO-POC" to="MP-GRACE" relation="create_memo injects a GRACE manifest (urn:mint:grace:2026:manifest) carrying audit-trail metadata (audit_id, fields_elicited, model identity, timestamp). Establishes the GRACE-as-audit-trail differentiator end-to-end." />
+    <CrossLink from="MP-MCP-AUDIT" to="MP-MEMO-POC" relation="MP-MCP-AUDIT's roadmap section uses MP-MEMO-POC.create_memo as the canonical example of the new tool signature (async, ctx: Context, ctx.elicit-based dialog). Phase-14 migration of legacy mcp_g1 / mcp_g2 tools follows the same shape." />
   </Project>
 </KnowledgeGraph>

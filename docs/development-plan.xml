@@ -1264,6 +1264,99 @@ writeFileSync('output.docx', buffer);
 
     <!-- Phase 11: Pure Python Edition Phase 5 — GRACE injector + PDF (handover §3.1, §6) -->
 
+    <!-- Phase 13: MCP-first product shape (markdown adapter + MCP audit + Memo POC with elicitation) -->
+
+    <MP-MD-ADAPTER NAME="Markdown → ArticleSpec walker" TYPE="INTEGRATION" LAYER="1" ORDER="21" STATUS="planned" ADDED_AT="2026-05-10">
+      <contract>
+        <purpose>Convert raw markdown text into an ArticleSpec dataclass deterministically (no LLM). Uses markdown-it-py 4.2 with the gfm-like preset to parse the source into a token tree, then walks the tree producing typed blocks (paragraph, callout, list, table, code) and SpecSections matching the existing tools/article_experiment/spec.ArticleSpec contract. Exists because LLM-driven structuring of dense markdown (especially tables) is unreliable on non-frontier models — confirmed empirically when the Round-3-postfix baseline_report.docx came out of a 4B model with tables flattened into parallel paragraphs. Markdown is a structured input; structure should be extracted by code, not interpreted by a model.</purpose>
+        <inputs>
+          <param name="md_text" type="str" desc="GitHub-Flavored Markdown source; tolerant to malformed input" />
+          <param name="title_override" type="str | None" desc="Optional title; otherwise derived from first H1 or fallback" />
+        </inputs>
+        <outputs>
+          <param name="spec" type="ArticleSpec" />
+        </outputs>
+        <errors>
+          <error code="MD_ADAPTER_EMPTY_INPUT" />
+          <error code="MD_ADAPTER_NO_USABLE_CONTENT" />
+        </errors>
+      </contract>
+      <interface>
+        <export-markdown_to_spec PURPOSE="fn-markdown_to_spec(md_text, *, title_override=None) -> ArticleSpec; deterministic walker; emits [MP-MdAdapter][parse][BLOCK_PARSE_MD] at INFO" />
+        <export-MarkdownAdapterError PURPOSE="Base error for adapter-level failures (empty input, no usable content)" />
+      </interface>
+      <depends>markdown-it-py (4.2, new dep), tools/article_experiment/spec (ArticleSpec, SpecSection, SectionLayout, ParagraphBlock, CalloutBlock, ListBlock, TableBlock, CodeBlock — types reused, not duplicated)</depends>
+      <target>
+        <source>src/mint_python/adapters/markdown.py</source>
+        <tests>tests/unit/test_mp_md_adapter.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-MdAdapter</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MD-ADAPTER</verification-ref>
+    </MP-MD-ADAPTER>
+
+    <MP-MCP-AUDIT NAME="MCP server inventory + migration plan (design-only)" TYPE="UTILITY" LAYER="0" ORDER="22" STATUS="planned" ADDED_AT="2026-05-10">
+      <contract>
+        <purpose>Design-only deliverable: read existing src/mint/mcp_g1.py and src/mint/mcp_g2.py, inventory all FastMCP @mcp.tool registrations, classify each tool (stateful / stateless, elicitation-aware / one-shot, kept / migrate / deprecate), perform gap analysis against the new product shape (design-tokens-as-resources, versioned templates, GRACE-as-audit-trail, elicitation-driven planning), and produce a migration plan. Output is docs/mcp-audit.md as a human-readable architecture review — no runtime code in this module. The doc becomes the brief for Phase-14 (actual migration). Audit-only scope is deliberate: keeps research separate from engineering.</purpose>
+        <inputs>
+          <param name="legacy_servers" type="src/mint/mcp_g1.py + src/mint/mcp_g2.py" desc="Read-only inputs" />
+        </inputs>
+        <outputs>
+          <param name="audit_doc" type="docs/mcp-audit.md" desc="Sectioned report: inventory, state analysis, gap analysis, migration plan, new-tool roadmap" />
+        </outputs>
+        <errors>
+          <error code="(none — design deliverable)" />
+        </errors>
+      </contract>
+      <interface>
+        <export-none PURPOSE="Design artifact only — no Python module exposes anything; the deliverable is docs/mcp-audit.md" />
+      </interface>
+      <depends>src/mint/mcp_g1.py (read), src/mint/mcp_g2.py (read), src/mint/llm.py (read for client patterns)</depends>
+      <target>
+        <source>(none — docs only)</source>
+        <doc>docs/mcp-audit.md</doc>
+        <tests>(none — verified via review checklist V-MP-MCP-AUDIT)</tests>
+      </target>
+      <observability>
+        <log-prefix>(none — no runtime path)</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MCP-AUDIT</verification-ref>
+    </MP-MCP-AUDIT>
+
+    <MP-MEMO-POC NAME="Memo MCP tool with FastMCP elicitation (planning-mode wow-demo)" TYPE="INTEGRATION" LAYER="4" ORDER="23" STATUS="planned" ADDED_AT="2026-05-10">
+      <contract>
+        <purpose>End-to-end POC of the planning-mode dialog pattern via the MCP elicitation primitive (spec 2025-06-18, FastMCP Context.elicit). Exposes one tool, create_memo(intent, source_md?, ctx), that: (1) parses intent + optional markdown source via MP-MD-ADAPTER, (2) builds a partial MemoSpec, (3) for each missing required field, calls ctx.elicit(...) which the connected MCP client (Claude Desktop primary; OpenWebUI / Cursor / Copilot follow) renders as a structured form to the end user; (4) once all 5 required fields present, builds a Document via MP-DOCUMENT with the klawd preset and a memo-specific YAML template (templates/memo.yaml); (5) injects a GRACE manifest with audit-trail metadata (model identity from session, timestamp, slot provenance); (6) returns the saved docx path and the audit-trail id. Memo template is a YAML data file (per "design as data, not code" rule), not embedded in Python — sets the precedent for future doc types (Letter, Report, Contract).</purpose>
+        <inputs>
+          <param name="intent" type="str" desc="Free-text user intent describing the memo to generate" />
+          <param name="source_md" type="str | None" desc="Optional markdown source (e.g. a chat transcript) parsed via MP-MD-ADAPTER for fact extraction" />
+          <param name="ctx" type="fastmcp.Context" desc="FastMCP context exposing elicit() / sample() / progress notifications" />
+        </inputs>
+        <outputs>
+          <param name="result" type="dict" desc="{path: str, audit_id: str, fields_elicited: list[str]} — path to saved docx, GRACE audit id, list of field names that required elicitation" />
+        </outputs>
+        <errors>
+          <error code="MEMO_ELICITATION_REJECTED" desc="User declined to provide a required field via the MCP client; tool returns error without producing docx" />
+          <error code="MEMO_TEMPLATE_NOT_FOUND" desc="memo.yaml template missing on disk" />
+          <error code="MEMO_GENERATION_FAILED" desc="Builder failed at render time (e.g. invalid spec after elicitation)" />
+        </errors>
+      </contract>
+      <interface>
+        <export-create_memo PURPOSE="@mcp.tool async fn-create_memo(intent, source_md, ctx) -> dict; main entry; emits [MP-Memo][create][BLOCK_PARSE_INTENT], [BLOCK_ELICIT_FIELD], [BLOCK_BUILD_DOCX], [BLOCK_INJECT_GRACE]" />
+        <type-MemoSpec PURPOSE="frozen dataclass with 5 required fields: sender, recipient, date, subject, body. POC scope deliberately tight — extends in Phase-14+ with cc, signature, classification, distribution_list" />
+        <type-MemoTemplate PURPOSE="Loader for templates/memo.yaml — declares field order, layout (header / body / signature blocks), klawd-derived styling refinements" />
+      </interface>
+      <depends>MP-MD-ADAPTER (parse source_md), MP-DOCUMENT (render docx), MP-STYLE (klawd preset application — apply_preset_to_doc), MP-GRACE (audit manifest injection), fastmcp (Context.elicit primitive), pyyaml (read templates/memo.yaml)</depends>
+      <target>
+        <source>src/mint_python/mcp/memo.py + templates/memo.yaml</source>
+        <tests>tests/integration/test_mp_memo_poc.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Memo</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MEMO-POC</verification-ref>
+    </MP-MEMO-POC>
+
     <MP-GRACE NAME="Pure Python GRACE Injector v1.1" TYPE="CORE_LOGIC" LAYER="2" ORDER="20" STATUS="done" ADDED_AT="2026-05-09">
       <contract>
         <purpose>Inject GRACE manifest + 10 instruction rules as Custom XML Parts under urn:mint:grace:2026:manifest into a saved .docx, preserving any existing customXml entries from other vendors. Pure Python successor to M-GRACE; stdlib-only deps. Called via delegation from MP-DOCUMENT.inject_grace.</purpose>
@@ -1370,6 +1463,25 @@ writeFileSync('output.docx', buffer);
       <step-8>M-EDIT.render_diff produces the per-op diff list; backup_path is the pre-edit copy. Return EditResult with success flag, ops_total/succeeded/failed, validation_report, diff, duration_ms.</step-8>
       <evidence>[Edit][validate_plan][BLOCK_EDIT_PLAN_VALIDATE], [Edit][backup][BLOCK_EDIT_BACKUP], [OOXML][unpack][BLOCK_OOXML_UNPACK], [Edit][extract_text][BLOCK_EDIT_EXTRACT_TEXT], [Edit][resolve_anchor][BLOCK_EDIT_RESOLVE_ANCHOR] per op, [Edit][apply_op][BLOCK_EDIT_APPLY_OP] per op (may emit [Edit][tracked_change][BLOCK_EDIT_TRACKED_CHANGE]), [OOXML][pack][BLOCK_OOXML_PACK] (may emit [OOXML][autorepair][BLOCK_OOXML_AUTOREPAIR]), [Validate][run_checks][BLOCK_RUN_CHECKS]</evidence>
     </DF-007>
+
+    <DF-009 NAME="Markdown Source → Document (deterministic, no LLM)" TRIGGER="markdown_to_spec(md_text) called from a runner / CLI / MCP tool">
+      <step-1>MP-MD-ADAPTER.markdown_to_spec receives raw markdown text.</step-1>
+      <step-2>markdown-it-py with the gfm-like preset parses md_text → flat token stream + SyntaxTreeNode tree.</step-2>
+      <step-3>Walker iterates the tree top-down. Heading nodes open new SpecSection (level=1..3). Each block-level child node is dispatched: paragraph → ParagraphBlock (with inline emphasis collected into emphasis tuple), table → TableBlock (header from thead, rows from tbody, alignment in attrs), fenced code → CodeBlock(language, content), blockquote → CalloutBlock(kind="info"), bullet/ordered/task list → ListBlock with the matching ListKind. Unknown nodes are folded into the surrounding paragraph as plain text.</step-3>
+      <step-4>Walker assembles ArticleSpec(title, sections, ...). title is title_override if provided, else first H1 text, else fallback "Untitled".</step-4>
+      <step-5>Spec is fed to MP-DOCUMENT.build_document_from_spec via the existing pipeline (MP-STYLE preset, MP-VALIDATE, MP-GRACE if requested).</step-5>
+      <evidence>[MP-MdAdapter][parse][BLOCK_PARSE_MD] with token_count + section_count + block_count_by_type. NO LLM emissions in this DF.</evidence>
+    </DF-009>
+
+    <DF-010 NAME="Memo Generation with Elicitation Dialog" TRIGGER="mcp.create_memo(intent, source_md?) invoked by an MCP client (Claude Desktop / Cursor / Copilot / OpenWebUI)">
+      <step-1>MP-MEMO-POC.create_memo receives intent, optional source_md, and FastMCP Context.</step-1>
+      <step-2>If source_md is present: MP-MD-ADAPTER.markdown_to_spec extracts structured content (DF-009). Heuristic field-extraction tries to populate MemoSpec from intent + source: subject from intent's first sentence, recipient/sender if explicitly named, date if date-shaped phrase present, body from source_md content.</step-2>
+      <step-3>required_fields = (sender, recipient, date, subject, body). For each missing or empty field, in declaration order: ctx.elicit(message, response_type) → MCP client renders a structured form to the user → response returns to the tool. If the user rejects (response.rejected) raise MEMO_ELICITATION_REJECTED.</step-3>
+      <step-4>Once all 5 fields present: load templates/memo.yaml (MemoTemplate) → assemble Document via MP-DOCUMENT (header with sender/recipient/date/subject; body section; signature placeholder). Apply klawd preset (MP-STYLE.apply_preset_to_doc).</step-4>
+      <step-5>MP-GRACE.bootstrap on the saved docx with audit metadata: model identity (from ctx if available), timestamp, fields_elicited list, source_md_hash if applicable. Returns audit_id.</step-5>
+      <step-6>Tool returns {"path": str(output_path), "audit_id": audit.id, "fields_elicited": [...]} to the MCP client.</step-6>
+      <evidence>[MP-Memo][create][BLOCK_PARSE_INTENT] with elicitable_fields_initial, [MP-Memo][elicit][BLOCK_ELICIT_FIELD] per missing field with field name + accepted/rejected outcome, [MP-Memo][build][BLOCK_BUILD_DOCX], [MP-Memo][grace][BLOCK_INJECT_GRACE] with audit_id. End-to-end manually verified through Claude Desktop as the first MCP client.</evidence>
+    </DF-010>
 
     <DF-008 NAME="Engine Selection" TRIGGER="any `mint &lt;subcmd&gt;` invocation (Phase-6)">
       <step-1>argparse parses optional top-level `--engine {python,js}`; default None when user omits.</step-1>
@@ -1535,6 +1647,13 @@ writeFileSync('output.docx', buffer);
       <step-2 module="(test surface)" status="done" verification="V-MP-CHART">Update tests/unit/test_mp_chart.py: retire scenario-10 NotImplementedError assertion; add positive Plotly Figure → Chart construction tests + missing-dep ImportError tests (plotly absent + plotly-OK-kaleido-absent both covered). +2 net tests; coverage 100% maintained.</step-2>
       <step-3 module="(infrastructure)" status="done" verification="V-MP-CHART">Document plotly + kaleido as optional deps in docs/technology.xml mirroring seaborn precedent. NOT added to pyproject.toml [project].dependencies — lazy-import pattern keeps the wheel slim; users opting into Plotly install via `pip install plotly kaleido` (or via a [project.optional-dependencies] charts-plotly extras group, future cleanup).</step-3>
     </Phase-12>
+
+    <Phase-13 name="MCP-first product shape — input adapters, MCP audit, Memo POC with elicitation" status="planned" ADDED_AT="2026-05-10">
+      <goal>Reposition MINT toward MCP-first product shape per session 2026-05-10. Three modules in declared order: MP-MD-ADAPTER (deterministic markdown → ArticleSpec walker, fixes the embarrassing LLM-flattened baseline_report.docx) → MP-MCP-AUDIT (design-only review of legacy mcp_g1 + mcp_g2, becomes brief for Phase-14 migration) → MP-MEMO-POC (FastMCP create_memo tool with ctx.elicit() planning dialog, Memo template as YAML data file, klawd-themed render, GRACE audit-trail). Establishes the differentiating bundle (design tokens + governed templates + GRACE audit + elicitation-driven dialogs) vs flat-tool docx-MCP servers (GongRzhe/Office-Word-MCP-Server), format converters (mcp-pandoc), and Claude-only Anthropic Skills. End state: the alpha-baseline can be rerun deterministically from markdown source (no LLM); a reference Memo doc-type is end-to-end demoable through Claude Desktop with planning dialog.</goal>
+      <step-1 module="MP-MD-ADAPTER" status="planned" verification="V-MP-MD-ADAPTER">Add markdown-it-py 4.2 to pyproject.toml. Implement src/mint_python/adapters/markdown.py — markdown_to_spec(md_text, *, title_override=None) → ArticleSpec via SyntaxTreeNode walker. Cover scenarios 1-10 of V-MP-MD-ADAPTER (heading depths, GFM tables with alignment, fenced code, blockquotes → callouts, bullet/numbered/task lists, inline emphasis, malformed input graceful handling, round-trip md→spec→docx, REPORT_COMPARISON.md regenerated as a respectable docx, empty/null input). 0 LLM calls in production path. Quick win — unblocks the embarrassing baseline_report and validates the input-adapter pattern as canonical.</step-1>
+      <step-2 module="MP-MCP-AUDIT" status="planned" verification="V-MP-MCP-AUDIT">Read src/mint/mcp_g1.py + src/mint/mcp_g2.py + src/mint/llm.py. Produce docs/mcp-audit.md: (a) inventory all @mcp.tool registrations with current signatures and behavior; (b) classify each tool stateful/stateless, elicitation-aware/one-shot, kept/migrate/deprecate; (c) gap analysis vs the new product shape — design-tokens-as-resources (currently absent), versioned templates (absent), GRACE-as-audit-trail (partially shipped), elicitation-driven planning (absent); (d) migration plan with priorities; (e) roadmap of new tools required for Phase-14 (list_templates, get_template, update_template, list_presets, generate_document with elicitation). No code in this step — design only. Phase-14 will execute the migration based on this brief.</step-2>
+      <step-3 module="MP-MEMO-POC" status="planned" verification="V-MP-MEMO-POC">Define MemoSpec frozen dataclass with 5 required fields (sender, recipient, date, subject, body) + MemoTemplate loader for templates/memo.yaml (declares field order, layout, klawd-derived refinements). Implement @mcp.tool create_memo in src/mint_python/mcp/memo.py: parse intent + optional source_md via MP-MD-ADAPTER → populate partial MemoSpec heuristically → ctx.elicit() per missing required field in declaration order → assemble Document with klawd preset → MP-GRACE.bootstrap with audit metadata → return path + audit_id + fields_elicited. Cover V-MP-MEMO-POC scenarios 1-8 (full intent / partial intent / multi-round elicit / rejection / lenient validation / klawd visual / GRACE injection / log marker presence). Manual smoke through Claude Desktop as the first MCP client. OpenWebUI compat is a follow-up verification, not new dev work in this phase.</step-3>
+    </Phase-13>
   </ImplementationOrder>
 
   <ExecutionPolicy>

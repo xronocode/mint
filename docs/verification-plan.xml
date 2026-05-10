@@ -1540,6 +1540,100 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE-WITH-ISOLATED-FIXTURES — ALL mutations target tmp_path copies; backup always first; destructive rejected; cascade bounded.</autonomy-assessment>
     </V-MP-FIX>
 
+    <V-MP-MD-ADAPTER MODULE="MP-MD-ADAPTER" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/unit/test_mp_md_adapter.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_md_adapter.py -x</check-1>
+        <check-2>ruff check src/mint_python/adapters/markdown.py</check-2>
+        <check-3>mypy src/mint_python/adapters/markdown.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">Heading mapping: source contains `# H1\n## H2\n### H3` → ArticleSpec has 3 SpecSection entries with level 1, 2, 3 respectively. Title fallback is the first H1 text when title_override is None.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="planned">GFM table: source `| a | b |\n|:--|--:|\n| 1 | 2 |` parses into one TableBlock with header=("a", "b"), rows=(("1", "2"),). Column alignment from `:--` / `--:` is captured but not yet rendered (alignment plumbing is a follow-up; scenario-2 just asserts the alignment metadata is in attrs).</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="planned">Fenced code: ```python\nx=1\n``` block parses into a CodeBlock with language="python" and content="x=1\n".</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic" status="planned">Blockquote: `> note text` parses into a CalloutBlock with kind="info" and body="note text". Multi-line quotes preserve their internal newlines as paragraph breaks within the body string.</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic" status="planned">List kinds: bulleted (`- a`), ordered (`1. a`), and task (`- [ ] a`) lists each parse to a ListBlock with the matching ListKind (BULLET / NUMBERED / CHECKLIST). Items keep their plain-text content; inline emphasis within items is preserved as text for v0.</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="planned">Inline emphasis: paragraph with `**bold phrase**` parses into a ParagraphBlock with text containing the phrase verbatim and emphasis=("bold phrase",). Italic-only emphasis is captured similarly. Mixed inline (bold inside italic) records the longest matching substring.</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic" status="planned">Malformed input: source with unbalanced fence (` ```python\nx=1\n` — no closing fence) does NOT raise. markdown-it-py recovers by emitting a fenced-code block that runs to EOF; the walker accepts it as CodeBlock with content trailing to end of input. Equivalent recovery for unclosed emphasis, mismatched table rows, etc.</scenario-7>
+        <scenario-8 kind="success" evidence="integration" status="planned">Round-trip: markdown_to_spec(md) → build_document_from_spec(spec) → save(out) → MP-VALIDATE.run_checks(out, level="lenient") returns passed=True with hard_count=0. Run on tests/fixtures/sample_article.md as a smoke fixture.</scenario-8>
+        <scenario-9 kind="success" evidence="integration" status="planned">REPORT_COMPARISON.md regression: experiments/2026-05-10-alpha-baseline/REPORT_COMPARISON.md → markdown_to_spec → docx must contain at least 3 actual `&lt;w:tbl&gt;` elements (one per source table) AND zero stray `Normal`-styled paragraphs that quote pipe-table cells. This is the explicit fix for the embarrassing 0.4.0a1 baseline_report.docx where the LLM serialized tables as parallel paragraphs.</scenario-9>
+        <scenario-10 kind="failure" evidence="deterministic" status="planned">Empty input: markdown_to_spec("") raises MD_ADAPTER_EMPTY_INPUT. markdown_to_spec("   \n\n") raises MD_ADAPTER_NO_USABLE_CONTENT (whitespace-only / no extractable blocks).</scenario-10>
+        <scenario-11 kind="success" evidence="trace" status="planned">Logs: every markdown_to_spec call emits exactly one [MP-MdAdapter][parse][BLOCK_PARSE_MD] at INFO with payload {token_count, section_count, block_count_by_type, has_title_override}. No additional INFO emissions per node (the walker is silent at sub-block level).</scenario-11>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-MdAdapter][parse][BLOCK_PARSE_MD] — fires once per markdown_to_spec call; payload as in scenario-11</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>markdown_to_spec must NEVER call an LLM, NEVER make a network request, NEVER touch the filesystem. Pure function over a string.</forbidden-1>
+        <forbidden-2>Must NOT import from tools/article_experiment/runner — that module is the LLM-driven path. Reuse types from tools/article_experiment/spec only (or move shared types into src/mint_python/spec/ in a follow-up).</forbidden-2>
+        <forbidden-3>Must NOT wrap pandoc, mistune, or any other parser. markdown-it-py is the chosen parser; switching is a deliberate Phase-N decision, not an ad-hoc swap.</forbidden-3>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — pure function, no shared state, no IO. Tests run in any order, in parallel.</autonomy-assessment>
+    </V-MP-MD-ADAPTER>
+
+    <V-MP-MCP-AUDIT MODULE="MP-MCP-AUDIT" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">(none — review checklist, not pytest-based)</file>
+      </test-files>
+      <module-checks>
+        <check-1>docs/mcp-audit.md exists and is non-empty</check-1>
+        <check-2>Manual review by user (peer review checkbox)</check-2>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="document" status="planned">Inventory completeness: docs/mcp-audit.md lists every @mcp.tool registration found in src/mint/mcp_g1.py and src/mint/mcp_g2.py. Each entry has: tool name, current signature (params + return type), one-line behavior description, current state classification (stateful / stateless), elicitation usage (yes / no), recommended disposition (kept / migrate / deprecate).</scenario-1>
+        <scenario-2 kind="success" evidence="document" status="planned">Gap analysis covers the three differentiators settled this session: design-tokens-as-resources (currently absent), versioned templates with cross-model handoff (absent), GRACE-as-audit-trail (partially shipped via MP-GRACE — assess what's exposed via MCP vs only available via SDK), elicitation-driven planning dialogs (absent). Each gap has: status, why it matters, what closing it requires, rough effort.</scenario-2>
+        <scenario-3 kind="success" evidence="document" status="planned">Migration plan has prioritized list of changes with acceptance criteria per change. At minimum: (a) which existing tools migrate to elicitation, (b) which new tools to add (list_templates, get_template, update_template, list_presets, generate_document with elicitation), (c) breaking-change call-out for any client-facing API changes, (d) rough sequencing for Phase-14.</scenario-3>
+        <scenario-4 kind="success" evidence="document" status="planned">Roadmap of new tools includes signatures (param names, types, return shape) consistent with FastMCP + the elicitation pattern (`async def, ctx: Context, await ctx.elicit(...)`). Matches the planned MP-MEMO-POC.create_memo signature as the canonical example.</scenario-4>
+        <scenario-5 kind="success" evidence="document" status="planned">Honest assessment of what cannot be salvaged: any legacy tool whose semantics conflict with the new product shape is explicitly listed for deprecation with a 1-line rationale. Empty list is acceptable if everything migrates cleanly; an empty section requires a "no deprecations" note rather than silence.</scenario-5>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>(none — design module has no runtime path)</marker-1>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>This module ships NO runtime code. If the audit produces code recommendations, they go in Phase-14 module entries, not here.</forbidden-1>
+        <forbidden-2>Audit must NOT propose merging the legacy mcp_g1 + mcp_g2 into a single new package without first surfacing what's in each — inventory before consolidation.</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SOLO — design deliverable, requires human peer review by user. Not parallelizable.</autonomy-assessment>
+    </V-MP-MCP-AUDIT>
+
+    <V-MP-MEMO-POC MODULE="MP-MEMO-POC" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/integration/test_mp_memo_poc.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mp_memo_poc.py -x</check-1>
+        <check-2>ruff check src/mint_python/mcp/memo.py</check-2>
+        <check-3>mypy src/mint_python/mcp/memo.py</check-3>
+        <check-4>Manual smoke through Claude Desktop (documented procedure in docs/memo-poc-smoke.md)</check-4>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">Full intent: create_memo(intent="Memo from Mikhail (CFO) to Board on 2026-05-15 about Q2 revenue trends. Q2 revenue grew 13%...", source_md=None, ctx=fake_ctx) extracts all 5 fields heuristically; ctx.elicit is NEVER called. Returns {"path": ..., "audit_id": ..., "fields_elicited": []}.</scenario-1>
+        <scenario-2 kind="success" evidence="trace" status="planned">Single missing field: intent without an explicit recipient triggers exactly one ctx.elicit call with field name "recipient" and a non-empty prompt message. Test injects a fake ctx that records elicit invocations; asserts call count == 1 and the requested field == "recipient".</scenario-2>
+        <scenario-3 kind="success" evidence="trace" status="planned">Multi-round elicitation: intent missing both sender and date triggers two elicit calls in declaration order (sender first, then date). fields_elicited in result == ["sender", "date"].</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic" status="planned">Elicitation rejected: ctx.elicit returns ElicitResult(action="reject") for the first missing field. Tool raises MEMO_ELICITATION_REJECTED with the rejected field name. No docx is produced; no GRACE manifest emitted.</scenario-4>
+        <scenario-5 kind="success" evidence="integration" status="planned">Lenient validation: the docx produced by a successful create_memo run passes MP-VALIDATE.run_checks(level="lenient") with hard_count=0.</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="planned">Klawd visual: word/styles.xml in the saved docx contains `1B3A5C` (klawd primary), `Arial`, and `333333` (klawd body). This is the same regression guard pattern as test_klawd_preset_visually_applied_to_saved_styles_xml — mismatch indicates apply_preset_to_doc regressed.</scenario-6>
+        <scenario-7 kind="success" evidence="integration" status="planned">GRACE injection: the saved docx has the urn:mint:grace:2026:manifest Custom XML Part. The manifest's instructions list contains a memo-poc-specific entry naming the audit_id, model identity (from ctx if available, else "anonymous"), timestamp, and fields_elicited.</scenario-7>
+        <scenario-8 kind="success" evidence="trace" status="planned">Log markers fire in this order per create_memo run: BLOCK_PARSE_INTENT (once), BLOCK_ELICIT_FIELD (zero or more, one per missing field), BLOCK_BUILD_DOCX (once), BLOCK_INJECT_GRACE (once). All under [MP-Memo] prefix.</scenario-8>
+        <scenario-9 kind="success" evidence="manual" status="planned">Manual Claude Desktop smoke: run the memo-poc-smoke.md procedure end-to-end with a real Claude Desktop client. Expected: form prompts appear in the Claude Desktop UI for missing fields; user-provided values flow back; final docx download link appears in the Claude reply. Failure of any step is documented as a follow-up issue, not a test-suite failure (out of CI's reach).</scenario-9>
+      </scenarios>
+      <required-log-markers>
+        <marker-1>[MP-Memo][create][BLOCK_PARSE_INTENT] — once per create_memo call; payload: source_md_present, fields_extracted_heuristically</marker-1>
+        <marker-2>[MP-Memo][elicit][BLOCK_ELICIT_FIELD] — zero or more per call; payload: field_name, accepted_or_rejected</marker-2>
+        <marker-3>[MP-Memo][build][BLOCK_BUILD_DOCX] — once on the success path; payload: output_path, docx_size_bytes</marker-3>
+        <marker-4>[MP-Memo][grace][BLOCK_INJECT_GRACE] — once on success; payload: audit_id, instructions_count</marker-4>
+      </required-log-markers>
+      <forbidden-behaviors>
+        <forbidden-1>create_memo MUST NOT call an LLM directly — the only LLM interaction is via the connected MCP client through ctx.elicit / ctx.sample. Direct httpx / openai / anthropic invocation is forbidden.</forbidden-1>
+        <forbidden-2>MUST NOT emit raw OOXML XML in any return value or log. The MCP client never sees XML — only paths, audit ids, and structured field reports.</forbidden-2>
+        <forbidden-3>Memo template structure (which fields, in what order, what blocks) MUST live in templates/memo.yaml, NOT embedded in src/mint_python/mcp/memo.py. This is the "design as data, not code" rule applied to this module.</forbidden-3>
+        <forbidden-4>MUST NOT introduce a custom session-state convention (start_session / continue_session). All multi-turn dialog goes through ctx.elicit() — the spec-native primitive — so the server composes with elicitation-aware MCP clients (Claude Desktop, Copilot, Cursor, FastMCP-based hosts).</forbidden-4>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-CAREFUL — integration tests use a fake fastmcp.Context; manual smoke is single-user against a single Claude Desktop instance. Module-local pytest runs are parallel-safe; the manual step is not parallelizable but isn't gated by CI.</autonomy-assessment>
+    </V-MP-MEMO-POC>
+
   </ModuleVerification>
 
   <PhaseGates>
