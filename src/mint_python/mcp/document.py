@@ -317,34 +317,91 @@ _TEMPLATES_DIR = (
 )
 
 
-def _template_path(doc_type: str) -> Path:
-    """Resolve templates/<doc_type>.yaml. Pure function so tests can monkeypatch
-    _TEMPLATES_DIR; W2 (MP-TEMPLATES-REGISTRY) replaces this with a registry
-    walk that handles versioned siblings."""
-    return _TEMPLATES_DIR / f"{doc_type}.yaml"
+_VERSIONED_TEMPLATE_RE = re.compile(
+    r"^(?P<name>[a-zA-Z0-9_-]+?)_v(?P<version>\d+\.\d+)\.yaml$"
+)
+
+
+def _template_paths(doc_type: str) -> list[Path]:
+    """All YAML files that contribute to `doc_type` — the canonical
+    `<doc_type>.yaml` baseline plus any `<doc_type>_v<semver>.yaml`
+    siblings authored via update_template (Phase-14 W3). Sorted by
+    ascending semver so callers can pick the latest with paths[-1] (or
+    pick a specific version by inspecting each file's `version` field).
+    """
+    if not _TEMPLATES_DIR.exists():  # pragma: no cover — repo layout invariant
+        return []
+    candidates: list[tuple[tuple[int, ...], Path]] = []
+    for path in _TEMPLATES_DIR.glob("*.yaml"):
+        # _audit.jsonl is jsonl not yaml so this is defensive only.
+        if path.name.startswith("_"):  # pragma: no cover
+            continue
+        if path.stem == doc_type:
+            # Canonical baseline; version comes from inside YAML — read
+            # it once cheaply to compare against sibling versions.
+            try:
+                raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            except yaml.YAMLError:  # pragma: no cover — registry validates load earlier
+                continue
+            v = str(raw.get("version", "0.0"))
+            candidates.append((_semver_tuple(v), path))
+            continue
+        m = _VERSIONED_TEMPLATE_RE.match(path.name)
+        if m and m.group("name") == doc_type:
+            candidates.append((_semver_tuple(m.group("version")), path))
+    candidates.sort(key=lambda item: item[0])
+    return [p for _v, p in candidates]
+
+
+def _semver_tuple(version: str) -> tuple[int, ...]:
+    """Parse "1.10" → (1, 10) for ordered comparison. Values that fail
+    to parse fall back to (0, 0) so a malformed version sorts to the
+    bottom rather than crashing template resolution — registry catches
+    real schema problems via TemplateInvalidSchema at its own load
+    boundary."""
+    try:
+        return tuple(int(part) for part in version.split("."))
+    except ValueError:  # pragma: no cover — registry validates version syntax upstream
+        return (0, 0)
 
 
 def _available_doc_types() -> list[str]:
-    """List doc_types discoverable in templates/ — the names of *.yaml files,
-    minus the .yaml suffix. Used to compose DOC_TYPE_NOT_FOUND messages so
-    the connected model can suggest a valid name."""
+    """List doc_types discoverable in templates/ — derived from the union
+    of canonical `<name>.yaml` stems and `<name>_v<semver>.yaml` name
+    prefixes. Used to compose DOC_TYPE_NOT_FOUND messages so the
+    connected model can suggest a valid name."""
     if not _TEMPLATES_DIR.exists():  # pragma: no cover — repo layout invariant
         return []
-    return sorted(p.stem for p in _TEMPLATES_DIR.glob("*.yaml"))
+    types: set[str] = set()
+    for path in _TEMPLATES_DIR.glob("*.yaml"):
+        if path.name.startswith("_"):  # pragma: no cover — defensive
+            continue
+        m = _VERSIONED_TEMPLATE_RE.match(path.name)
+        if m:
+            types.add(m.group("name"))
+        else:
+            types.add(path.stem)
+    return sorted(types)
 
 
 @dataclass
 class DocumentTemplate:
-    """Loaded templates/<doc_type>.yaml — the data-driven document layout."""
+    """Loaded templates/<doc_type>.yaml — the data-driven document layout.
+
+    The `author` field carries the identity recorded by update_template
+    (Phase-14 W3) when this version was authored. Empty string for the
+    canonical baselines that pre-date the audit trail."""
 
     name: str
     version: str
     required_fields: tuple[str, ...]
     layout: list[dict[str, Any]] = field(default_factory=list)
+    author: str = ""
 
 
 def _load_template(doc_type: str) -> DocumentTemplate:
-    """Look up templates/<doc_type>.yaml and parse it into a DocumentTemplate.
+    """Look up the LATEST version of `doc_type` (canonical baseline or
+    highest-semver sibling, whichever is newer) and parse it.
 
     Raises:
         DocumentTypeNotFound: when no template file exists for this doc_type
@@ -353,19 +410,21 @@ def _load_template(doc_type: str) -> DocumentTemplate:
             registry-walk time but disappeared by load-time. Kept distinct
             from DOC_TYPE_NOT_FOUND so future log triage can tell them apart.
     """
-    path = _template_path(doc_type)
-    if not path.exists():
+    paths = _template_paths(doc_type)
+    if not paths:
         available = _available_doc_types()
         raise DocumentTypeNotFound(
             f"DOC_TYPE_NOT_FOUND: no template for doc_type={doc_type!r}. "
             f"Available: {', '.join(available) if available else '(none)'}"
         )
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    latest_path = paths[-1]
+    raw = yaml.safe_load(latest_path.read_text(encoding="utf-8"))
     return DocumentTemplate(
         name=str(raw.get("name", doc_type)),
         version=str(raw.get("version", "1.0")),
         required_fields=tuple(raw.get("required_fields", ())),
         layout=list(raw.get("layout", [])),
+        author=str(raw.get("_authored_by", "")),
     )
 
 
@@ -760,7 +819,13 @@ async def _run_pipeline(
     # to this generation; fields_elicited records what came from the user
     # vs the heuristic.
     audit_instructions = list(
-        _audit_instructions(audit_id, fields_elicited, doc_type, template.version)
+        _audit_instructions(
+            audit_id,
+            fields_elicited,
+            doc_type,
+            template.version,
+            template_author=template.author,
+        )
     )
     manifest = grace_bootstrap(
         document_path=output_path,
@@ -852,21 +917,23 @@ def _audit_instructions(
     fields_elicited: list[str],
     doc_type: str,
     template_version: str,
+    template_author: str = "",
 ) -> list[str]:
     """Compose the GRACE manifest instruction list for this run.
 
     Includes the audit_id (cross-reference to logs), elicited-field list
     (provenance: user vs heuristic), doc_type + template_version (so the
-    docx records which template authored its layout — Phase-14 W3 grows
-    this into a full author-chain via templates/_audit.jsonl), and a
-    timestamp. Backwards-compat: the legacy `generated_by=MP-MEMO-POC`
-    line stays for memo doc_type so existing tests' substring asserts on
-    the manifest XML keep matching; other doc_types record MP-DOC-GENERIC
-    instead.
+    docx records which template authored its layout) + template_author
+    when present (Phase-14 W3 records who wrote the template version
+    that produced this document — closes the cross-model handoff
+    audit-trail gap). Backwards-compat: the legacy
+    `generated_by=MP-MEMO-POC` line stays for memo doc_type so existing
+    tests' substring asserts on the manifest XML keep matching; other
+    doc_types record MP-DOC-GENERIC instead.
     """
     timestamp = datetime.now(tz=UTC).isoformat()
     generator = "MP-MEMO-POC" if doc_type == "memo" else "MP-DOC-GENERIC"
-    return [
+    instructions = [
         f"audit_id={audit_id}",
         f"generated_by={generator}",
         f"generated_at={timestamp}",
@@ -875,6 +942,9 @@ def _audit_instructions(
         f"template_version={template_version}",
         "preset=klawd",
     ]
+    if template_author:
+        instructions.append(f"template_author={template_author}")
+    return instructions
 
 
 @server.tool

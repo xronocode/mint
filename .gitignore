@@ -41,3 +41,11 @@ tests/output/
 .last_assembled.js
 .coverage
 ~$*.docx
+
+# Phase-14 W3 — template versioning audit log + locally-authored sibling
+# templates. The canonical templates/<name>.yaml baselines stay tracked;
+# update_template-authored memo_v1.1.yaml etc. are local development
+# artifacts (the real lineage lives in the GRACE manifest of produced
+# docs + the per-machine _audit.jsonl).
+templates/_audit.jsonl
+templates/*_v*.yaml
