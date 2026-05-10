@@ -1781,6 +1781,98 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-CAREFUL — integration tests use FakeMCPContext (deterministic) and are parallel-safe within tests/integration/test_mp_memo_poc.py. The wave-level FastMCP-stdio harness uses an isolated subprocess per test; safe for parallel runs. The manual smoke through Claude Desktop is single-user, single-instance, NOT parallelizable, and explicitly out of CI scope.</autonomy-assessment>
     </V-MP-MEMO-POC>
 
+    <V-MP-DOC-GENERIC MODULE="MP-DOC-GENERIC" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/integration/test_mp_doc_generic.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mp_doc_generic.py -x</check-1>
+        <check-2>ruff check src/mint_python/mcp/document.py</check-2>
+        <check-3>mypy src/mint_python/mcp/document.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">create_document(intent, doc_type='memo') reproduces V-MP-MEMO-POC scenario-1 byte-for-byte (same docx structure, same klawd visual, same GRACE manifest schema). Backwards-compat baseline.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="planned">Legacy create_memo alias delegates to create_document(doc_type='memo'); existing FakeMCPContext-driven tests in test_mp_memo_poc.py continue to pass without edits during the transition window.</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic" status="planned">create_document(doc_type='nonexistent') raises DOC_TYPE_NOT_FOUND with the available doc_types listed in the message.</scenario-3>
+        <scenario-4 kind="success" evidence="integration" status="planned">create_document(doc_type='letter') uses templates/letter.yaml — different required_fields drive different elicitation order, different layout, klawd preset still applied. Proves the pipeline is genuinely doc-type agnostic.</scenario-4>
+        <scenario-5 kind="success" evidence="trace" status="planned">[MP-Doc][create][BLOCK_PARSE_INTENT] carries doc_type and template_version in the payload. Cross-module evidence chain otherwise unchanged.</scenario-5>
+        <scenario-6 kind="success" evidence="deterministic" status="planned">structured_content shape extends MEMO-POC's with doc_type and template_version fields. Existing consumers reading {status, path, audit_id, fields_elicited} still work.</scenario-6>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>create_document MUST NOT contain per-doc_type if/else branches. Specialization comes ONLY from templates/&lt;doc_type&gt;.yaml.</forbidden-1>
+        <forbidden-2>The legacy create_memo alias MUST keep working until at least one Claude Desktop session has been confirmed broken-free against it on a real conversation.</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-CAREFUL — refactor of an existing tested module; high regression risk if the alias breaks. Module-local tests must include a parity-with-MEMO-POC baseline before scope expands.</autonomy-assessment>
+    </V-MP-DOC-GENERIC>
+
+    <V-MP-TEMPLATES-REGISTRY MODULE="MP-TEMPLATES-REGISTRY" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/integration/test_mp_templates_registry.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mp_templates_registry.py -x</check-1>
+        <check-2>ruff check src/mint_python/templates/registry.py</check-2>
+        <check-3>mypy src/mint_python/templates/registry.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">list_templates returns at least two entries (memo + letter) after templates/letter.yaml lands; each entry carries name, version, doc_type, description, last_modified.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="planned">get_template('memo') returns the parsed YAML as a dict matching templates/memo.yaml content; required_fields tuple matches MEMO_REQUIRED_FIELDS.</scenario-2>
+        <scenario-3 kind="failure" evidence="deterministic" status="planned">get_template('nonexistent') raises TEMPLATE_NOT_FOUND naming the available templates.</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic" status="planned">A malformed YAML in templates/ surfaces as TEMPLATE_INVALID_SCHEMA at registry-load time, not at create_document call-time. Fail-fast.</scenario-4>
+        <scenario-5 kind="success" evidence="trace" status="planned">[MP-Templates][load][BLOCK_LOAD_REGISTRY] fires once at registry init with payload {templates_count, doc_types, total_versions}.</scenario-5>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>Registry MUST NOT mutate templates/ on read paths. Write side lives in MP-TEMPLATES-WRITE.</forbidden-1>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — read-only over a known directory; no shared state; tests use tmp_path-isolated registry instances.</autonomy-assessment>
+    </V-MP-TEMPLATES-REGISTRY>
+
+    <V-MP-TEMPLATES-WRITE MODULE="MP-TEMPLATES-WRITE" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/integration/test_mp_templates_write.py</file>
+        <file status="planned">tests/integration/test_mp_cross_model_handoff.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mp_templates_write.py -x</check-1>
+        <check-2>ruff check src/mint_python/templates/registry.py</check-2>
+        <check-3>mypy src/mint_python/templates/registry.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">update_template('memo', new_yaml, author='Claude') writes templates/memo_v1.1.yaml (semver bump from existing 1.0); returns {name, version, audit_id, predecessor_version}; templates/_audit.jsonl gains one entry.</scenario-1>
+        <scenario-2 kind="failure" evidence="deterministic" status="planned">update_template without author elicits author via ctx.elicit; on decline raises with reason naming the missing field.</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="planned">After update, list_templates surfaces both memo_v1.0 and memo_v1.1; get_template('memo', version='latest') returns 1.1; older versions remain accessible.</scenario-3>
+        <scenario-4 kind="success" evidence="integration" status="planned">create_document with the new template version produces a docx whose GRACE manifest names {template, template_version, template_author} — lineage embedded in audit-trail.</scenario-4>
+        <scenario-5 kind="success" evidence="manual" status="planned">Cross-model handoff demo per docs/cross-model-handoff-smoke.md: Claude Desktop edits template (low-sensitivity), local-LLM client uses updated version with sensitive data, GRACE manifest reflects the chain.</scenario-5>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>update_template MUST NEVER overwrite an existing version file. Conflicts surface as TEMPLATE_VERSION_CONFLICT.</forbidden-1>
+        <forbidden-2>Audit log MUST be append-only.</forbidden-2>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-CAREFUL — writes to a shared directory; tests use tmp_path-isolated MINT_TEMPLATES_DIR override; concurrent-write safety documented but not enforced (single-process MCP server assumption).</autonomy-assessment>
+    </V-MP-TEMPLATES-WRITE>
+
+    <V-MP-MCP-RESOURCES MODULE="MP-MCP-RESOURCES" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-10">
+      <test-files>
+        <file status="planned">tests/integration/test_mp_mcp_resources.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/integration/test_mp_mcp_resources.py -x</check-1>
+        <check-2>ruff check src/mint_python/mcp/resources.py</check-2>
+        <check-3>mypy src/mint_python/mcp/resources.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic" status="planned">resources/list returns mint://template/memo, mint://template/letter, mint://preset/klawd, mint://preset/claret_serif and the other 3 builtin presets. Each entry has name, mimeType, description.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic" status="planned">resources/read mint://template/memo returns the YAML content with mimeType=application/x-yaml.</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic" status="planned">list_presets / get_preset tools mirror the resources protocol for clients without resources/list support; same data, different surface.</scenario-3>
+        <scenario-4 kind="failure" evidence="deterministic" status="planned">resources/read mint://template/nonexistent returns RESOURCE_NOT_FOUND.</scenario-4>
+        <scenario-5 kind="failure" evidence="deterministic" status="planned">resources/read of a malformed URI returns RESOURCE_URI_INVALID with the supported schemes named.</scenario-5>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>Resource handlers MUST NOT expose anything outside templates/ and presets/ — no general filesystem read.</forbidden-1>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-SAFE — read-only resource handlers; no shared state.</autonomy-assessment>
+    </V-MP-MCP-RESOURCES>
+
   </ModuleVerification>
 
   <PhaseGates>
