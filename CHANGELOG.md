@@ -5,6 +5,55 @@ All notable changes to MINT — Model-Independent Normalization Toolkit.
 The format is loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow PEP 440.
 
+## [0.4.0a2] — 2026-05-10
+
+### Fixed — preset wiring (post-alpha bug discovered while porting claret_serif)
+- **`with_style_preset(name)` now actually applies the preset's typography
+  to the rendered docx.** Previously it only stored the loaded preset in
+  `Document._preset` and never consumed it; rendering went through python-
+  docx's stock `Heading 1/2/3` styles (Calibri-themed accent1 BF), so all
+  presets — `klawd`, `alga_corporate`, `minimal`, `compact`, `claret_serif`
+  — produced **visually identical** documents. The 0.4.0a1 alpha-baseline
+  experiment shipped under this bug; the docx artifacts in
+  `experiments/2026-05-10-alpha-baseline/round-{1,2}/` therefore use Word
+  defaults, not Anthropic baseline. Future runs through a regenerated
+  pipeline will reflect the preset visually.
+- New helper `mint_python.core.style.apply_preset_to_doc(doc, preset)` —
+  walks `doc.styles["Heading 1" / "Heading 2" / "Heading 3" / "Normal" /
+  "Caption"]` and overwrites font, size, bold/italic, color, and
+  paragraph spacing from the corresponding preset entry. Wired into
+  `Document.save()` before any content is rendered, so every block
+  inherits the preset through OOXML's style chain — no per-paragraph
+  overrides needed.
+- Defensive: silently skips preset fields the SimpleNamespace doesn't
+  carry (e.g. a preset without `caption`) and built-in styles missing
+  from a custom docx template.
+
+### Added — second YAML preset
+- **`claret_serif`** — editorial claret + antique gold serif preset,
+  ported from the v1 `src/mint/themes/claret_serif.toml`. Different on
+  every axis from `klawd`: Georgia (serif) instead of Arial; deep claret
+  `#7A1F2B` primary instead of navy `#1B3A5C`; cream paper background;
+  18pt H1 instead of 16pt; looser body rhythm (8pt after, 1.25 line
+  height). Demonstrates the preset abstraction is real once the wiring
+  is fixed — same content + builder, only `with_style_preset()` flipped,
+  produces a visibly distinct document.
+
+### Tests
+- New `test_klawd_preset_visually_applied_to_saved_styles_xml` — regression
+  guard parsing `word/styles.xml` after save and asserting klawd's
+  `#1B3A5C`, `Arial`, and `#333333` are actually present.
+- New `test_klawd_vs_claret_serif_produce_visually_distinct_styles` —
+  the litmus test: same blocks, two presets, styles.xml must differ on
+  font + color signatures.
+- Two unit tests on `apply_preset_to_doc` covering the missing-preset-
+  field and missing-template-style branches.
+- Suite: 742 passed (was 740), 6 skipped, 100% coverage on
+  `src/mint_python/`. CI gates regenerated baselines for `test_mp_e2e`
+  and `test_mp_chart_e2e` via `MP_E2E_WRITE_BASELINE=1` /
+  `MP_CHART_E2E_WRITE_BASELINE=1` (the structural fingerprints shifted
+  because styles.xml now reflects the preset).
+
 ## [0.4.0a1] — 2026-05-10 — **Alpha Release**
 
 First public alpha. The Pure Python Edition has reached the surface coverage,

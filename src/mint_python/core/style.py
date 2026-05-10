@@ -98,6 +98,7 @@ BUILTIN_PRESETS: Mapping[str, Path] = MappingProxyType(
         "minimal": _PRESETS_DIR / "minimal.json",
         "compact": _PRESETS_DIR / "compact.json",
         "klawd": _PRESETS_DIR / "klawd.yaml",
+        "claret_serif": _PRESETS_DIR / "claret_serif.yaml",
     }
 )
 
@@ -506,6 +507,76 @@ def load_preset(
 # END_BLOCK_LOAD_PRESET
 
 
+# ---------------------------------------------------------------------------
+# apply_preset_to_doc — wire a loaded preset to python-docx built-in styles
+# ---------------------------------------------------------------------------
+
+
+# START_BLOCK_APPLY_PRESET
+def apply_preset_to_doc(doc: Any, preset: SimpleNamespace) -> None:
+    """Apply a preset to a python-docx Document's built-in styles.
+
+    Without this call, ``with_style_preset(name)`` only loads the preset
+    DATA into ``Document._preset``; rendering through
+    ``DocxDocument.add_heading(text, level=N)`` then uses python-docx's
+    stock ``Heading 1/2/3`` styles (Calibri-themed accent1 BF), so the
+    preset is visually invisible.
+
+    Mapping (preset name → docx built-in style):
+        heading1   → "Heading 1"
+        heading2   → "Heading 2"
+        heading3   → "Heading 3"
+        body       → "Normal"
+        caption    → "Caption"   (skipped if not present in this docx)
+
+    For each, we set font.name, font.size, font.bold/italic, font.color.rgb
+    (from the preset's ``#RRGGBB`` string), plus paragraph_format
+    space_before/space_after from ``spacing_*_pt``. Line height isn't
+    applied at the style level because docx's line_spacing semantics
+    differ between python-docx versions and we don't want to regress.
+    """
+    from docx.shared import Pt as DocxPt
+    from docx.shared import RGBColor
+
+    style_map = {
+        "Heading 1": getattr(preset, "heading1", None),
+        "Heading 2": getattr(preset, "heading2", None),
+        "Heading 3": getattr(preset, "heading3", None),
+        "Normal": getattr(preset, "body", None),
+        "Caption": getattr(preset, "caption", None),
+    }
+    applied: list[str] = []
+    for docx_style_name, mint_style in style_map.items():
+        if mint_style is None:
+            continue
+        try:
+            docx_style = doc.styles[docx_style_name]
+        except KeyError:  # style not present in this template — skip cleanly
+            continue
+        font = docx_style.font
+        font.name = mint_style.font
+        font.size = DocxPt(mint_style.size_pt)
+        font.bold = mint_style.bold
+        font.italic = mint_style.italic
+        # Color comes in as "#RRGGBB"; python-docx wants the 6 hex digits.
+        hex_value = (mint_style.color_hex or "").lstrip("#")
+        if len(hex_value) == 6:
+            font.color.rgb = RGBColor.from_string(hex_value)
+        pf = docx_style.paragraph_format
+        if mint_style.spacing_before_pt is not None:
+            pf.space_before = DocxPt(mint_style.spacing_before_pt)
+        if mint_style.spacing_after_pt is not None:
+            pf.space_after = DocxPt(mint_style.spacing_after_pt)
+        applied.append(docx_style_name)
+
+    logger.info(
+        "[MP-Style][apply_preset_to_doc][BLOCK_APPLY_PRESET] "
+        "applied=%s",
+        applied,
+    )
+# END_BLOCK_APPLY_PRESET
+
+
 __all__ = [
     "BUILTIN_PRESETS",
     "STYLE_PRESET_INVALID_SCHEMA",
@@ -514,5 +585,6 @@ __all__ = [
     "ColorPalette",
     "Pt",
     "Style",
+    "apply_preset_to_doc",
     "load_preset",
 ]
