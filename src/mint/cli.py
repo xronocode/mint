@@ -1,29 +1,34 @@
 # FILE: src/mint/cli.py
-# VERSION: 0.1.0
+# VERSION: 0.4.0
 # START_MODULE_CONTRACT
 #   PURPOSE: CLI entry point for MINT runtime
-#   SCOPE: argparse CLI with subcommands: serve, validate, fix, fingerprint, create, extract
-#   DEPENDS: M-MCP-G1, M-MCP-G2, M-VALIDATE, M-FIX, M-FINGERPRINT, M-CREATE, M-EXTRACT
+#   SCOPE: argparse CLI with subcommands: validate, fix, fingerprint,
+#          extract, edit, theme. The MCP server entry point lives in
+#          src/mint_python/mcp/document.py and is invoked directly
+#          (Phase-15 W3 removed `mint serve` + the legacy JS engine path).
+#   DEPENDS: M-VALIDATE, M-FIX, M-FINGERPRINT, M-EXTRACT, M-EDIT, M-THEME
 #   LINKS: docs/knowledge-graph.xml
 # END_MODULE_CONTRACT
 #
 # START_MODULE_MAP
 #   main - CLI entry point with argument parsing
-#   cmd_serve - start MCP server (G1+G2)
 #   cmd_validate - validate document
 #   cmd_fix - auto-fix document
 #   cmd_fingerprint - compute style fingerprint
-#   cmd_create - generate document
 #   cmd_extract - extract design tokens
-#   cmd_edit - apply EditPlan JSON to existing DOCX (Phase-5)
-#   _select_engine - Phase-6 dual-engine dispatch chokepoint
-#   BLOCK_DISPATCH - js-path positive signal: fires after _select_engine returns 'js',
-#                    before cmd_* lookup; absent on python path (NotImplementedError raises first)
+#   cmd_edit - apply EditPlan JSON to existing DOCX
+#   cmd_theme - manage MINT design themes (list/show/extract)
 # END_MODULE_MAP
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.3.0 - Phase-6: added top-level --engine flag + _select_engine
-#                chokepoint with BLOCK_SELECT_ENGINE marker
+#   LAST_CHANGE: v0.4.0 - Phase-15 Wave-15-3 (MP-LEGACY-DEPRECATION):
+#                removed cmd_serve (mounted deleted mcp_g1+mcp_g2),
+#                removed cmd_create (called deleted mint.create),
+#                removed --engine flag + _select_engine_from_env chokepoint
+#                + BLOCK_DISPATCH/BLOCK_SELECT_ENGINE markers. Pure-python
+#                is now the only execution surface.
+#   PRIOR:       v0.3.0 - Phase-6: added top-level --engine flag +
+#                _select_engine chokepoint with BLOCK_SELECT_ENGINE marker.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -31,34 +36,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 
-from mint.config import DEFAULT_ENGINE, Engine
-
 logger = logging.getLogger("mint.cli")
-
-
-def cmd_serve(args: argparse.Namespace) -> None:
-    from mint.mcp_g1 import mcp as g1_server
-    from mint.mcp_g2 import mcp_g2 as g2_server
-
-    transport = getattr(args, "transport", "stdio")
-    if transport == "stdio":
-        from fastmcp import FastMCP
-
-        merged = FastMCP("MINT")
-        merged.mount(g1_server)
-        merged.mount(g2_server)
-        merged.run(transport="stdio")
-    else:
-        from fastmcp import FastMCP
-
-        merged = FastMCP("MINT")
-        merged.mount(g1_server)
-        merged.mount(g2_server)
-        merged.run(transport="sse", host=args.host, port=args.port)
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
@@ -119,58 +100,6 @@ def cmd_fingerprint(args: argparse.Namespace) -> None:
         "xml_sources": result.xml_sources,
     }
     print(json.dumps(output, indent=2))
-
-
-def cmd_create(args: argparse.Namespace) -> None:
-    from mint.create import CreateRequest, create
-
-    rules_dir = Path(args.rules_dir) if args.rules_dir else None
-    skills_dir = Path(args.skills_dir) if args.skills_dir else None
-    templates_dir = Path(args.templates_dir) if args.templates_dir else None
-
-    design_tokens = None
-    if args.design_tokens:
-        design_tokens = json.loads(args.design_tokens)
-
-    model_response = None
-    if args.model_response_file:
-        model_response = Path(args.model_response_file).read_text()
-
-    prompt_text = args.prompt
-    for var in args.var:
-        if "=" not in var:
-            print(f"Error: --var expects KEY=VALUE, got '{var}'", file=sys.stderr)
-            sys.exit(1)
-        key, value = var.split("=", 1)
-        prompt_text = prompt_text.replace(f"{{{{{key}}}}}", value)
-
-    req = CreateRequest(
-        format=args.format,
-        tier=args.tier,
-        prompt=prompt_text,
-        design_tokens=design_tokens,
-        template_name=args.template,
-        model_response_override=model_response,
-        llm_base_url=args.llm_base_url,
-        llm_api_key=args.llm_api_key,
-        llm_model=args.llm_model,
-    )
-    result = create(
-        req,
-        skills_dir=skills_dir,
-        templates_dir=templates_dir,
-        rules_dir=rules_dir,
-    )
-    output = {
-        "success": result.success,
-        "output_path": str(result.output_path) if result.output_path else None,
-        "execution_mode": result.execution_mode,
-        "duration_ms": result.duration_ms,
-        "error": result.error,
-    }
-    print(json.dumps(output, indent=2))
-    if not result.success:
-        sys.exit(1)
 
 
 def cmd_extract(args: argparse.Namespace) -> None:
@@ -321,23 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="mint",
         description="MINT Runtime — Model-Independent Normalization Toolkit",
     )
-    parser.add_argument(
-        "--engine",
-        choices=["python", "js"],
-        default=None,
-        help=(
-            "Execution engine override (env: MINT_ENGINE; default: python). "
-            "In Phase-6 (Phase 0) only --engine js is implemented; "
-            "--engine python raises NotImplementedError."
-        ),
-    )
     sub = parser.add_subparsers(dest="command", required=True)
-
-    # serve
-    srv = sub.add_parser("serve", help="Start MCP server (G1+G2 tools)")
-    srv.add_argument("--transport", default="stdio", choices=["stdio", "sse"])
-    srv.add_argument("--host", default="127.0.0.1")
-    srv.add_argument("--port", type=int, default=8080)
 
     # validate
     val = sub.add_parser("validate", help="Validate OOXML document")
@@ -353,23 +266,6 @@ def build_parser() -> argparse.ArgumentParser:
     # fingerprint
     fp = sub.add_parser("fingerprint", help="Compute style fingerprint")
     fp.add_argument("document", help="Path to DOCX or PPTX file")
-
-    # create
-    cr = sub.add_parser("create", help="Generate document")
-    cr.add_argument("format", choices=["docx", "pptx"], help="Output format")
-    cr.add_argument("prompt", help="Document creation prompt")
-    cr.add_argument("--tier", default="frontier", choices=["small", "medium", "frontier"])
-    cr.add_argument("--model-response-file", default=None, help="File with model JS code or JSON")
-    cr.add_argument("--template", default=None, help="Template name for small tier")
-    cr.add_argument("--design-tokens", default=None, help="Design tokens JSON string")
-    cr.add_argument("--rules-dir", default=None)
-    cr.add_argument("--skills-dir", default=None)
-    cr.add_argument("--templates-dir", default=None)
-    cr.add_argument("--llm-base-url", default=None, help="LLM API base URL")
-    cr.add_argument("--llm-api-key", default=None, help="LLM API key")
-    cr.add_argument("--llm-model", default=None, help="LLM model name")
-    cr.add_argument("--var", action="append", default=[], metavar="KEY=VALUE",
-                     help="Template variable substitution (repeatable)")
 
     # extract
     ex = sub.add_parser("extract", help="Extract design tokens from document")
@@ -415,41 +311,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _select_engine_from_env() -> str:
-    """Phase-6 dual-engine dispatch chokepoint.
-
-    Returns 'js' on Engine.JS; raises NotImplementedError on Engine.PYTHON
-    until handover Phases 1-5 populate src/mint_python/. Reads MINT_ENGINE
-    directly from the environment so read-only commands (validate /
-    fingerprint / extract / edit) don't have to load the full LLM config.
-    """
-    engine_str = os.environ.get("MINT_ENGINE", DEFAULT_ENGINE).strip().lower()
-    # START_BLOCK_SELECT_ENGINE
-    logger.info("[CLI][_select_engine][BLOCK_SELECT_ENGINE] engine=%s", engine_str)
-    # END_BLOCK_SELECT_ENGINE
-    if engine_str == Engine.PYTHON.value:
-        raise NotImplementedError(
-            "MINT_ENGINE=python is not implemented yet (Phase 0 skeleton). "
-            "Use MINT_ENGINE=js or pass --engine js."
-        )
-    return engine_str
-
-
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    if getattr(args, "engine", None) is not None:
-        os.environ["MINT_ENGINE"] = args.engine
-    _select_engine_from_env()
-    # START_BLOCK_DISPATCH
-    logger.info("[CLI][main][BLOCK_DISPATCH] command=%s", args.command)
-    # END_BLOCK_DISPATCH
     commands = {
-        "serve": cmd_serve,
         "validate": cmd_validate,
         "fix": cmd_fix,
         "fingerprint": cmd_fingerprint,
-        "create": cmd_create,
         "extract": cmd_extract,
         "edit": cmd_edit,
         "theme": cmd_theme,
