@@ -178,6 +178,67 @@ In `docs/*.xml`, repeated entities must use their unique ID as the XML tag name 
 - single-use structural wrappers like `<contract>`, `<inputs>`, `<outputs>`, `<annotations>`, `<test-files>`, `<module-checks>`, and `<phase-gates>` stay generic
 - code-level markup already uses unique names and stays as-is
 
+## Subagent Delegation Protocol
+
+Use the runner's subagent tool (Claude Code: `Agent` / `Task`; other
+runners have equivalents) where it saves tokens — and skip it where
+the overhead of delegation outweighs the win.
+
+### When to delegate
+
+- **Codebase exploration / discovery**: "where is X used?", "which
+  files import Y?". Prefer the runner's dedicated explore agent if
+  available (Claude Code: `Explore`).
+- **Multi-file mechanical refactor**: rename a symbol across >3 files,
+  migrate an API across many modules.
+- **Net-new files where deep context isn't needed**: a new utility
+  module, a new test file from a clear spec.
+- **Research tasks**: "how does FastMCP do X?", "what does the MCP
+  spec say about Y?".
+- **Independent parallel tasks**: launch them in a single message with
+  multiple subagent calls — that's where the runner pays off.
+
+### When NOT to delegate
+
+- Surgical edits of 1–10 lines in an existing file. The subagent has
+  to re-read context plus pay system-prompt + tool-definition
+  overhead; net cost is higher than doing it inline.
+- Tasks whose result isn't summarizable (visual UI tweaks, fine
+  prompt rebalancing) — the orchestrator has to look anyway.
+- Tasks needing back-and-forth with the user mid-flight.
+- Anything where the orchestrator already has the relevant files in
+  context — re-loading them in a subagent is anti-pattern.
+
+### How to delegate
+
+- The brief is the `prompt` parameter to the subagent tool —
+  self-contained: objective, files to read/edit, contract refs,
+  expected output format, max response length. **Do not** write
+  briefs to disk as separate artifacts; that doubles the bookkeeping
+  and clutters git.
+- Trust but verify: read the actual diff (`git diff`) or the changed
+  files before committing a subagent's work. Its summary states
+  intent, not what landed on disk.
+- Run independent subagents in parallel (one message, multiple tool
+  calls), not sequentially.
+
+### Audit trail
+
+Git history + commit messages + GRACE artifacts (`docs/development-
+plan.xml`, `docs/verification-plan.xml`, `docs/knowledge-graph.xml`)
+are the audit trail. Do **not** create `docs/subagent/tasks/` or
+`docs/subagent/results/` — that's unbounded growth and a parallel
+source of truth that drifts from git.
+
+If a subagent made a non-trivial architectural decision, it goes in
+the commit message or the GRACE knowledge-graph — not a separate
+TASK/RESULT file.
+
+### Handover
+
+`HANDOVER-*.md` files are written **only** when the user explicitly
+asks for one — not automatically after each subagent run.
+
 ## Rules for Modifications
 
 1. Read the MODULE_CONTRACT before editing any file.
