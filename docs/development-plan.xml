@@ -2036,6 +2036,160 @@ writeFileSync('output.docx', buffer);
       </observability>
       <verification-ref>V-MP-MCP-EDIT</verification-ref>
     </MP-MCP-EDIT>
+
+    <!-- Phase 17: privacy guardrails + technical-spec doc_type + picker UX + closing Phase-16 deferrals (per HANDOVER-phase17-ready.md, driven by real-world gap analysis 2026-05-11) -->
+
+    <MP-DOC-PERSONAL-GUARD NAME="Privacy mitigations for create_document (anonymous flag + sender-optional + anonymisation reporting)" TYPE="CORE_LOGIC" LAYER="3" ORDER="43" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Mitigates the Phase-16 production gap discovered the same day MINT shipped: the calling Claude Desktop session's chat-driven elicitation fallback (project_phase13_smoke_findings — Claude Desktop doesn't support MCP elicitation) filled `sender` from its own session context (real name, company, email) without prompting the user. MINT's `_heuristic_extract` did NOT leak — but it had no way to BLOCK the leak at the elicit-prompt layer. This module adds (a) intent-flag `[anonymous]` (also "анонимно", "без личных данных") recognition that activates a heuristic blocklist on `sender`/`author`/`contact`/`from`/`to` fields, (b) marks `sender` optional in `templates/letter.yaml` so anonymous calls don't require it, (c) surfaces `anonymised: bool` + `fields_omitted: list[str]` in tool result `structured_content`. Important nuance: MINT can only MITIGATE; it CANNOT prevent a client model from filling an elicit-fallback prompt from its own context. Story is "MINT respects anonymity hints", not "MINT enforces anonymity".</purpose>
+        <inputs>
+          <param name="intent" type="str" desc="Caller intent; may contain `[anonymous]` flag or equivalent phrase" />
+          <param name="source_md" type="str | None" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="structured_content" type="dict" desc="Existing keys + anonymised: bool + fields_omitted: list[str]" />
+        </outputs>
+        <errors>
+          <error code="N/A" desc="No new error codes; existing DocumentElicitationRejected path still applies when caller declines an elicit for a non-personal-data field" />
+        </errors>
+      </contract>
+      <interface>
+        <export-_detect_anonymous_flag PURPOSE="fn-_detect_anonymous_flag(intent) -> bool — scans intent for `[anonymous]`, `anonymous`, `анонимно`, `без личных данных` (case-insensitive); ANCHORED so accidental substring matches in body text don't trip it" />
+        <export-_apply_personal_blocklist PURPOSE="fn-_apply_personal_blocklist(spec, blocklist) -> DocumentSpec — clears any heuristic-extracted values in fields in the blocklist before elicit; emits BLOCK_ANONYMISE per cleared field" />
+        <const-_PERSONAL_FIELDS PURPOSE="frozenset of field names treated as personal-data: sender, author, contact, from_, to_, signature, signer, recipient" />
+        <fn-_render_anonymisation_report PURPOSE="merges anonymised + fields_omitted into tool result structured_content; preserves all other keys" />
+      </interface>
+      <depends>existing MP-DOC-GENERIC heuristic extractor (`_heuristic_extract` in src/mint_python/mcp/document.py); existing templates/letter.yaml (1-line YAML edit to mark sender optional); no new external deps</depends>
+      <target>
+        <source>src/mint_python/mcp/document.py (edits to _heuristic_extract + _run_pipeline structured_content shape) + templates/letter.yaml (sender → optional)</source>
+        <tests>tests/integration/test_mp_doc_personal_guard.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Doc (existing) — adds BLOCK_ANONYMISE for the new path</log-prefix>
+      </observability>
+      <verification-ref>V-MP-DOC-PERSONAL-GUARD</verification-ref>
+    </MP-DOC-PERSONAL-GUARD>
+
+    <MP-DOC-TECH-SPEC NAME="Phase-17 technical-spec doc_type (demonstrates kind:table + kind:callout engine capability)" TYPE="UTILITY" LAYER="0" ORDER="44" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Closes the catalog gap surfaced in the Phase-16 same-day production test: caller asked MINT to render a technical-spec request → MINT picked `letter` (closest available) → output was a deeply wrong shape (plain-text body, no tables, sender auto-filled). Adds `templates/technical-spec.yaml` for engineering documents. **KEY DISCOVERY**: the layout walker in src/mint_python/mcp/document.py:511-540 ALREADY supports `kind: table` (Phase-14) and `kind: callout` (Phase-14 W2 smoke fix) — V-MP-DOC-BUNDLE forbidden-1 mis-froze it to heading/spacer/paragraph for the Phase-16 W1 4 doc_types worker (correct hygiene at the time, wrong as permanent architectural rule). This module DEMONSTRATES the existing engine capability via a real doc_type AND amends V-MP-DOC-BUNDLE forbidden-1 to reflect engine reality.</purpose>
+        <inputs>
+          <param name="N/A" type="—" desc="Pure data" />
+        </inputs>
+        <outputs>
+          <param name="technical-spec.yaml" type="file" desc="doc_type='technical-spec'; required_fields=(title, purpose, sections); layout uses heading + paragraph + table + callout + spacer to demonstrate full engine capability. Optional fields (sender, contact) elicit through the existing flow but are NOT in required_fields — anonymous calls work cleanly." />
+        </outputs>
+        <errors>
+          <error code="N/A" desc="No new error codes" />
+        </errors>
+      </contract>
+      <interface>
+        <yaml-technical-spec PURPOSE="templates/technical-spec.yaml — engineering doc_type with structured sections + tables (CSV schema row, calibration data row, etc.) + callout blocks for warnings / notes" />
+      </interface>
+      <depends>MP-DOC-GENERIC (consumer pipeline; layout walker already supports kind:table + kind:callout), MP-TEMPLATES-REGISTRY (schema validator), mint_python.core.table.Table (Phase-7; consumed by walker for `kind: table` rendering)</depends>
+      <target>
+        <source>templates/technical-spec.yaml</source>
+        <tests>tests/integration/test_mp_doc_tech_spec.py (end-to-end render through create_document; produced docx contains tables + callouts; GRACE manifest carries template='technical-spec.yaml')</tests>
+      </target>
+      <observability>
+        <log-prefix>none — pure data; existing MP-Doc markers fire during render</log-prefix>
+      </observability>
+      <verification-ref>V-MP-DOC-TECH-SPEC</verification-ref>
+    </MP-DOC-TECH-SPEC>
+
+    <MP-DOC-PICKER NAME="Template suggestion + improved no-match UX (mint_suggest_template tool)" TYPE="INTEGRATION" LAYER="4" ORDER="45" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Closes the UX gap surfaced in the Phase-16 production test: caller invoked `create_document(doc_type='letter', ...)` for a request that should have been a technical-spec — MINT silently fell through to the closest available template instead of surfacing the mismatch. Two improvements: (a) new tool `mint_suggest_template(intent, ctx) -> list[{name, match_score, why}]` so the LLM caller can ask MINT for suggestions BEFORE committing to a doc_type — returns ranked candidates with a simple keyword-overlap score; (b) improved `DocumentTypeNotFound` error in document.py: when doc_type is unknown, the structured error lists ALL available doc_types AND surfaces the top-3 closest match scores + reasoning so the LLM can retry. Story: "MINT helps Claude pick well — but Claude still picks".</purpose>
+        <inputs>
+          <param name="intent" type="str" desc="Caller intent — same as create_document" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="suggestions" type="list[dict]" desc="Top-3 (name, match_score, why) ranked descending; match_score is a float 0-1 based on keyword overlap; why is a short string naming the matched keywords" />
+        </outputs>
+        <errors>
+          <error code="N/A" desc="Suggestion is non-failing; returns empty list when no templates exist (defensive)" />
+        </errors>
+      </contract>
+      <interface>
+        <export-mint_suggest_template PURPOSE="@server.tool async fn-mint_suggest_template(intent, ctx) -> dict {suggestions: [...], total_templates: int} — wraps the picker scorer; canonical dict shape" />
+        <fn-_score_templates PURPOSE="fn-_score_templates(intent, templates) -> list[ScoredTemplate] — keyword-overlap scoring; case-insensitive; uses template's `description` field + `name` + `doc_type` as the matchable text" />
+        <const-_KEYWORD_BONUS_TERMS PURPOSE="dict mapping doc_type → strong keywords that bump match_score (e.g. technical-spec → 'тз', 'tz', 'technical', 'spec', 'requirements', 'техническое задание')" />
+        <type-ScoredTemplate PURPOSE="frozen dataclass: name str, match_score float, why str" />
+      </interface>
+      <depends>MP-TEMPLATES-REGISTRY (lists available templates + metadata), fastmcp.Context + ToolError. Improves existing DocumentTypeNotFound in src/mint_python/mcp/document.py — adds top-3 suggestions to the error message.</depends>
+      <target>
+        <source>src/mint_python/mcp/picker.py (new) + edit to DocumentTypeNotFound.__init__ in src/mint_python/mcp/document.py</source>
+        <tests>tests/integration/test_mp_doc_picker.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Picker</log-prefix>
+      </observability>
+      <verification-ref>V-MP-DOC-PICKER</verification-ref>
+    </MP-DOC-PICKER>
+
+    <MP-AUDIT-EXTEND NAME="GRACE manifest extended provenance (preset_version + lang metadata)" TYPE="INTEGRATION" LAYER="4" ORDER="46" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Closes 2 Phase-16 deferrals that share a single root cause: `_audit_instructions` in src/mint_python/mcp/document.py stamps `template_version` but NOT (a) `preset_version` after a preset edit lands (V-MP-THEME-EDIT scenario-10 deferred), nor (b) `lang=['ru','en']` language metadata when the template's required_fields contain language-paired keys (V-MP-DOC-BUNDLE scenario-7b deferred). Phase-17 stamps both: preset_version always; lang when the active template has fields matching pattern `&lt;base&gt;_&lt;lang&gt;` for at least 2 different lang codes. After this lands, the bilingual NDA → GRACE manifest → cross-model handoff demo works end-to-end, and the preset-edit-feedback story is complete.</purpose>
+        <inputs>
+          <param name="spec" type="DocumentSpec" desc="Already-filled document spec" />
+          <param name="template" type="DocumentTemplate" desc="Active template — its required_fields are scanned for `*_&lt;lang&gt;` pattern" />
+          <param name="preset_name" type="str" desc="Active preset name (currently always 'klawd')" />
+          <param name="audit_id" type="str" desc="Existing audit_id from MP-GRACE.bootstrap" />
+        </inputs>
+        <outputs>
+          <param name="instructions" type="list[str]" desc="Existing _audit_instructions extended with `preset_version=&lt;version&gt;` and (when applicable) `lang=&lt;comma-separated codes&gt;`" />
+        </outputs>
+        <errors>
+          <error code="N/A" desc="No new error codes; defensive on missing preset version (falls back to '1.0' base)" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-_resolve_active_preset_version PURPOSE="fn-_resolve_active_preset_version(preset_name) -> str — reads latest versioned preset YAML or BUILTIN_PRESETS base; defensive on missing files" />
+        <fn-_detect_template_languages PURPOSE="fn-_detect_template_languages(template) -> list[str] — scans required_fields for `&lt;base&gt;_&lt;lang&gt;` pattern; returns sorted unique lang codes (length ≥2 enables the lang= instruction)" />
+        <fn-_extend_audit_instructions PURPOSE="fn-_extend_audit_instructions(instructions, preset_name, template) -> list[str] — appends `preset_version=...` always and `lang=...` when applicable" />
+      </interface>
+      <depends>MP-DOC-GENERIC (extends _audit_instructions build), MP-THEME-EDIT (consumes presets/_audit.jsonl + versioned YAML pattern indirectly via the version resolver), MP-MANIFEST-READ (downstream — returned manifest dict gains the new fields surfaced via instructions list)</depends>
+      <target>
+        <source>src/mint_python/mcp/document.py (extends the _audit_instructions helper)</source>
+        <tests>tests/integration/test_mp_audit_extend.py — also activates deferred V-MP-THEME-EDIT scenario-10 (preset_version round-trip via mint_read_grace_manifest) and V-MP-DOC-BUNDLE scenario-7b (bilingual NDA lang metadata visible after read-back)</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Doc (existing) — adds BLOCK_AUDIT_PRESET_VERSION + BLOCK_AUDIT_LANG markers</log-prefix>
+      </observability>
+      <verification-ref>V-MP-AUDIT-EXTEND</verification-ref>
+    </MP-AUDIT-EXTEND>
+
+    <MP-MCP-RESOURCES-VERSIONED NAME="Versioned-preset chain in MCP resources (mint://preset/&lt;name&gt; chains to latest version)" TYPE="INTEGRATION" LAYER="4" ORDER="47" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Closes the 3rd Phase-16 gap surfaced at W2 review: after `mint_update_preset_palette/typography/spacing` writes a new versioned preset YAML to `presets/&lt;name&gt;_v&lt;bumped&gt;.yaml`, the existing `mint://preset/&lt;name&gt;` MCP resource handler does NOT chain to it — it reads BUILTIN_PRESETS only. External clients (Cursor, OpenWebUI) see the unedited base preset. This module extends the resource handler + the `mint_list_presets` / `mint_get_preset` tools to scan `presets/` for `&lt;name&gt;_v*.yaml` siblings and return the latest version (falls back to BUILTIN_PRESETS on first-touch). After this lands, the preset-edit feedback loop is visible end-to-end via MCP resources.</purpose>
+        <inputs>
+          <param name="name" type="str" desc="Preset name (e.g. 'klawd', 'claret_serif')" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="content" type="str" desc="YAML content of the latest version (or BUILTIN_PRESETS base)" />
+          <param name="metadata" type="dict" desc="Existing list_presets shape + new fields: latest_version, predecessor_versions" />
+        </outputs>
+        <errors>
+          <error code="PRESET_NOT_FOUND" desc="Existing — raised when name doesn't exist in BUILTIN_PRESETS AND no versioned siblings" />
+        </errors>
+      </contract>
+      <interface>
+        <fn-_resolve_latest_preset_path PURPOSE="fn-_resolve_latest_preset_path(name) -> Path — scans PRESETS_DIR for `&lt;name&gt;_v*.yaml`; returns highest semver match; falls back to BUILTIN_PRESETS[name] when no versioned file exists" />
+        <fn-_collect_preset_versions PURPOSE="fn-_collect_preset_versions(name) -> list[str] — returns sorted list of all version strings (incl. base '1.0') for metadata reporting" />
+      </interface>
+      <depends>MP-MCP-RESOURCES (extends existing _preset_resource_content + list_presets + get_preset to use the new resolver), MP-THEME-EDIT (consumes the PRESETS_DIR convention defined there — versioned files at `presets/&lt;name&gt;_v&lt;X&gt;.yaml`)</depends>
+      <target>
+        <source>src/mint_python/mcp/resources.py (resolver helpers + edits to existing handlers)</source>
+        <tests>tests/integration/test_mp_mcp_resources_versioned.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Resources (existing) — adds BLOCK_RESOLVE_VERSIONED marker</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MCP-RESOURCES-VERSIONED</verification-ref>
+    </MP-MCP-RESOURCES-VERSIONED>
   </Modules>
 
   <DataFlow>
@@ -2239,6 +2393,42 @@ writeFileSync('output.docx', buffer);
       <step-4>Tool returns {name, version, audit_id, predecessor_version, patched_fields}. The GRACE manifest of any subsequent create_document call that uses this preset embeds the new preset version + author (extending MP-TEMPLATES-WRITE.cross-model-handoff for theme provenance).</step-4>
       <evidence>[MP-ThemeEdit][&lt;tool&gt;][BLOCK_PRESET_WRITE] name version patched_fields content_sha256; [MP-Auth][check_writer][BLOCK_AUTH_DENY] fires before BLOCK_PRESET_WRITE on the deny path (no write). Cross-module sequence: BLOCK_AUTH_ADMIT (env/file mode) → BLOCK_PRESET_WRITE → presets/_audit.jsonl append.</evidence>
     </DF-022>
+
+    <DF-023 NAME="Anonymous Intent — Personal Data Guard" TRIGGER="mint_create_document with intent containing [anonymous] flag or equivalent (Phase-17)">
+      <step-1>create_document receives (intent, doc_type, source_md?, ctx). MP-DOC-PERSONAL-GUARD._detect_anonymous_flag scans intent for [anonymous] / "anonymous" / "анонимно" / "без личных данных" (case-insensitive, ANCHORED to avoid accidental substring matches in body text).</step-1>
+      <step-2>If anonymous flag detected: _heuristic_extract runs as usual (extracts subject/date/body etc.) but post-extraction MP-DOC-PERSONAL-GUARD._apply_personal_blocklist clears any value populated for fields in _PERSONAL_FIELDS (sender, author, contact, from_, to_, signature, signer, recipient). For each cleared field, log [MP-Doc][heuristic][BLOCK_ANONYMISE] field=&lt;name&gt; reason=anonymous_intent_flag.</step-2>
+      <step-3>Elicit loop iterates required_fields in declaration order. If a required field is on the personal-data blocklist AND anonymous flag is set: include personal_data=high hint in the elicit message so a model-aware client can present anonymisation options. (Claude Desktop chat-driven fallback may or may not honor — MINT MITIGATES, doesn't ENFORCE.)</step-3>
+      <step-4>After elicit completes, _run_pipeline builds the document. If sender was made optional in templates/letter.yaml (Phase-17 yaml edit) and remains unfilled, render skips the "Signed" heading + sender paragraph entirely.</step-4>
+      <step-5>Tool result structured_content gains keys: anonymised: bool (true if flag was detected), fields_omitted: list[str] (names of personal-data fields cleared OR left unfilled). Existing keys (path, audit_id, fields_elicited, doc_type, template_version, visual_qa) preserved.</step-5>
+      <evidence>[MP-Doc][heuristic][BLOCK_ANONYMISE] field=&lt;...&gt; reason=anonymous_intent_flag per cleared field; structured_content.anonymised=true on the anonymous-intent path; structured_content.fields_omitted lists the names. Forbidden: anonymised=true paired with sender/author content visible in produced docx body.</evidence>
+    </DF-023>
+
+    <DF-024 NAME="Template Suggestion (mint_suggest_template)" TRIGGER="mint_suggest_template MCP call (Phase-17)">
+      <step-1>Caller (LLM) invokes mint_suggest_template(intent, ctx). MP-DOC-PICKER._score_templates loads available templates via MP-TEMPLATES-REGISTRY.list_summaries (existing).</step-1>
+      <step-2>For each template, _score_templates computes keyword-overlap score: tokenizes intent (lowercase, split on whitespace/punctuation), tokenizes template's description + name + doc_type, computes Jaccard-style intersection; adds bonus from _KEYWORD_BONUS_TERMS dictionary (e.g. 'тз' / 'tz' / 'technical' / 'spec' / 'requirements' / 'техническое задание' → +0.3 to technical-spec). Score clamped to [0, 1].</step-2>
+      <step-3>Sort by score descending; return top-3 as ScoredTemplate{name, match_score, why} list. `why` field names the matched bonus keywords or "fallback (no strong keywords)" when score &lt; 0.2.</step-3>
+      <step-4>Tool returns dict {suggestions: [...], total_templates: int}. Caller decides whether to invoke create_document with the top suggestion or surface alternatives to the human user.</step-4>
+      <step-5>Improved DocumentTypeNotFound error path (when caller bypasses suggestion and invokes create_document with unknown doc_type): error message lists ALL available doc_types + top-3 suggestions (from the same scorer) inline.</step-5>
+      <evidence>[MP-Picker][suggest][BLOCK_SUGGEST] total_templates=&lt;n&gt; top=&lt;name&gt; score=&lt;float&gt; on every call. Tool result shape matches CANONICAL_SUGGEST_KEYS. No structured tool error path on successful score (empty templates list returns suggestions=[] cleanly).</evidence>
+    </DF-024>
+
+    <DF-025 NAME="GRACE Manifest Extended Provenance" TRIGGER="create_document post-build (Phase-17 — closes V-MP-THEME-EDIT scenario-10 + V-MP-DOC-BUNDLE scenario-7b)">
+      <step-1>create_document completes its existing pipeline (heuristic → elicit → assemble → save). Before MP-GRACE.bootstrap runs, MP-AUDIT-EXTEND._extend_audit_instructions enriches the instructions list.</step-1>
+      <step-2>_resolve_active_preset_version(preset_name) inspects presets/&lt;name&gt;_v*.yaml siblings via the same _resolve_latest_preset_path helper MP-MCP-RESOURCES-VERSIONED ships; returns the latest version string or the BUILTIN_PRESETS base version. Always stamped: instructions list gains "preset_version=&lt;version&gt;". Emits [MP-Doc][grace][BLOCK_AUDIT_PRESET_VERSION] preset=&lt;name&gt; version=&lt;...&gt;.</step-2>
+      <step-3>_detect_template_languages(template) scans template.required_fields for the pattern `&lt;base&gt;_&lt;lang&gt;` where lang is a 2-3 char ISO-like code (e.g. ru, en, kk, ky). Returns sorted unique lang codes when ≥2 distinct codes appear. When applicable, instructions list gains "lang=&lt;comma-separated codes&gt;". Emits [MP-Doc][grace][BLOCK_AUDIT_LANG] codes=&lt;list&gt;.</step-3>
+      <step-4>MP-GRACE.bootstrap proceeds with the extended instructions list (no other changes — the manifest XML schema already supports arbitrary instruction strings). Produced docx carries preset_version (always) and lang metadata (when bilingual).</step-4>
+      <step-5>Downstream: mint_read_grace_manifest surfaces the instructions list verbatim via _canonicalize — callers can parse `preset_version=...` and `lang=...` from the dict's instructions field. V-MP-THEME-EDIT scenario-10 round-trip and V-MP-DOC-BUNDLE scenario-7b language metadata test both pass.</step-5>
+      <evidence>[MP-Doc][grace][BLOCK_AUDIT_PRESET_VERSION] preset version on every call; [MP-Doc][grace][BLOCK_AUDIT_LANG] when bilingual templates. Forbidden: preset_version absent on any successful create_document call after Phase-17 lands; lang absent when template has ≥2 language-paired fields.</evidence>
+    </DF-025>
+
+    <DF-026 NAME="Versioned Preset Resolution via MCP Resources" TRIGGER="mint://preset/&lt;name&gt; resource read OR mint_list_presets / mint_get_preset tool call (Phase-17)">
+      <step-1>External MCP client (Cursor, OpenWebUI, Claude Desktop) requests mint://preset/klawd or invokes mint_get_preset(name='klawd'). MP-MCP-RESOURCES-VERSIONED._resolve_latest_preset_path('klawd') is called by the existing resource handler / tool handler.</step-1>
+      <step-2>_resolve_latest_preset_path scans PRESETS_DIR for files matching `klawd_v*.yaml`; parses version suffix via the regex MP-THEME-EDIT defined; returns the path with the highest semver match. Falls back to BUILTIN_PRESETS['klawd'] when no versioned file exists.</step-2>
+      <step-3>Resource/tool handler reads the resolved path. Emits [MP-Resources][preset][BLOCK_RESOLVE_VERSIONED] name=klawd resolved=klawd_v1.1.yaml predecessors=['klawd_v1.0.yaml','klawd.yaml-base'].</step-3>
+      <step-4>mint_list_presets summary shape gains optional fields: latest_version + predecessor_versions (length of the chain). External clients can see at a glance which presets have been edited.</step-4>
+      <step-5>End-to-end demo gap closed: mint_update_preset_palette('klawd', ...) writes klawd_v1.1.yaml → mint://preset/klawd returns klawd_v1.1 content → create_document(preset_name='klawd') uses klawd_v1.1 via MP-STYLE.load_preset chain → produced docx carries preset_version=1.1 in GRACE manifest (via DF-025).</step-5>
+      <evidence>[MP-Resources][preset][BLOCK_RESOLVE_VERSIONED] payload name resolved predecessors on every preset read after Phase-17. Forbidden: BUILTIN_PRESETS-only resolution when versioned siblings exist (regression of the Phase-16 gap).</evidence>
+    </DF-026>
   </DataFlow>
 
   <ImplementationOrder>
@@ -2380,6 +2570,16 @@ writeFileSync('output.docx', buffer);
       <step-11 module="MP-MCP-EDIT" status="done" verification="V-MP-MCP-EDIT" COMMIT="7be73cd" COMPLETED_AT="2026-05-11">**Wave-16-3c** — Shipped: src/mint_python/mcp/edit.py (437 LOC) wraps MP-EDIT with wrap-layer raw-OOXML hardening (rejects literal `&lt;w:r` / `&lt;w:p` / `&lt;w:t` / `&lt;/w:` case-insensitive in anchor.value BEFORE invoking edit()). Remaps EditError.code='BACKUP_FAILED' (legacy spelling) → EditBackupFailed wrap-layer ToolError. 28 scenarios + helper-coverage tests; 100% coverage. EditUnknown forward-compat catch-all for future MP-EDIT refactors. Reuses mint_python.mcp.validate._canonicalize_report for validation_report serialization.</step-11>
       <step-gate module="(meta)" status="planned" verification="Gate-Phase-16">**Wave-16-4** — Gate-Phase-16 + version bump 0.4.0a4 → 0.4.0a5 + handover archive. Full test suite green + ruff/mypy/build clean + grep gate (V-MP-EDIT et al inv-1 NO-LEGACY-IMPORT: zero hits for `from mint\.\(ooxml\|fingerprint\|extract\|edit\)` in src/mint_python/ and tests/). Tag v0.4.0a5 on the bump commit.</step-gate>
     </Phase-16>
+
+    <Phase-17 name="Privacy guardrails + technical-spec doc_type + picker UX + close Phase-16 deferrals (per HANDOVER-phase17-ready.md, gap-analysis-driven 2026-05-11)" status="planned" ADDED_AT="2026-05-11">
+      <goal>Phase-17 is reshaped around a same-day real-world test of mint_create_document that surfaced 4 production gaps the moment Phase-16 shipped. Wave shape: privacy guardrails first (the production-incident fix), then engine-capability demonstration via technical-spec doc_type (which discovered that kind:table + kind:callout were already in the walker, just frozen by mis-scoped V-MP-DOC-BUNDLE forbidden-1), then template-picker UX, then closing the 3 Phase-16 deferrals via a single _audit_instructions extension and a versioned-preset resource chain. End state: MINT can render engineering documents with tables; anonymous intent flag is honored end-to-end; LLM callers get template suggestions instead of silent fallback; preset edits surface in GRACE manifests and via mint:// resource URIs. Important nuance: privacy mitigation is partial-by-design (MINT can hint and block heuristic; client-side elicit fallback can still leak). v0.4.0a5 → v0.4.0a6 bump rolled into closeout.</goal>
+      <step-1 module="MP-DOC-PERSONAL-GUARD" status="planned" verification="V-MP-DOC-PERSONAL-GUARD">**Wave-17-1** — Privacy mitigations: intent-flag [anonymous] detection, personal-field heuristic blocklist, sender→optional in letter.yaml, anonymisation reporting in structured_content. Single worker (touches document.py heuristic + 1-line YAML edit). Parallel-safe with Wave-17-1's MP-DOC-TECH-SPEC sibling (disjoint files).</step-1>
+      <step-2 module="MP-DOC-TECH-SPEC" status="planned" verification="V-MP-DOC-TECH-SPEC">**Wave-17-1** — Pure-data: templates/technical-spec.yaml using kind:heading + paragraph + table + callout + spacer to demonstrate the existing engine capability (key discovery: walker already supports table + callout since Phase-14; V-MP-DOC-BUNDLE forbidden-1 mis-scoped that as engine-wide). Verification entry amends V-MP-DOC-BUNDLE forbidden-1 to reflect engine reality. Parallel-safe with MP-DOC-PERSONAL-GUARD.</step-2>
+      <step-3 module="MP-DOC-PICKER" status="planned" verification="V-MP-DOC-PICKER">**Wave-17-2** — New mint_suggest_template tool + improved DocumentTypeNotFound error. Touches new picker.py + a single edit to DocumentTypeNotFound.__init__ in document.py. Depends on W17-1 (document.py state stable after PERSONAL-GUARD merges). Parallel-safe with MP-MCP-RESOURCES-VERSIONED (disjoint files).</step-3>
+      <step-4 module="MP-MCP-RESOURCES-VERSIONED" status="planned" verification="V-MP-MCP-RESOURCES-VERSIONED">**Wave-17-2** — Extends mint://preset/&lt;name&gt; resource handler + mint_list_presets / mint_get_preset to chain to versioned preset files. Disjoint write scope (resources.py only) from MP-DOC-PICKER. Independent of W17-1.</step-4>
+      <step-5 module="MP-AUDIT-EXTEND" status="planned" verification="V-MP-AUDIT-EXTEND">**Wave-17-3** — Extends _audit_instructions in document.py to stamp preset_version (closes V-MP-THEME-EDIT scenario-10) + lang metadata for bilingual templates (closes V-MP-DOC-BUNDLE scenario-7b). Single worker — sequential after W17-1 + W17-2 close because it touches document.py. SWARM-CAREFUL.</step-5>
+      <step-gate module="(meta)" status="planned" verification="Gate-Phase-17">**Wave-17-4** — Gate-Phase-17 + version bump 0.4.0a5 → 0.4.0a6 + handover archive. Full test suite green + ruff/mypy/build clean + grep gate at 0 hits + 16 MCP tools live (15 + mint_suggest_template) + 7 doc_types load + manual smoke for all 4 new DFs. Tag v0.4.0a6 on the bump commit.</step-gate>
+    </Phase-17>
   </ImplementationOrder>
 
   <ExecutionPolicy>
