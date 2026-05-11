@@ -88,6 +88,7 @@ def _stub_renderers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     monkeypatch.setattr(
         visual_mod, "_render_pngs", lambda p, w, m: list(png_paths)
     )
+    monkeypatch.setattr(visual_mod, "_probe_backends", lambda: None)
 
 
 # ------------------------------------------------------------------ #
