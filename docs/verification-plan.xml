@@ -2673,7 +2673,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <command-3>mypy src/mint_python</command-3>
         <command-4>uv run --with pytest-cov pytest tests/ --cov=src/mint_python --cov-report=term --cov-fail-under=100</command-4>
         <command-5>uv build  # wheel must build cleanly</command-5>
-        <command-6>grep -rn "from mint\.\(ooxml\|fingerprint\|extract\|edit\)\|import mint\.\(ooxml\|fingerprint\|extract\|edit\)" src/mint_python/ tests/ 2&gt;/dev/null | wc -l | xargs -I{} test {} -eq 0  # gate proof for V-MP-{OOXML,FINGERPRINT,EXTRACT,EDIT} forbidden-1 + VF-020 inv-1 + VF-021 inv-1</command-6>
+        <command-6>grep -rnE "^[^#]*\b(from mint\.(ooxml|fingerprint|extract|edit)|import mint\.(ooxml|fingerprint|extract|edit))" src/mint_python/ 2&gt;/dev/null | wc -l | xargs -I{} test {} -eq 0  # gate proof for V-MP-{OOXML,FINGERPRINT,EXTRACT,EDIT} forbidden-1 + VF-020 inv-1 + VF-021 inv-1. Scoped to src/mint_python/ ONLY (tests/ legitimately imports legacy for porting-parity oracles); excludes comments via ^[^#]*</command-6>
         <command-7>python -c "from mint_python.mcp import validate, fix, fingerprint, extract, edit, preset_edit; print('OK: 6 new mcp modules importable')"</command-7>
         <command-8>python -c "import yaml; [yaml.safe_load(open(f'templates/{n}.yaml')) for n in ['memo','letter','report','decision-record','contract','nda-bilingual-ru-en']]; print('OK: 6 doc_types load')"</command-8>
       </commands>

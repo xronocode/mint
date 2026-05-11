@@ -26,7 +26,6 @@ from mint_python.templates.registry import (
     TemplateAuthorRequired,
     TemplateRegistry,
     TemplateVersionConflict,
-    get_default_registry,
     get_template,
     list_templates,
     reset_default_registry,

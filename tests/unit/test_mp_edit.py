@@ -2316,14 +2316,14 @@ def test_delete_paragraph_invokes_prune_unused_rels(
         "</w:body></w:document>"
     ).encode()
     entries["word/_rels/document.xml.rels"] = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/'
-        'package/2006/relationships">'
-        '<Relationship Id="rId99" '
-        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
-        'Target="https://example.com" TargetMode="External"/>'
-        "</Relationships>"
-    ).encode()
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        b'<Relationships xmlns="http://schemas.openxmlformats.org/'
+        b'package/2006/relationships">'
+        b'<Relationship Id="rId99" '
+        b'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+        b'Target="https://example.com" TargetMode="External"/>'
+        b"</Relationships>"
+    )
     src2 = tmp_path / "rels.docx"
     with zipfile.ZipFile(src2, "w", zipfile.ZIP_DEFLATED) as zo:
         for n, d in entries.items():

@@ -310,7 +310,7 @@ def zip_byte_snapshot():
     """
     import hashlib
 
-    def _snapshot(path: Path) -> "callable":
+    def _snapshot(path: Path) -> callable:
         before = hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
         def _assert_unchanged() -> None:
@@ -341,7 +341,7 @@ def tempdir_snapshot():
     import tempfile
     from pathlib import Path as _P
 
-    def _snapshot(glob_pattern: str = "mint_qa_*") -> "callable":
+    def _snapshot(glob_pattern: str = "mint_qa_*") -> callable:
         tmpdir = _P(tempfile.gettempdir())
         before = set(tmpdir.glob(glob_pattern))
 

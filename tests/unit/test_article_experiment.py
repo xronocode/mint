@@ -11,21 +11,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from tools.article_experiment.builder import build_document_from_spec
 from tools.article_experiment.spec import (
     ArticleSpec,
     CalloutBlock,
-    CodeBlock,
-    ListBlock,
     ParagraphBlock,
     SectionLayout,
     SpecParseError,
-    SpecSection,
-    TableBlock,
     parse_spec,
 )
-
 
 # --------------------------------------------------------------------------- #
 # spec.parse_spec — happy path + tolerance

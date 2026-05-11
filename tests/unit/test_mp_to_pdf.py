@@ -87,9 +87,11 @@ def test_to_pdf_gotenberg_returns_error(tmp_path: Path) -> None:
         .add_section(Section("S1", level=1).add_paragraph("Content"))
     )
 
-    with patch("httpx.post", return_value=mock_response):
-        with pytest.raises(GotenbergError) as exc_info:
-            doc.to_pdf(output_path=output_path)
+    with (
+        patch("httpx.post", return_value=mock_response),
+        pytest.raises(GotenbergError) as exc_info,
+    ):
+        doc.to_pdf(output_path=output_path)
 
     assert "500" in str(exc_info.value)
     assert not output_path.exists()
@@ -109,9 +111,11 @@ def test_to_pdf_gotenberg_unreachable(tmp_path: Path) -> None:
         .add_section(Section("S1", level=1).add_paragraph("Content"))
     )
 
-    with patch("httpx.post", side_effect=httpx.ConnectError("Connection refused")):
-        with pytest.raises((GotenbergError, httpx.ConnectError)) as exc_info:
-            doc.to_pdf(output_path=output_path)
+    with (
+        patch("httpx.post", side_effect=httpx.ConnectError("Connection refused")),
+        pytest.raises((GotenbergError, httpx.ConnectError)),
+    ):
+        doc.to_pdf(output_path=output_path)
 
     assert not output_path.exists()
 

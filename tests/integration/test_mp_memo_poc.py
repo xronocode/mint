@@ -717,7 +717,6 @@ async def test_body_with_real_h2_headings_flatten_to_bold() -> None:
     Body H2 above, so nesting H1/H2 underneath would visually compete)."""
     import zipfile
 
-    from lxml import etree
     intent = (
         "sender: M\nrecipient: B\ndate: 2026-05-15\nsubject: T\n"
         "Body:\n\n"
