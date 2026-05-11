@@ -1653,6 +1653,352 @@ writeFileSync('output.docx', buffer);
       </observability>
       <verification-ref>V-MP-LEGACY-DEPRECATION</verification-ref>
     </MP-LEGACY-DEPRECATION>
+
+    <!-- Phase 16: MCP-tool parity (A) + new doc_types (B) + structured theme/preset editor (C) -->
+
+    <MP-MCP-VALIDATE NAME="mint_validate_document MCP tool (Phase-16 A1)" TYPE="INTEGRATION" LAYER="4" ORDER="32" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Closes the MCP-parity gap left by Phase-15: external clients can validate caller-supplied .docx files through the same governed surface that produces them. Thin wrapper over the existing pure-python successor `mint_python.validate.validate`. Read-only; no allowlist (validation reads bytes, never mutates). Closes audit §6 row "mint_validate (legacy mcp_g1, deleted Phase-15) — successor pending".</purpose>
+        <inputs>
+          <param name="document_path" type="str" desc="Path to a .docx or .pptx file the caller wants validated" />
+          <param name="severity_mode" type="Literal['audit','lenient','strict']" desc="Strictness; defaults to 'lenient' to match Document.validate" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="report" type="dict" desc="Canonical ValidationReport dict: {passed: bool, severity_mode, violations: [{rule_id, severity, message, hint, location}], counts: {hard, soft, total}, format}" />
+        </outputs>
+        <errors>
+          <error code="INVALID_DOCUMENT" desc="Path not a .docx/.pptx zip OR path traversal rejected by safe_doc" />
+          <error code="VALIDATION_BACKEND_ERROR" desc="rules dir not found OR lxml parse error before any rule evaluation; carries the failing rule_id or 'XML-001'" />
+        </errors>
+      </contract>
+      <interface>
+        <export-mint_validate_document PURPOSE="@server.tool async fn-mint_validate_document(document_path, severity_mode='lenient', ctx) — calls mint_python.validate.validate; canonicalizes ValidationReport dataclass to dict; surfaces structured errors with no traceback" />
+        <fn-_canonicalize_report PURPOSE="ValidationReport dataclass → dict with stable key order; severity_mode echoed for evidence" />
+      </interface>
+      <depends>mint_python.validate.validate (existing), mint._security.safe_doc (path-traversal guard), fastmcp.Context + ToolError. MUST NOT import any deleted-Phase-15 surface.</depends>
+      <target>
+        <source>src/mint_python/mcp/validate.py</source>
+        <tests>tests/integration/test_mp_mcp_validate.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-McpValidate</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MCP-VALIDATE</verification-ref>
+    </MP-MCP-VALIDATE>
+
+    <MP-MCP-FIX NAME="mint_fix_document MCP tool (Phase-16 A2)" TYPE="INTEGRATION" LAYER="4" ORDER="33" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Closes the MCP-parity gap for the auto-fix surface. Thin wrapper over `mint_python.fix.fix`. Mutates the caller-supplied .docx in place; preserves the existing backup-before-write invariant (a .bak file lands beside the original on every fix call). No allowlist by design — the caller owns the doc path. Read-path auth contract from V-MP-AUTH-SHIM forbidden-1 explicitly extends to this tool: MUST NOT consult MP-AUTH-SHIM (it's caller-doc, not template/preset).</purpose>
+        <inputs>
+          <param name="document_path" type="str" desc="Path to a .docx the caller wants fixed in place" />
+          <param name="severity_mode" type="Literal['audit','lenient','strict']" desc="Severity threshold for fix decisions; defaults to 'lenient'" />
+          <param name="max_iterations" type="int" desc="Cascade cap; defaults to 3 (matches mint_python.fix.fix default)" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="report" type="dict" desc="Canonical FixReport dict: {applied_fixes, remaining_violations, backup_path, iterations, diff_summary, severity_mode}" />
+        </outputs>
+        <errors>
+          <error code="INVALID_DOCUMENT" desc="Path not a .docx zip" />
+          <error code="DESTRUCTIVE_REJECTED" desc="One or more violations classified destructive; short-circuit before mutation" />
+          <error code="BACKUP_FAILED" desc="Could not write .bak (permission / disk full); raised before any in-place mutation" />
+          <error code="CASCADE_DETECTED" desc="No convergence after max_iterations" />
+        </errors>
+      </contract>
+      <interface>
+        <export-mint_fix_document PURPOSE="@server.tool async fn-mint_fix_document(document_path, severity_mode='lenient', max_iterations=3, ctx) — calls mint_python.fix.fix; canonicalizes FixReport; surfaces structured errors" />
+        <fn-_canonicalize_fix_report PURPOSE="FixReport dataclass → dict with stable key order" />
+      </interface>
+      <depends>mint_python.fix.fix (existing), mint_python.validate (re-validation), mint._security.safe_doc, fastmcp.Context + ToolError. MUST NOT consult MP-AUTH-SHIM.</depends>
+      <target>
+        <source>src/mint_python/mcp/fix.py</source>
+        <tests>tests/integration/test_mp_mcp_fix.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-McpFix</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MCP-FIX</verification-ref>
+    </MP-MCP-FIX>
+
+    <MP-FINGERPRINT NAME="Pure-Python fingerprint module (Phase-16 A3 port)" TYPE="CORE_LOGIC" LAYER="2" ORDER="34" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Port `src/mint/fingerprint.py` (~150 LOC) to `src/mint_python/fingerprint.py` so the MCP wrap layer can avoid the constraint-8 violation of `from mint.fingerprint import …`. Preserves the exact public API of the legacy module (compute / compare / fingerprint / FingerprintResult / DriftStatus / FingerprintError hierarchy). Pure stdlib + lxml. The legacy module stays in place — Phase-16 is additive, NOT a delete-and-replace. Phase-17 (or later) can retire the legacy copy.</purpose>
+        <inputs>
+          <param name="document_path" type="str | Path" desc="Path to a .docx; styles.xml is hashed in chunked SHA-256 mode" />
+        </inputs>
+        <outputs>
+          <param name="FingerprintResult" type="dataclass" desc="{hash: str hex, format: str, has_styles_xml: bool, byte_count: int}" />
+          <param name="DriftStatus" type="StrEnum" desc="MATCH | DRIFT | UNKNOWN — compare() outcome" />
+        </outputs>
+        <errors>
+          <error code="MissingStyleXmlError" desc="docx zip has no styles.xml" />
+          <error code="HashFailedError" desc="I/O or hash backend failure mid-read" />
+          <error code="FingerprintError" desc="Base class" />
+        </errors>
+      </contract>
+      <interface>
+        <export-fingerprint PURPOSE="fn-fingerprint(document_path) — public entry; thin wrapper over compute() returning FingerprintResult" />
+        <export-compute PURPOSE="fn-compute(document_path) -> FingerprintResult — opens zip, reads styles.xml, SHA-256 over chunked content" />
+        <export-compare PURPOSE="fn-compare(hash_a, hash_b) -> DriftStatus — pure equality check; None inputs → UNKNOWN" />
+        <type-FingerprintResult PURPOSE="frozen dataclass" />
+        <type-DriftStatus PURPOSE="StrEnum {MATCH, DRIFT, UNKNOWN}" />
+        <type-FingerprintError PURPOSE="exception base" />
+        <type-MissingStyleXmlError PURPOSE="exception" />
+        <type-HashFailedError PURPOSE="exception" />
+      </interface>
+      <depends>stdlib only (hashlib, zipfile, pathlib, dataclasses, enum, logging). Constraint-8 compliant.</depends>
+      <target>
+        <source>src/mint_python/fingerprint.py</source>
+        <tests>tests/unit/test_mp_fingerprint.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Fingerprint</log-prefix>
+      </observability>
+      <verification-ref>V-MP-FINGERPRINT</verification-ref>
+    </MP-FINGERPRINT>
+
+    <MP-EXTRACT NAME="Pure-Python content/style extraction port (Phase-16 A4 port)" TYPE="CORE_LOGIC" LAYER="2" ORDER="35" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Port `src/mint/extract.py` (~210 LOC) to `src/mint_python/extract.py`. Preserves public API: extract_style / parse_theme / analyze_layouts / ExtractionFailedError / UnsupportedFormatError. Used by Operator workflows (UC-004: design-tokens.json baseline). Pure lxml + stdlib zipfile. Legacy module stays in place additively.</purpose>
+        <inputs>
+          <param name="document_path" type="str | Path" desc=".docx or .pptx" />
+        </inputs>
+        <outputs>
+          <param name="design_tokens" type="dict" desc="{format, theme: {colors, typography, ...}, layouts: [...]}" />
+        </outputs>
+        <errors>
+          <error code="ExtractionFailedError" desc="Theme.xml or layout file missing/unparseable" />
+          <error code="UnsupportedFormatError" desc="Path doesn't end in .docx or .pptx" />
+        </errors>
+      </contract>
+      <interface>
+        <export-extract_style PURPOSE="fn-extract_style(document_path) -> dict — public entry" />
+        <export-parse_theme PURPOSE="fn-parse_theme(doc_format, zf) -> dict — theme.xml parser" />
+        <export-analyze_layouts PURPOSE="fn-analyze_layouts(doc_format, zf) -> list[dict] — layout enumerator" />
+        <type-ExtractionFailedError PURPOSE="exception" />
+        <type-UnsupportedFormatError PURPOSE="exception" />
+      </interface>
+      <depends>lxml ≥5.x, stdlib (zipfile, pathlib, logging). Constraint-8 compliant.</depends>
+      <target>
+        <source>src/mint_python/extract.py</source>
+        <tests>tests/unit/test_mp_extract.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Extract</log-prefix>
+      </observability>
+      <verification-ref>V-MP-EXTRACT</verification-ref>
+    </MP-EXTRACT>
+
+    <MP-DOC-BUNDLE NAME="Phase-16 doc_types bundle (report, ADR, contract, bilingual NDA)" TYPE="UTILITY" LAYER="0" ORDER="36" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Pure-data module: adds four new YAML doc_types to `templates/` so the existing MP-DOC-GENERIC pipeline can render them with zero Python changes. Demonstrates that the generic create_document pipeline is doc-type agnostic in the Phase-14 W1 sense — different required_fields drive different elicitation order, different layout shapes ship per file. Closes the OpenQuestion "minimum viable set of builtin templates for launch" (requirements.xml). For O!Bank demo: report covers product reviews, ADR covers product decisions, contract covers vendor onboarding, bilingual NDA covers Ru/En cross-border deals.</purpose>
+        <inputs>
+          <param name="N/A" type="—" desc="No runtime inputs; pure data ship" />
+        </inputs>
+        <outputs>
+          <param name="report.yaml" type="file" desc="doc_type='report'; required_fields=(title, author, date, summary, sections, conclusions); layout walks each section as heading + body" />
+          <param name="decision-record.yaml" type="file" desc="doc_type='decision-record'; required_fields=(title, author, date, status, context, decision, consequences); layout = ADR template" />
+          <param name="contract.yaml" type="file" desc="doc_type='contract'; required_fields=(parties, effective_date, term, scope, obligations, signatures); layout = formal contract shape" />
+          <param name="nda-bilingual-ru-en.yaml" type="file" desc="doc_type='nda-bilingual-ru-en'; required_fields=(party_a, party_b, effective_date, scope_ru, scope_en, term_ru, term_en, signatures); layout walks paired Ru/En clauses (stacked: each clause = [Ru paragraph, En paragraph, spacer]). No engine extension; engine renders the same heading/spacer/paragraph primitives." />
+        </outputs>
+        <errors>
+          <error code="N/A" desc="No new error codes; existing MP-TEMPLATES-REGISTRY validation catches malformed YAML at registry load" />
+        </errors>
+      </contract>
+      <interface>
+        <yaml-report PURPOSE="templates/report.yaml — internal report doc_type" />
+        <yaml-decision-record PURPOSE="templates/decision-record.yaml — ADR doc_type" />
+        <yaml-contract PURPOSE="templates/contract.yaml — vendor/customer contract doc_type" />
+        <yaml-nda-bilingual PURPOSE="templates/nda-bilingual-ru-en.yaml — stacked Ru/En NDA; clause bodies are 2-paragraph blocks (Ru then En)" />
+      </interface>
+      <depends>MP-DOC-GENERIC (the create_document pipeline that consumes these templates), MP-TEMPLATES-REGISTRY (schema validator). No Python code changes; the bundle is consumed by existing infrastructure.</depends>
+      <target>
+        <source>templates/report.yaml + templates/decision-record.yaml + templates/contract.yaml + templates/nda-bilingual-ru-en.yaml</source>
+        <tests>tests/integration/test_mp_doc_bundle.py (4 scenarios — one per doc_type renders end-to-end through create_document and produces a docx that opens + carries a GRACE manifest with template_version)</tests>
+      </target>
+      <observability>
+        <log-prefix>none — pure data; no new log markers. Existing MP-TEMPLATES-REGISTRY emits BLOCK_TEMPLATE_LOAD when consuming these YAMLs.</log-prefix>
+      </observability>
+      <verification-ref>V-MP-DOC-BUNDLE</verification-ref>
+    </MP-DOC-BUNDLE>
+
+    <MP-MCP-FINGERPRINT NAME="mint_fingerprint_document MCP tool (Phase-16 A3 wrap)" TYPE="INTEGRATION" LAYER="4" ORDER="37" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>MCP-tool wrap over MP-FINGERPRINT (the Phase-16 port). Returns the stable styles-fingerprint hash + drift status when called with a baseline. Useful for detecting accidental theme/style drift across model regenerations.</purpose>
+        <inputs>
+          <param name="document_path" type="str" />
+          <param name="baseline_hash" type="str | None" desc="Optional prior hash; when present, the tool computes DriftStatus" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="result" type="dict" desc="{hash, format, has_styles_xml, byte_count, drift_status: 'MATCH'|'DRIFT'|'UNKNOWN'|null}" />
+        </outputs>
+        <errors>
+          <error code="INVALID_DOCUMENT" desc="Path not a valid zip OR traversal rejected" />
+          <error code="MISSING_STYLES_XML" desc="docx has no styles.xml part" />
+        </errors>
+      </contract>
+      <interface>
+        <export-mint_fingerprint_document PURPOSE="@server.tool async; wraps MP-FINGERPRINT.fingerprint + compare; canonicalizes result dict; surfaces structured errors" />
+      </interface>
+      <depends>MP-FINGERPRINT (Phase-16 port; MUST be merged before this wrap), mint._security.safe_doc, fastmcp.Context + ToolError.</depends>
+      <target>
+        <source>src/mint_python/mcp/fingerprint.py</source>
+        <tests>tests/integration/test_mp_mcp_fingerprint.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-McpFingerprint</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MCP-FINGERPRINT</verification-ref>
+    </MP-MCP-FINGERPRINT>
+
+    <MP-MCP-EXTRACT NAME="mint_extract_content MCP tool (Phase-16 A4 wrap)" TYPE="INTEGRATION" LAYER="4" ORDER="38" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>MCP-tool wrap over MP-EXTRACT (the Phase-16 port). Returns a design-tokens dict (theme palette + typography + layouts) so an operator workflow can extract a token baseline from an existing document and use it as model constraints / validation baseline (UC-004).</purpose>
+        <inputs>
+          <param name="document_path" type="str" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="design_tokens" type="dict" desc="{format, theme: {...}, layouts: [...], extracted_at: ISO8601}" />
+        </outputs>
+        <errors>
+          <error code="INVALID_DOCUMENT" desc="Path not .docx/.pptx OR traversal rejected" />
+          <error code="EXTRACTION_FAILED" desc="theme.xml missing/unparseable" />
+          <error code="UNSUPPORTED_FORMAT" desc="extension not .docx/.pptx" />
+        </errors>
+      </contract>
+      <interface>
+        <export-mint_extract_content PURPOSE="@server.tool async; wraps MP-EXTRACT.extract_style; canonicalizes dict; surfaces structured errors" />
+      </interface>
+      <depends>MP-EXTRACT (Phase-16 port; MUST be merged before this wrap), mint._security.safe_doc, fastmcp.Context + ToolError.</depends>
+      <target>
+        <source>src/mint_python/mcp/extract.py</source>
+        <tests>tests/integration/test_mp_mcp_extract.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-McpExtract</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MCP-EXTRACT</verification-ref>
+    </MP-MCP-EXTRACT>
+
+    <MP-THEME-EDIT NAME="Structured preset editor MCP tools (palette/typography/spacing)" TYPE="INTEGRATION" LAYER="4" ORDER="39" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Ships three structured-patch MCP tools so a model can edit a preset's design tokens without composing valid YAML by hand. Each tool takes a structured patch object, validates it, re-emits a versioned preset YAML, and writes it as `presets/&lt;name&gt;_v&lt;next-semver&gt;.yaml` (mirroring MP-TEMPLATES-WRITE versioning). All three gate through MP-AUTH-SHIM.require_template_writer — themes are sub-noun of templates per Phase-16 framing; the MINT_TEMPLATE_WRITERS allowlist applies. Sidecar audit log `presets/_audit.jsonl` records each write. The existing `mint_list_presets` / `mint_get_preset` read tools (Phase-14 MP-MCP-RESOURCES) are reused unchanged.</purpose>
+        <inputs>
+          <param name="name" type="str" desc="Preset name (e.g. 'klawd', 'claret_serif', 'alga_corporate')" />
+          <param name="palette" type="dict | None" desc="palette tool: {primary?, secondary?, accent?, text?, background?} hex strings; missing keys preserve existing values" />
+          <param name="typography" type="dict | None" desc="typography tool: {heading_font?, body_font?, base_size_pt?, heading_scale?, line_height?}" />
+          <param name="spacing" type="dict | None" desc="spacing tool: {paragraph_pt?, section_pt?, page_margin_top_pt?, page_margin_side_pt?}" />
+          <param name="author" type="str" desc="Author identity routed through MP-AUTH-SHIM" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="result" type="dict" desc="{name, version, audit_id, predecessor_version, patched_fields: [...]}" />
+        </outputs>
+        <errors>
+          <error code="PRESET_NOT_FOUND" desc="No preset by that name in core/presets/ (read base resolves nothing)" />
+          <error code="TEMPLATE_WRITE_FORBIDDEN" desc="Author not on MINT_TEMPLATE_WRITERS allowlist; raised by MP-AUTH-SHIM before any disk mutation" />
+          <error code="INVALID_PATCH" desc="Patch payload has wrong shape (e.g. hex not parseable, font name empty, negative spacing)" />
+          <error code="PRESET_VERSION_CONFLICT" desc="Concurrent write attempted; version bump collision (matches MP-TEMPLATES-WRITE pattern)" />
+        </errors>
+      </contract>
+      <interface>
+        <export-mint_update_preset_palette PURPOSE="@server.tool async fn-mint_update_preset_palette(name, palette, author, ctx) — calls require_template_writer; merges palette into existing preset; re-emits versioned YAML" />
+        <export-mint_update_preset_typography PURPOSE="@server.tool async; same pattern, typography fields" />
+        <export-mint_update_preset_spacing PURPOSE="@server.tool async; same pattern, spacing fields" />
+        <fn-_apply_patch PURPOSE="pure dict-merge helper; missing patch keys preserve existing preset values; validates ranges (positive spacing, hex format, etc.)" />
+        <fn-_bump_preset_version PURPOSE="reads max version among `presets/&lt;name&gt;_v*.yaml`, returns next semver minor bump (mirrors MP-TEMPLATES-WRITE._bump_template_version)" />
+        <fn-_append_preset_audit PURPOSE="appends one JSONL line to presets/_audit.jsonl: {timestamp, name, version, author, predecessor_version, patched_fields, content_sha256}" />
+      </interface>
+      <depends>MP-AUTH-SHIM (require_template_writer; reuses MINT_TEMPLATE_WRITERS allowlist), MP-STYLE (BUILTIN_PRESETS for base read), MP-MCP-RESOURCES (mint:// read URIs continue to surface the new versions), pyyaml, fastmcp.Context + ToolError.</depends>
+      <target>
+        <source>src/mint_python/mcp/preset_edit.py</source>
+        <tests>tests/integration/test_mp_theme_edit.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-ThemeEdit</log-prefix>
+      </observability>
+      <verification-ref>V-MP-THEME-EDIT</verification-ref>
+    </MP-THEME-EDIT>
+
+    <MP-EDIT NAME="Pure-Python edit pipeline port (Phase-16 A5 port)" TYPE="CORE_LOGIC" LAYER="3" ORDER="40" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>Port `src/mint/edit.py` (~2003 LOC) to `src/mint_python/edit.py` — the largest port of the Pure Python Edition cycle. Preserves the legacy M-EDIT public surface verbatim: EditPlan / EditOp / TextAnchor / OpOutcome dataclasses + edit() entrypoint + resolve_anchor() + make_edit_metadata() + apply_tracked_change + comment handlers. Section-by-section port plan: (1) anchor resolver + extract_text_with_anchors (~500 LOC) — read-path, safe to land first; (2) op handler dispatch + execute_op (~800 LOC) — write path; (3) tracked-change / comment subsystem (~400 LOC) — w:ins/w:del + commentsExtended; (4) metadata + render_diff (~300 LOC). Legacy module stays in place additively; Phase-17 (or later) retires the legacy copy after tools/* + tests migrate to the pure-python sibling.</purpose>
+        <inputs>
+          <param name="document_path" type="str | Path" desc="Path to .docx" />
+          <param name="plan" type="EditPlan" desc="Already-validated EditPlan (caller responsible for shape)" />
+          <param name="config" type="MintConfig | None" desc="Severity mode etc.; defaults applied if None" />
+        </inputs>
+        <outputs>
+          <param name="EditResult" type="dataclass" desc="{success, ops_total, ops_succeeded, ops_failed, outcomes: list[OpOutcome], validation_report, diff, backup_path, duration_ms}" />
+        </outputs>
+        <errors>
+          <error code="EDIT_ANCHOR_NOT_FOUND" desc="Anchor value not present in text" />
+          <error code="EDIT_ANCHOR_AMBIGUOUS" desc="Anchor matches multiple loci; no occurrence index provided" />
+          <error code="EDIT_VALIDATION_FAILED" desc="Strict mode + post-pack validation regressed" />
+          <error code="EDIT_BACKUP_FAILED" desc="Could not write .bak" />
+          <error code="EDIT_PLAN_INVALID" desc="Plan shape rejected at validate_plan step" />
+        </errors>
+      </contract>
+      <interface>
+        <export-edit PURPOSE="fn-edit(document_path, plan, config=None) -> EditResult — entry; preserves legacy signature" />
+        <export-resolve_anchor PURPOSE="fn-resolve_anchor(anchor, anchors) -> TextAnchor — resolver used by both LLM-driven and direct API paths" />
+        <export-make_edit_metadata PURPOSE="fn-make_edit_metadata(...) -> dict — produces audit metadata stamped into output" />
+        <export-validate_plan PURPOSE="fn-validate_plan(plan_dict) -> EditPlan — shape gate" />
+        <type-EditPlan PURPOSE="dataclass" />
+        <type-EditOp PURPOSE="dataclass" />
+        <type-TextAnchor PURPOSE="dataclass" />
+        <type-OpOutcome PURPOSE="dataclass" />
+        <type-EditResult PURPOSE="dataclass" />
+      </interface>
+      <depends>lxml ≥5.x, python-docx ≥1.1, mint_python.validate (re-validation after pack), mint_python.fingerprint (drift check). MUST NOT import from src/mint/. The OOXML pack/unpack helper lives in src/mint/ooxml.py today; the port either (a) brings it along as MP-OOXML in Phase-16 or (b) duplicates the small surface needed (recommend a — flagged as scope-expansion candidate). Worker brief MUST inventory ooxml imports up-front.</depends>
+      <target>
+        <source>src/mint_python/edit.py (+ possibly src/mint_python/ooxml.py as scope-expansion if M-OOXML coupling forces it)</source>
+        <tests>tests/unit/test_mp_edit.py + tests/integration/test_mp_edit_e2e.py (port the existing test_edit.py + test_edit_e2e.py with imports re-pointed; expand if scope-expansion lands)</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-Edit</log-prefix>
+      </observability>
+      <verification-ref>V-MP-EDIT</verification-ref>
+    </MP-EDIT>
+
+    <MP-MCP-EDIT NAME="mint_edit_document MCP tool (Phase-16 A5 wrap)" TYPE="INTEGRATION" LAYER="4" ORDER="41" STATUS="planned" ADDED_AT="2026-05-11">
+      <contract>
+        <purpose>MCP-tool wrap over MP-EDIT (the Phase-16 port). Caller submits document_path + EditPlan JSON; the tool validates plan shape, calls mint_python.edit.edit, returns the canonical EditResult dict. Mutates the caller-supplied path in place; backup invariant inherited from MP-EDIT. No allowlist (caller-owned doc, parallel to MP-MCP-FIX).</purpose>
+        <inputs>
+          <param name="document_path" type="str" />
+          <param name="plan_json" type="dict" desc="EditPlan as a JSON-compatible dict; the tool runs validate_plan() before execution" />
+          <param name="severity_mode" type="Literal['audit','lenient','strict']" desc="Post-pack validation severity; defaults to 'lenient'" />
+          <param name="ctx" type="fastmcp.Context" />
+        </inputs>
+        <outputs>
+          <param name="result" type="dict" desc="Canonical EditResult dict: {success, ops_total, ops_succeeded, ops_failed, outcomes: [...], validation_report, diff: [...], backup_path, duration_ms}" />
+        </outputs>
+        <errors>
+          <error code="INVALID_DOCUMENT" desc="Path not a .docx OR traversal rejected" />
+          <error code="EDIT_PLAN_INVALID" desc="plan_json fails shape validation" />
+          <error code="EDIT_ANCHOR_NOT_FOUND" desc="anchor value not present (carries op_id)" />
+          <error code="EDIT_ANCHOR_AMBIGUOUS" desc="multiple matches without occurrence index" />
+          <error code="EDIT_VALIDATION_FAILED" desc="strict mode + output regressed" />
+          <error code="EDIT_BACKUP_FAILED" desc="backup write failed" />
+        </errors>
+      </contract>
+      <interface>
+        <export-mint_edit_document PURPOSE="@server.tool async fn-mint_edit_document(document_path, plan_json, severity_mode='lenient', ctx) — wraps validate_plan + edit; canonicalizes EditResult; surfaces structured errors" />
+        <fn-_canonicalize_edit_result PURPOSE="EditResult dataclass → dict with stable key order; OpOutcome list flattened to per-op {op_id, status, before, after, error?}" />
+      </interface>
+      <depends>MP-EDIT (Phase-16 port; MUST be merged before this wrap), mint._security.safe_doc, fastmcp.Context + ToolError. MUST NOT consult MP-AUTH-SHIM.</depends>
+      <target>
+        <source>src/mint_python/mcp/edit.py</source>
+        <tests>tests/integration/test_mp_mcp_edit.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-McpEdit</log-prefix>
+      </observability>
+      <verification-ref>V-MP-MCP-EDIT</verification-ref>
+    </MP-MCP-EDIT>
   </Modules>
 
   <DataFlow>
@@ -1832,6 +2178,30 @@ writeFileSync('output.docx', buffer);
       <step-5>structured_content gains visual_qa: {score, axes, issues, pages_scored, preset_name, advisory: true}. Below-threshold (default 70) emits [MP-VisualQA][score][BLOCK_QA_BELOW_THRESHOLD] but NEVER raises — tool result still success. Above-threshold emits [MP-VisualQA][score][BLOCK_QA_SCORE].</step-5>
       <evidence>[MP-VisualQA][score][BLOCK_QA_SCORE] preset=&lt;...&gt; pages_scored=&lt;n&gt; score=&lt;0-100&gt; axes=&lt;dict&gt;; backend-failure variant emits BLOCK_QA_BACKEND_UNAVAILABLE; below-threshold variant emits BLOCK_QA_BELOW_THRESHOLD. Hook position-after-GRACE invariant pins to BLOCK_INJECT_GRACE (document.py:910 marker); BLOCK_INJECT_MANIFEST is the inner MP-GRACE marker that fires earlier (informational, not the integration boundary). Forbidden: any QA failure mode that prevents the docx from being returned to the caller.</evidence>
     </DF-019>
+
+    <DF-020 NAME="Document Hygiene MCP" TRIGGER="mint_validate_document / mint_fix_document / mint_fingerprint_document / mint_extract_content MCP call (Phase-16)">
+      <step-1>Tool receives (document_path, [tool-specific params], ctx). Path normalized via safe_doc — rejects path traversal with INVALID_DOCUMENT before any file I/O.</step-1>
+      <step-2>Tool delegates to its pure-python successor: mint_python.validate.validate / mint_python.fix.fix / mint_python.fingerprint.fingerprint / mint_python.extract.extract_style. None of these import from src/mint/ (constraint-8).</step-2>
+      <step-3>Successor returns dataclass result. Tool canonicalizes to a stable-key-order dict and returns to caller via FastMCP. Mutating tools (fix) preserve their backup-before-write invariant; read tools never open zips in mode 'a' or 'w'.</step-3>
+      <step-4>Errors surface as structured ToolError subclasses with no traceback bleed. Read-path tools (validate / fingerprint / extract) MUST NOT consult MP-AUTH-SHIM (V-MP-AUTH-SHIM forbidden-1 extends). The fix tool also doesn't consult AUTH-SHIM (caller-owned doc, not a template/preset).</step-4>
+      <evidence>[MP-McpValidate][run][BLOCK_VALIDATE_DONE] severity_mode counts; [MP-McpFix][apply][BLOCK_FIX_DONE] iterations applied_count; [MP-McpFingerprint][compute][BLOCK_FP_DONE] hash drift_status; [MP-McpExtract][run][BLOCK_EXTRACT_DONE] format theme_keys layouts_count. Inner-layer markers (BLOCK_RUN_CHECKS, BLOCK_CREATE_BACKUP, BLOCK_APPLY_FIX) fire from the underlying mint_python.* successors and are not the integration boundary.</evidence>
+    </DF-020>
+
+    <DF-021 NAME="Document Edit via MCP" TRIGGER="mint_edit_document MCP call (Phase-16)">
+      <step-1>Tool receives (document_path, plan_json, severity_mode, ctx). safe_doc normalizes path; plan_json is shape-validated via MP-EDIT.validate_plan → EditPlan dataclass.</step-1>
+      <step-2>MP-EDIT.edit runs the existing DF-007 pipeline: backup → unpack → extract_text_with_anchors → for each op (resolve_anchor → execute_op → record OpOutcome) → pack with auto-repair → MP-VALIDATE.run_checks. Backup invariant: a .bak lands beside the original BEFORE any in-place mutation.</step-2>
+      <step-3>Tool canonicalizes EditResult to a dict (per-op {op_id, status, before, after, error?}, validation_report, backup_path, duration_ms) and returns.</step-3>
+      <step-4>Errors surface as structured ToolError with the op_id implicated when anchor resolution fails (helps the caller fix one op at a time). Failure modes preserve the doc's pre-edit state — either the op succeeded and the file is updated, or the .bak is restorable.</step-4>
+      <evidence>[MP-McpEdit][edit][BLOCK_EDIT_DONE] ops_total ops_succeeded ops_failed duration_ms; inner-layer markers (BLOCK_EDIT_BACKUP, BLOCK_EDIT_RESOLVE_ANCHOR per op, BLOCK_EDIT_APPLY_OP per op, BLOCK_OOXML_PACK, BLOCK_RUN_CHECKS) fire from MP-EDIT and remain the audit trail for op-by-op debugging.</evidence>
+    </DF-021>
+
+    <DF-022 NAME="Structured Preset Edit" TRIGGER="mint_update_preset_palette / mint_update_preset_typography / mint_update_preset_spacing MCP call (Phase-16)">
+      <step-1>Tool receives (name, &lt;patch&gt;, author, ctx). BEFORE any disk I/O, calls MP-AUTH-SHIM.require_template_writer(author) — reuses MINT_TEMPLATE_WRITERS allowlist (themes are sub-noun of templates per Phase-16 framing).</step-1>
+      <step-2>Tool loads the current preset YAML/JSON (via MP-STYLE.load_preset(name=name); base resolves the BUILTIN_PRESETS entry; later versions resolve `presets/&lt;name&gt;_v&lt;current&gt;.yaml`). Applies the structured patch via _apply_patch (missing patch keys preserve current values; range validation rejects negative spacing, malformed hex, empty font names).</step-2>
+      <step-3>_bump_preset_version computes the next semver (mirrors MP-TEMPLATES-WRITE pattern). Tool writes `presets/&lt;name&gt;_v&lt;next&gt;.yaml` (NEVER overwrites). Sidecar `presets/_audit.jsonl` gains one JSONL entry (timestamp, name, version, author, predecessor_version, patched_fields, content_sha256).</step-3>
+      <step-4>Tool returns {name, version, audit_id, predecessor_version, patched_fields}. The GRACE manifest of any subsequent create_document call that uses this preset embeds the new preset version + author (extending MP-TEMPLATES-WRITE.cross-model-handoff for theme provenance).</step-4>
+      <evidence>[MP-ThemeEdit][&lt;tool&gt;][BLOCK_PRESET_WRITE] name version patched_fields content_sha256; [MP-Auth][check_writer][BLOCK_AUTH_DENY] fires before BLOCK_PRESET_WRITE on the deny path (no write). Cross-module sequence: BLOCK_AUTH_ADMIT (env/file mode) → BLOCK_PRESET_WRITE → presets/_audit.jsonl append.</evidence>
+    </DF-022>
   </DataFlow>
 
   <ImplementationOrder>
@@ -1957,6 +2327,21 @@ writeFileSync('output.docx', buffer);
       <step-3 module="MP-VISUAL-QA-HOOK" status="done" verification="V-MP-VISUAL-QA-HOOK" COMMIT="653896a" COMPLETED_AT="2026-05-10">**W2 — Visual QA hook**. Refactor root-level e2e_qa_visual.py into src/mint_python/qa/visual.py as a library: score_document(path, preset_name='klawd') -> VisualQAReport | None. Backend probes (soffice/pdftoppm/Ollama) degrade gracefully — backend-unavailable returns None with a logged warning, tool still succeeds. Hook wired into mcp/document.py post-GRACE step; structured_content gains visual_qa key (or is omitted entirely when MINT_SKIP_VISUAL_QA=1). VLM rubric (qwen2.5vl:7b on Ollama, 0-100 per axis: typography / layout / visual_richness / professional). Default ON; advisory only — visual-QA outcome NEVER blocks document return. ~100 LOC + tests; existing root-level e2e_qa_visual.py becomes a 5-line CLI shim or is retired.</step-3>
       <step-4 module="MP-LEGACY-DEPRECATION" status="done" verification="V-MP-LEGACY-DEPRECATION" SCOPE_EXPANDED_AT="2026-05-10" COMMIT="63b1646" COMPLETED_AT="2026-05-10">**W3 — Legacy deprecation (subtractive, EXPANDED scope)**. Pre-flight 2026-05-10 found mint.sandbox imported by mint.create + mint.assemble; mcp_g1/mcp_g2 mounted by mint.cli::cmd_serve. Scope expanded by user approval same day. Delete: src/mint/mcp_g1.py, src/mint/mcp_g2.py, src/mint/sandbox/, src/mint/create.py (legacy M-CREATE; ~120 LOC; superseded by mint_python.mcp.document.create_document since Phase-14), src/mint/assemble.py (legacy M-ASSEMBLE; ~700 LOC; only consumer was mint.create). Edit src/mint/cli.py: drop cmd_serve subcommand entirely (legacy MCP server mount path; the MCP entry point is now src/mint_python/mcp/document.py invoked via stdio); drop Engine.JS branch from _select_engine; remove --engine js arg. Drop Engine.JS enum from src/mint/config.py. Purge docx (9.x) / pptxgenjs (3.x) / exceljs (4.x) / vm2 / isolated-vm / vitest / eslint + any project entry points referencing deleted modules from pyproject.toml + uv.lock. Update docs/technology.xml Runtime + Dependencies + Tooling sections + docs/requirements.xml constraint-7. Delete tests/integration/test_mcp_g1.py + tests/integration/test_mcp_g2.py + tests/unit/test_sandbox.py + tests/unit/test_create.py + tests/unit/test_assemble.py + tests/integration/test_create*.py + tests/integration/test_assemble*.py (all that target deleted modules); tests/integration/test_cli.py loses --engine js + cmd_serve branch coverage. Add tests/unit/test_legacy_deprecation.py asserting ModuleNotFoundError for ALL deleted modules + dep absence. tools/article_experiment/ + scripts/ pre-flight CLEAN — no migration needed there. ~1000 LOC removal + test migration + docs sweep. W3 runs LAST — broad subtractive blast radius; SWARM-FORBIDDEN by V-MP-LEGACY-DEPRECATION autonomy-assessment.</step-4>
     </Phase-15>
+
+    <Phase-16 name="MCP-tool parity + new doc_types + structured preset editor (per HANDOVER-phase16-ready.md)" status="planned" ADDED_AT="2026-05-11">
+      <goal>Close the remaining MCP-surface gap from Phase-15 and ship the differentiating bundle for O!Bank demo: validate / fix / fingerprint / extract / edit all reachable through governed `mint_*` MCP tools (track A); four new doc_types — report / ADR / contract / bilingual Ru-En NDA — land as YAML-only additions to the existing generic pipeline (track B); structured preset-edit tools let a model adjust theme tokens (palette / typography / spacing) without composing YAML by hand (track C). End state: the entire post-Phase-15 legacy `src/mint/{validate,fix,fingerprint,extract,edit}.py` surface has pure-python siblings under `src/mint_python/`; every read+write path is reachable through a `mint_*` MCP tool; preset edits run through the same allowlist that gates template edits; four new doc_types extend the demo catalog without Python changes. Phase-16 honors the Phase-15 immediate next action by rolling the `0.4.0a4 → 0.4.0a5` bump into the closeout commit (v0.4.0a4 was tagged 2026-05-11 on the bump commit 2e389c2 — Phase-15 shipped).</goal>
+      <step-1 module="MP-MCP-VALIDATE" status="planned" verification="V-MP-MCP-VALIDATE">**Wave-16-1** — Thin MCP wrap over mint_python.validate. Read-only; no allowlist (V-MP-AUTH-SHIM forbidden-1 extends). Parallel-safe with the rest of W1 (disjoint write scopes — own file under src/mint_python/mcp/).</step-1>
+      <step-2 module="MP-MCP-FIX" status="planned" verification="V-MP-MCP-FIX">**Wave-16-1** — Thin MCP wrap over mint_python.fix. Mutates caller-supplied path; backup-before-write invariant inherited from mint_python.fix.fix. No allowlist (caller-owned doc). Parallel-safe with W1 siblings.</step-2>
+      <step-3 module="MP-FINGERPRINT" status="planned" verification="V-MP-FINGERPRINT">**Wave-16-1** — Port src/mint/fingerprint.py to src/mint_python/fingerprint.py preserving the legacy public API verbatim (compute / compare / fingerprint / FingerprintResult / DriftStatus / exception hierarchy). Legacy module stays in place additively. Parallel-safe with W1 siblings.</step-3>
+      <step-4 module="MP-EXTRACT" status="planned" verification="V-MP-EXTRACT">**Wave-16-1** — Port src/mint/extract.py to src/mint_python/extract.py (extract_style / parse_theme / analyze_layouts + 2 exception types). Legacy module stays additively. Parallel-safe with W1 siblings.</step-4>
+      <step-5 module="MP-DOC-BUNDLE" status="planned" verification="V-MP-DOC-BUNDLE">**Wave-16-1** — Four YAML doc_types land under templates/. Zero Python; consumed by existing MP-DOC-GENERIC pipeline. Bilingual NDA defaults to stacked Ru/En layout (no engine extension). Parallel-safe with W1 siblings (templates/ files are disjoint).</step-5>
+      <step-6 module="MP-MCP-FINGERPRINT" status="planned" verification="V-MP-MCP-FINGERPRINT">**Wave-16-2** — MCP wrap over MP-FINGERPRINT. Depends on W1 step-3 (port). Parallel-safe with W2 siblings.</step-6>
+      <step-7 module="MP-MCP-EXTRACT" status="planned" verification="V-MP-MCP-EXTRACT">**Wave-16-2** — MCP wrap over MP-EXTRACT. Depends on W1 step-4 (port). Parallel-safe with W2 siblings.</step-7>
+      <step-8 module="MP-THEME-EDIT" status="planned" verification="V-MP-THEME-EDIT">**Wave-16-2** — Three structured-patch MCP tools (palette/typography/spacing). Gates through existing MP-AUTH-SHIM (MINT_TEMPLATE_WRITERS allowlist). Writes versioned preset YAML + presets/_audit.jsonl. Independent of W1 ports — parallel-safe with W2 siblings.</step-8>
+      <step-9 module="MP-EDIT" status="planned" verification="V-MP-EDIT">**Wave-16-3** — Port src/mint/edit.py (~2003 LOC) to src/mint_python/edit.py preserving the legacy public surface. Largest single port of the Pure Python Edition cycle. Controller pre-flight: brief the worker section-by-section (anchor resolver / op apply / tracked-change / metadata); pre-decide whether to bring src/mint/ooxml.py along as a scope-expansion MP-OOXML port. SWARM-CAREFUL — single owner.</step-9>
+      <step-10 module="MP-MCP-EDIT" status="planned" verification="V-MP-MCP-EDIT">**Wave-16-3** — MCP wrap over MP-EDIT. Depends on step-9. Mutates caller-supplied path; backup invariant inherited. No allowlist (caller-owned doc).</step-10>
+      <step-gate module="(meta)" status="planned" verification="Gate-Phase-16">**Wave-16-4** — Gate-Phase-16 + version bump 0.4.0a4 → 0.4.0a5 + handover archive. Full test suite green + ruff/mypy/build clean + grep gate (V-MP-EDIT et al inv-1 NO-LEGACY-IMPORT: zero hits for `from mint\.\(fingerprint\|extract\|edit\)` in src/mint_python/ and tests/). Tag v0.4.0a5 on the bump commit.</step-gate>
+    </Phase-16>
   </ImplementationOrder>
 
   <ExecutionPolicy>

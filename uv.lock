@@ -1084,7 +1084,7 @@ wheels = [
 
 [[package]]
 name = "mint-runtime"
-version = "0.4.0a3"
+version = "0.4.0a4"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
