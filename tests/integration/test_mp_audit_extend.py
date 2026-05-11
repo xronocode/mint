@@ -107,7 +107,7 @@ async def _produce_nda_docx() -> Path:
         "party_a": "Alpha Corp",
         "party_b": "Beta LLC",
         "effective_date": "2026-05-15",
-        "scope_ru": "Все конфиденциальные данные",
+        "scope_ru": "Все конфиденциальные данные",  # noqa: RUF001
         "scope_en": "All confidential data",
         "term_ru": "2 года",
         "term_en": "2 years",

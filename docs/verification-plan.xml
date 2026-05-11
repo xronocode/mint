@@ -2911,7 +2911,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Gate-Phase-15>
 
-    <Gate-Phase-16 PHASE="Phase-16" STATUS="planned" ADDED_AT="2026-05-11">
+    <Gate-Phase-16 PHASE="Phase-16" STATUS="done" ADDED_AT="2026-05-11" COMPLETED_AT="2026-05-11">
       <goal>MCP-tool parity completes the post-Phase-15 surface: validate / fix / fingerprint / extract / edit all reachable through governed `mint_*` MCP tools, three of those (fingerprint, extract, edit) backed by fresh pure-python ports under `src/mint_python/`; four new doc_types (report, ADR, contract, bilingual Ru-En NDA) ship as YAML-only additions; structured preset-edit tools (palette / typography / spacing) gate through the existing MINT_TEMPLATE_WRITERS allowlist. End state: every read+write surface from constraint-7's "remaining legacy utilities" list has a pure-python sibling AND an MCP tool; the entire MCP surface is pure-python; presets and templates are governable side-by-side. v0.4.0a5 tag lands on the closeout commit.</goal>
       <commands>
         <command-1>pytest tests/ -x --timeout=120</command-1>
@@ -2943,7 +2943,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       </required-evidence>
     </Gate-Phase-16>
 
-    <Gate-Phase-17 PHASE="Phase-17" STATUS="planned" ADDED_AT="2026-05-11">
+    <Gate-Phase-17 PHASE="Phase-17" STATUS="done" ADDED_AT="2026-05-11" COMPLETED_AT="2026-05-11">
       <goal>Privacy guardrails honored end-to-end (intent flag → heuristic blocklist → anonymisation reporting); technical-spec doc_type demonstrates kind:table + kind:callout engine capability; LLM callers get template suggestions via mint_suggest_template instead of silent fallback; GRACE manifests carry preset_version (always) + lang metadata (when bilingual); mint://preset/&lt;name&gt; chains to versioned preset files. The 3 Phase-16 deferrals (V-MP-THEME-EDIT scenario-10 + V-MP-DOC-BUNDLE scenario-7b + MP-MCP-RESOURCES versioned-preset chain) all close in this phase. v0.4.0a6 tag lands on the closeout commit.</goal>
       <commands>
         <command-1>pytest tests/ -x --timeout=120</command-1>

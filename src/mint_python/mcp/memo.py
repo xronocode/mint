@@ -32,7 +32,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastmcp import Context
-from fastmcp.tools.tool import ToolResult  # type: ignore[import-not-found]
+from fastmcp.tools.tool import ToolResult
 
 from mint_python.mcp import document as _doc
 from mint_python.mcp.document import (
