@@ -1172,7 +1172,10 @@ from mint_python.mcp import validate as _validate  # noqa: E402, F401
 # mint_fingerprint_document (over W1 MP-FINGERPRINT port);
 # mint_extract_content (over W1 MP-EXTRACT port);
 # mint_update_preset_{palette,typography,spacing} (gated through MP-AUTH-SHIM).
-# W3 will append edit.
 from mint_python.mcp import extract as _extract  # noqa: E402, F401
 from mint_python.mcp import fingerprint as _fingerprint  # noqa: E402, F401
 from mint_python.mcp import preset_edit as _preset_edit  # noqa: E402, F401
+
+# Phase-16 W3 (MCP-tool parity completion):
+# mint_edit_document (over W3b MP-EDIT port; depends transitively on W3a MP-OOXML).
+from mint_python.mcp import edit as _edit  # noqa: E402, F401
