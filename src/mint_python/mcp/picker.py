@@ -70,6 +70,7 @@
 #     score determinism, PII-safe logs, bonus-collision detection at
 #     module init, casefold edge cases). Improves document.py's
 #     DocumentTypeNotFound to surface the same top-3 suggestions inline.
+#     review-fix: 7 mechanical simplifications from code-simplifier agent.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -258,19 +259,12 @@ def _summary_text_tokens(summary: TemplateSummary) -> set[str]:
     descriptions via `str()` rather than raising; a corrupted template
     upstream is the registry's problem, not the picker's.
     """
-    name_tokens = _tokenize(summary.name)
-    doc_type_tokens = _tokenize(summary.doc_type)
-    # `description` is typed `str` on TemplateSummary, but a future YAML
-    # author who writes `description: 42` would land here with an int —
-    # `_validate` upstream catches the obvious form (it str-coerces
-    # in `_validate`), but the belt-and-braces `str()` here makes the
-    # picker robust under registry drift.
     try:
-        desc_text = str(summary.description) if summary.description else ""
+        desc = str(summary.description) if summary.description else ""
     except Exception:  # pragma: no cover — defensive against pathological __str__
-        desc_text = ""
-    desc_tokens = _tokenize(desc_text)
-    return name_tokens | doc_type_tokens | desc_tokens
+        logger.debug("[MP-Picker] description coercion failed", exc_info=True)
+        desc = ""
+    return _tokenize(summary.name) | _tokenize(summary.doc_type) | _tokenize(desc)
 
 
 def _bonus_hits(intent_normalised: str, doc_type: str) -> tuple[int, list[str]]:
@@ -286,10 +280,7 @@ def _bonus_hits(intent_normalised: str, doc_type: str) -> tuple[int, list[str]]:
         `_compose_why` to produce a stable `why` field.
     """
     phrases = _KEYWORD_BONUS_TERMS.get(doc_type, ())
-    matched: list[str] = []
-    for phrase in phrases:
-        if phrase.casefold() in intent_normalised:
-            matched.append(phrase)
+    matched = [p for p in phrases if p.casefold() in intent_normalised]
     return len(matched), matched
 
 
@@ -389,7 +380,7 @@ def _score_templates(
     # table are already in their canonical (lowercase) form, and
     # `_bonus_hits` calls `.casefold()` on each phrase too as
     # belt-and-braces.
-    intent_normalised = intent.casefold() if intent else ""
+    intent_normalised = intent.casefold()
     intent_tokens = _tokenize(intent)
     scored = [
         _score_one(intent_tokens, intent_normalised, summary)
