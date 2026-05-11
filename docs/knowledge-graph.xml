@@ -1015,21 +1015,30 @@
       </annotations>
     </MP-THEME-EDIT>
 
-    <MP-OOXML NAME="Pure-Python OOXML pack/unpack port (W3a pre-port)" TYPE="CORE_LOGIC" STATUS="planned" ADDED_AT="2026-05-11" SCOPE_EXPANDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-3a">
-      <purpose>Scope-expansion 2026-05-11 after Wave-16-2 close. Pre-flight inventory of edit.py found 3 hot-path imports from mint.ooxml (unpack, pack, validate_relationships). mint.ooxml itself is fully self-contained (zero from-mint imports). Pre-porting it BEFORE MP-EDIT keeps W3b's worker brief simple and avoids in-flight scope explosion. Preserves the legacy public API verbatim. Legacy module stays additively.</purpose>
+    <MP-OOXML NAME="Pure-Python OOXML pack/unpack port (W3a pre-port)" TYPE="CORE_LOGIC" STATUS="shipped" ADDED_AT="2026-05-11" SCOPE_EXPANDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-3a" COMMIT="dc44247" COMPLETED_AT="2026-05-11">
+      <purpose>Scope-expansion 2026-05-11 after Wave-16-2 close. Pre-flight inventory of edit.py found 3 hot-path imports from mint.ooxml (unpack, pack, validate_relationships). mint.ooxml itself is fully self-contained (zero from-mint imports). Pre-ported BEFORE MP-EDIT to keep W3b's worker brief simple. Preserves the legacy public API verbatim — public symbol names + dataclass field names byte-identical to legacy (verified by TestForbiddenBehaviors.test_forbidden_3_public_symbol_names_match_legacy). Legacy module stays additively.</purpose>
       <path>src/mint_python/ooxml.py</path>
       <depends>stdlib only (logging, re, unicodedata, zipfile, dataclasses, pathlib, typing) + lxml ≥5.x. Constraint-8 compliant — zero `from mint.*` imports.</depends>
-      <consumed-by>MP-EDIT (Phase-16 W3b; uses unpack + pack + validate_relationships in the edit pipeline); future pure-python callers needing OOXML pack/unpack</consumed-by>
+      <consumed-by>MP-EDIT (Phase-16 W3b; uses unpack + pack + validate_relationships in the edit pipeline); future pure-python callers needing OOXML pack/unpack. Reusable parity oracle at tests/_helpers/ooxml_parity.py::collect_parity(doc_path, work_dir) -> ParityRecord — runs unpack+pack on both implementations and returns a side-by-side record (manifests + auto-repair counters); W3b can call this to validate any edit pipeline path ending in a pack call.</consumed-by>
       <verification-ref>V-MP-OOXML</verification-ref>
       <annotations>
-        <fn-unpack PURPOSE="fn-unpack(document_path, unpack_dir) -> UnpackResult — opens zip, pretty-prints XML parts, returns manifest enumerating files; binary parts byte-preserved" />
-        <fn-pack PURPOSE="fn-pack(unpack_dir, output_path) -> PackResult — repackages tree; runs auto-repair (durableId regeneration, xml:space=preserve insertion, rsid normalization); returns PackResult with _stats" />
+        <fn-unpack PURPOSE="fn-unpack(document_path, unpack_dir) -> UnpackResult — opens zip, pretty-prints XML parts, returns manifest enumerating files; binary parts byte-preserved; emits [MP-OOXML][unpack][BLOCK_OOXML_UNPACK]" />
+        <fn-pack PURPOSE="fn-pack(unpack_dir, output_path) -> PackResult — repackages tree; runs auto-repair (durableId regeneration, xml:space=preserve insertion, rsid normalization); returns PackResult with _stats; emits [MP-OOXML][pack][BLOCK_OOXML_PACK]" />
         <fn-validate_relationships PURPOSE="fn-validate_relationships(unpack_dir) -> None — raises OOXMLError on dangling relationships" />
         <fn-merge_runs PURPOSE="fn-merge_runs(tree) -> int — coalesce adjacent w:r elements with identical run properties; returns merged count" />
         <fn-escape_smart_quotes PURPOSE="fn-escape_smart_quotes(tree) -> int — Unicode smart quote → ASCII normalization on text nodes; returns mutation count" />
-        <type-OOXMLError PURPOSE="exception base for OOXML pack/unpack failures" />
-        <type-UnpackResult PURPOSE="frozen dataclass for unpack output" />
-        <type-PackResult PURPOSE="frozen dataclass for pack output" />
+        <fn-_process_xml_for_pack PURPOSE="private; merges runs + escapes smart quotes on each XML part before zipping" />
+        <fn-_autorepair_durable_ids PURPOSE="private; deterministic monotonic durableId regeneration with collision skip" />
+        <fn-_autorepair_whitespace_preserve PURPOSE="private; inserts xml:space=preserve where text has leading/trailing whitespace; emits [MP-OOXML][autorepair][BLOCK_OOXML_AUTOREPAIR]" />
+        <fn-_validate_relationships PURPOSE="private; internal helper backing the public validate_relationships" />
+        <type-OOXMLError PURPOSE="exception base with .code attribute; codes preserved verbatim from legacy: OOXML_NOT_A_ZIP, OOXML_MISSING_CONTENT_TYPES, OOXML_XML_PARSE_ERROR, OOXML_RELATIONSHIP_BROKEN, OOXML_PACK_FAILED, default OOXML_UNKNOWN" />
+        <type-UnpackResult PURPOSE="frozen dataclass: {unpack_dir, parts, runs_merged, quotes_escaped, format, original_path} — byte-identical fields to legacy" />
+        <type-PackResult PURPOSE="frozen dataclass: {output_path, repaired_durable_ids, preserved_whitespace_runs, bytes_written} — byte-identical fields to legacy" />
+        <type-_PackStats PURPOSE="private mutable counter dataclass used during pack; preserved verbatim from legacy" />
+        <log-marker-BLOCK_OOXML_UNPACK PURPOSE="INFO; emitted on successful unpack; payload format parts_count" />
+        <log-marker-BLOCK_OOXML_PACK PURPOSE="INFO; emitted on successful pack; payload output_path bytes_written" />
+        <log-marker-BLOCK_OOXML_AUTOREPAIR PURPOSE="INFO; emitted when auto-repair mutates the tree (durableId regen / xml:space insertion); payload repair_kind count" />
+        <caveat-pythondocx-relative-rels PURPOSE="Known pre-existing issue (in legacy too, not a port divergence): python-docx-generated docx contains a relative rel Target='../customXml/item1.xml' that neither legacy nor port _resolve_target normalizes correctly. valid_memo_docx_bytes() therefore can't round-trip pack→unpack→pack; use minimal_docx_bytes() as the round-trip-safe fixture. Candidate Phase-17 follow-up: extend _resolve_target with .. normalization." />
       </annotations>
     </MP-OOXML>
 
