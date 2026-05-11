@@ -1,0 +1,52 @@
+# MINT decision-record template (Phase-16 — MP-DOC-BUNDLE)
+#
+# Architecture Decision Record (ADR) shape. Standard ADR sections are
+# Context / Decision / Consequences with a status line on top — see
+# Michael Nygard's 2011 "Documenting Architecture Decisions" post for
+# the canonical form. Engine-wise this is identical to memo / letter /
+# report: heading + paragraph + spacer, nothing else.
+
+name: decision-record
+version: "1.0"
+description: "Architecture Decision Record — status, context, decision, consequences"
+doc_type: decision-record
+
+# Required fields in declaration order. Status comes before context so
+# the elicit dialog asks "Proposed / Accepted / Deprecated?" up front —
+# the rest of the record then leans on that framing.
+required_fields:
+  - title
+  - author
+  - date
+  - status
+  - context
+  - decision
+  - consequences
+
+# ADR layout. Title is the H1; the status / author / date line lives in
+# a single paragraph beneath. Each of the three canonical sections
+# (Context, Decision, Consequences) is an H2 followed by its prose.
+layout:
+  - kind: heading
+    level: 1
+    text: "{{ title }}"
+  - kind: paragraph
+    text: "Status: {{ status }} | Author: {{ author }} | Date: {{ date }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Context
+  - kind: paragraph
+    text: "{{ context }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Decision
+  - kind: paragraph
+    text: "{{ decision }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Consequences
+  - kind: paragraph
+    text: "{{ consequences }}"
