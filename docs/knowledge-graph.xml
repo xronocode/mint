@@ -1042,31 +1042,40 @@
       </annotations>
     </MP-OOXML>
 
-    <MP-EDIT NAME="Pure-Python edit pipeline port (A5 port — biggest lift)" TYPE="CORE_LOGIC" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-3b" SCOPE_REVISED_AT="2026-05-11">
-      <purpose>Port of src/mint/edit.py (~2003 LOC) into the pure-python tree — the largest single port of the Pure Python Edition cycle. Preserves the legacy M-EDIT public surface verbatim: EditPlan / EditOp / TextAnchor / OpOutcome dataclasses + edit() + resolve_anchor() + make_edit_metadata() + apply_tracked_change + comment handlers. Section-by-section port plan: (1) anchor resolver + extract_text_with_anchors; (2) op dispatch + execute_op; (3) tracked-change / comment subsystem; (4) metadata + render_diff. Legacy module stays additively; Phase-17 (or later) retires it after consumers migrate.</purpose>
-      <path>src/mint_python/edit.py (possibly + src/mint_python/ooxml.py as scope-expansion if M-OOXML coupling forces it)</path>
-      <depends>lxml ≥5.x, python-docx ≥1.1, mint_python.validate (re-validation), mint_python.fingerprint (drift check). MUST NOT import from src/mint/.</depends>
-      <consumed-by>MP-MCP-EDIT (wraps edit + validate_plan); future direct-Python edit-pipeline callers</consumed-by>
+    <MP-EDIT NAME="Pure-Python edit pipeline port (A5 port — biggest lift)" TYPE="CORE_LOGIC" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-3b" SCOPE_REVISED_AT="2026-05-11" COMMIT="254f051" COMPLETED_AT="2026-05-11">
+      <purpose>Port of src/mint/edit.py shipped at 1914 LOC — the largest single port of the Pure Python Edition cycle. Preserves the legacy M-EDIT public surface byte-identically. 151 tests cover all 12 V-MP-EDIT scenarios + coverage-tail branches; coverage 97% (23 lines uncovered are defensive `parent is None` branches and rare reparse paths). Porting-parity scenario-8 uses `pytest.importorskip("mint.edit")` so legacy can retire cleanly later. Legacy module stays additively.</purpose>
+      <path>src/mint_python/edit.py</path>
+      <depends>mint_python.ooxml (W3a port — unpack/pack/validate_relationships), mint_python.validate (W1 — run_checks + SeverityMode self-defined there), lxml ≥5.x, python-docx ≥1.1. MUST NOT import from src/mint/. NO mint.config dependency — SeverityMode comes from mint_python.validate; MintConfig is NOT imported (the only config field edit() reads is severity_mode, passed explicitly).</depends>
+      <consumed-by>MP-MCP-EDIT (Phase-16 W3c; wraps edit + validate_plan + edit_plan_from_dict); future direct-Python edit-pipeline callers</consumed-by>
       <verification-ref>V-MP-EDIT</verification-ref>
       <annotations>
-        <fn-edit PURPOSE="entry; preserves legacy signature (document_path, plan, config=None) -> EditResult" />
-        <fn-validate_plan PURPOSE="shape gate; raises EDIT_PLAN_INVALID on malformed plan OR anchor.value containing raw OOXML XML (UC-008 acceptance + VF-021 inv-3)" />
-        <fn-resolve_anchor PURPOSE="resolver used by both LLM-driven and direct API paths; raises EDIT_ANCHOR_NOT_FOUND / EDIT_ANCHOR_AMBIGUOUS" />
+        <fn-edit PURPOSE="entry; signature `edit(document_path: str|Path, edit_plan: EditPlan, author: str='MINT', output_path: Path|None=None, severity_mode: SeverityMode|None=None) -> EditResult`; raises EditError on fail-fast (PPTX/invalid plan/backup failed/strict-mode regression/output==backup collision); returns EditResult(success=False, error=msg, output_path=None) on mid-pipeline op failure (pipeline aborts on first failed op per DF-007 step-4)" />
+        <fn-edit_plan_from_dict PURPOSE="fn-edit_plan_from_dict(raw: dict) -> EditPlan — JSON dict → EditPlan; raises EditError(code='EDIT_PLAN_INVALID') on shape errors; the natural seam for MCP wrap's JSON input" />
+        <fn-validate_plan PURPOSE="shape gate; raises EditError on (a) empty/oversize/ASCII-control-char anchor.value (catches NUL-injected OOXML sentinels), (b) unsupported op_type, (c) duplicate op_id, (d) revision ops missing author/date. Does NOT reject literal '&lt;w:r&gt;' substring — legacy parity. UC-008 acceptance is upheld via build_edit_prompt redaction (LLM input path) + control-char rejection; the MP-MCP-EDIT wrap (W3c) MAY add literal-substring rejection as a wrap-layer hardening step." />
+        <fn-build_edit_prompt PURPOSE="builds LLM prompt for edit-flow callers; redacts &lt; / &gt; in anchor context so OOXML never reaches the LLM (UC-008 substantive guarantee)" />
+        <fn-resolve_anchor PURPOSE="resolver used by both LLM-driven and direct API paths; raises EditError(EDIT_ANCHOR_NOT_FOUND / EDIT_ANCHOR_AMBIGUOUS)" />
         <fn-extract_text_with_anchors PURPOSE="walks the unpack tree → list[TextAnchor]" />
-        <fn-execute_op PURPOSE="op-handler dispatch; mutates lxml tree in place; records OpOutcome" />
+        <fn-_execute_op PURPOSE="private; op-handler dispatch — text-replace, paragraph-insert/delete, retag, tracked-change, comment ops, accept/reject; mutates lxml tree in place; records OpOutcome" />
         <fn-apply_tracked_change PURPOSE="emits ECMA-376 w:ins/w:del; routes tracked-change ops" />
-        <fn-make_edit_metadata PURPOSE="produces audit metadata stamped into output" />
+        <fn-make_edit_metadata PURPOSE="produces EditMetadata stamped into output" />
         <fn-render_diff PURPOSE="per-op before/after diff list" />
-        <type-EditPlan PURPOSE="dataclass" />
-        <type-EditOp PURPOSE="dataclass" />
-        <type-TextAnchor PURPOSE="dataclass" />
-        <type-OpOutcome PURPOSE="dataclass" />
-        <type-EditResult PURPOSE="dataclass: success, ops_total, ops_succeeded, ops_failed, outcomes, validation_report, diff, backup_path, duration_ms" />
+        <fn-_CommentsState PURPOSE="private state container; load/flush/next_comment_id/next_para_id/find_para_id_for_comment for comment subsystem" />
+        <type-EditPlan PURPOSE="dataclass {format: Literal['docx','pptx'], ops: list[EditOp], metadata: EditMetadata}" />
+        <type-EditOp PURPOSE="dataclass {type: str, op_id: str, anchor: Anchor, payload: dict[str, Any]}" />
+        <type-Anchor PURPOSE="dataclass {type, value, context_before, context_after, part}" />
+        <type-TextAnchor PURPOSE="dataclass {paragraph_index, hash, text, part}" />
+        <type-OpOutcome PURPOSE="dataclass {op_id, success, error_code, affected_part, before_snippet, after_snippet}" />
+        <type-EditMetadata PURPOSE="dataclass {correlation_id, source_prompt_hash, model, created_at}" />
+        <type-EditResult PURPOSE="dataclass {output_path: Path|None, backup_path: Path, success: bool, ops_total: int, ops_succeeded: int, ops_failed: int, validation_report: Any, diff: list[OpOutcome], duration_ms: int, error: str|None}" />
+        <type-EditError PURPOSE="exception with .code attribute; codes preserved verbatim from legacy: EDIT_PLAN_INVALID, EDIT_OP_UNSUPPORTED, EDIT_ANCHOR_NOT_FOUND, EDIT_ANCHOR_AMBIGUOUS, EDIT_TRACKED_CHANGE_INVALID, EDIT_VALIDATION_FAILED, BACKUP_FAILED (NOT EDIT_BACKUP_FAILED — legacy spelling), EDIT_UNKNOWN" />
         <log-marker-BLOCK_EDIT_PLAN_VALIDATE PURPOSE="INFO; emitted on validate_plan success" />
-        <log-marker-BLOCK_EDIT_BACKUP PURPOSE="INFO; payload backup_path; MUST fire before any BLOCK_EDIT_APPLY_OP (VF-021 inv-2 + V-MP-EDIT forbidden-3)" />
+        <log-marker-BLOCK_EDIT_BACKUP PURPOSE="INFO; payload backup_path; MUST fire before any BLOCK_EDIT_APPLY_OP (VF-021 inv-2)" />
+        <log-marker-BLOCK_EDIT_EXTRACT_TEXT PURPOSE="INFO; emitted during anchor extraction; payload anchors_count" />
         <log-marker-BLOCK_EDIT_RESOLVE_ANCHOR PURPOSE="INFO per op; payload op_id miss?" />
         <log-marker-BLOCK_EDIT_APPLY_OP PURPOSE="INFO per op; payload op_id op_type outcome" />
-        <log-marker-BLOCK_EDIT_TRACKED_CHANGE PURPOSE="INFO; emitted by apply_tracked_change" />
+        <log-marker-BLOCK_EDIT_TRACKED_CHANGE PURPOSE="INFO; emitted by apply_tracked_change for tracked ops" />
+        <caveat-backup-failed-code PURPOSE="Legacy and port both use error code `BACKUP_FAILED` (NOT `EDIT_BACKUP_FAILED` as V-MP-MCP-EDIT contract spells). MP-MCP-EDIT (W3c) wrap maps BACKUP_FAILED → EDIT_BACKUP_FAILED to match its own public contract." />
+        <caveat-uc008-rejection-at-wrap PURPOSE="Worker brief expected validate_plan to reject literal '&lt;w:r&gt;' substring; legacy doesn't (only control-char + oversize + empty). UC-008 substantive guarantee preserved via build_edit_prompt redaction. If wrap-layer hard reject is desired, add it in MP-MCP-EDIT before calling edit()." />
       </annotations>
     </MP-EDIT>
 
