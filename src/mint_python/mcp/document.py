@@ -1592,3 +1592,9 @@ from mint_python.mcp import preset_edit as _preset_edit  # noqa: E402, F401
 from mint_python.mcp import resources as _resources  # noqa: E402, F401
 from mint_python.mcp import validate as _validate  # noqa: E402, F401
 from mint_python.templates import registry as _registry  # noqa: E402, F401
+
+# Phase-17 W17-2: mint_suggest_template (template-picker UX).
+# Tail-registered so external MCP clients (Claude Desktop / Cursor /
+# OpenWebUI) see the tool. The DocumentTypeNotFound raise path inside
+# _load_template lazy-imports `suggest_templates` (circular-import-safe).
+from mint_python.mcp import picker as _picker  # noqa: E402, F401

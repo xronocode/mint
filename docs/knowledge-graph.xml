@@ -1160,7 +1160,7 @@
       </annotations>
     </MP-DOC-TECH-SPEC>
 
-    <MP-DOC-PICKER NAME="Template suggestion + improved no-match UX (mint_suggest_template tool)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-2">
+    <MP-DOC-PICKER NAME="Template suggestion + improved no-match UX (mint_suggest_template tool)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-2" COMMIT="01cb44a" COMPLETED_AT="2026-05-11">
       <purpose>Closes UX gap from Phase-16 production test (silent template fallback). New tool `mint_suggest_template(intent, ctx)` returns top-3 keyword-scored alternatives with `why` reasoning, so LLM caller can ask BEFORE committing to doc_type. Improved DocumentTypeNotFound error surfaces same suggestions inline. Story: "MINT helps Claude pick well — but Claude still picks".</purpose>
       <path>src/mint_python/mcp/picker.py + edit to DocumentTypeNotFound.__init__ in src/mint_python/mcp/document.py</path>
       <depends>MP-TEMPLATES-REGISTRY (lists available templates + metadata), fastmcp.Context + ToolError</depends>
@@ -1191,7 +1191,7 @@
       </annotations>
     </MP-AUDIT-EXTEND>
 
-    <MP-MCP-RESOURCES-VERSIONED NAME="Versioned-preset chain in MCP resources" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-2">
+    <MP-MCP-RESOURCES-VERSIONED NAME="Versioned-preset chain in MCP resources" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-2" COMMIT="ea23227" COMPLETED_AT="2026-05-11">
       <purpose>Closes the 3rd Phase-16 gap surfaced at W2 review: existing mint://preset/&lt;name&gt; handler reads BUILTIN_PRESETS only, doesn't chain to versioned preset files written by mint_update_preset_*. After Phase-17 the preset-edit feedback loop is visible end-to-end via MCP resources; external clients (Cursor, OpenWebUI) see the latest version of each preset.</purpose>
       <path>src/mint_python/mcp/resources.py (resolver helpers + edits to existing handlers)</path>
       <depends>MP-MCP-RESOURCES (extends existing _preset_resource_content + list_presets + get_preset), MP-THEME-EDIT (consumes the PRESETS_DIR convention + versioned filename pattern defined there)</depends>
@@ -1214,6 +1214,6 @@
     <CrossLink from="MP-AUDIT-EXTEND" to="MP-DOC-BUNDLE" relation="Closes V-MP-DOC-BUNDLE scenario-7b: the lang metadata stamping makes bilingual NDA's language pairing visible in GRACE manifest — completes the bilingual cross-model handoff story." />
     <CrossLink from="MP-AUDIT-EXTEND" to="MP-MANIFEST-READ" relation="mint_read_grace_manifest surfaces the extended instructions list verbatim via _canonicalize — callers parse `preset_version=...` and `lang=...` from the dict's instructions field." />
     <CrossLink from="MP-MCP-RESOURCES-VERSIONED" to="MP-MCP-RESOURCES" relation="Extends _preset_resource_content + list_presets + get_preset handlers to use _resolve_latest_preset_path instead of reading BUILTIN_PRESETS directly. After Phase-17, the resource URI surface chains to versioned files automatically." />
-    <CrossLink from="MP-MCP-RESOURCES-VERSIONED" to="MP-THEME-EDIT" relation="Reads the versioned preset files MP-THEME-EDIT writes (presets/&lt;name&gt;_v&lt;X&gt;.yaml). The two modules close the preset-write-and-read loop together — write side in Phase-16 W2, read side in Phase-17 W2. **Imports public `resolve_latest_preset_path` from preset_edit.py** (promoted from private in W17-0 controller pre-flight) — same helper that MP-AUDIT-EXTEND imports, ensures both reader paths agree on what 'latest version' means." />
+    <CrossLink from="MP-MCP-RESOURCES-VERSIONED" to="MP-THEME-EDIT" relation="Reads the versioned preset files MP-THEME-EDIT writes (presets/&lt;name&gt;_v&lt;X&gt;.yaml). The two modules close the preset-write-and-read loop together — write side in Phase-16 W2, read side in Phase-17 W2. **Imports public `resolve_latest_preset_path` from preset_edit.py** (promoted from private in W17-0 controller pre-flight) — same helper that MP-AUDIT-EXTEND imports, ensures both reader paths agree on what 'latest version' means. **Circular-import note (W17-2 discovery)**: preset_edit → mcp.document → mcp.resources → preset_edit forms a cycle at module-load if resources.py imports preset_edit at the top. Solution implemented in `_resolve_preset_for_read`: lazy import preset_edit inside the function. Future modules under mcp/ that need preset_edit helpers MUST follow this pattern." />
   </Project>
 </KnowledgeGraph>
