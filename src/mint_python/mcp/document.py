@@ -1164,7 +1164,15 @@ from mint_python.mcp import resources as _resources  # noqa: E402, F401
 from mint_python.templates import registry as _registry  # noqa: E402, F401
 
 # Phase-16 W1 (MCP-tool parity): mint_validate_document + mint_fix_document
-# tail-register via the same deferred-import pattern. Phase-16 W2 will append
-# fingerprint and extract; W3 will append edit.
+# tail-register via the same deferred-import pattern.
 from mint_python.mcp import fix as _fix  # noqa: E402, F401
 from mint_python.mcp import validate as _validate  # noqa: E402, F401
+
+# Phase-16 W2 (MCP-tool parity + structured preset editor):
+# mint_fingerprint_document (over W1 MP-FINGERPRINT port);
+# mint_extract_content (over W1 MP-EXTRACT port);
+# mint_update_preset_{palette,typography,spacing} (gated through MP-AUTH-SHIM).
+# W3 will append edit.
+from mint_python.mcp import extract as _extract  # noqa: E402, F401
+from mint_python.mcp import fingerprint as _fingerprint  # noqa: E402, F401
+from mint_python.mcp import preset_edit as _preset_edit  # noqa: E402, F401

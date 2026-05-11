@@ -949,47 +949,69 @@
       </annotations>
     </MP-DOC-BUNDLE>
 
-    <MP-MCP-FINGERPRINT NAME="mint_fingerprint_document MCP tool (A3 wrap)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-2">
-      <purpose>MCP wrap over MP-FINGERPRINT. Returns stable hash + drift status when called with a baseline_hash. Useful for detecting accidental theme/style drift across model regenerations.</purpose>
-      <path>src/mint_python/mcp/fingerprint.py</path>
-      <depends>MP-FINGERPRINT (Phase-16 port; W1 dependency), mint._security.safe_doc, fastmcp.Context + ToolError</depends>
+    <MP-MCP-FINGERPRINT NAME="mint_fingerprint_document MCP tool (A3 wrap)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-2" COMMIT="94c6e5a" COMPLETED_AT="2026-05-11">
+      <purpose>MCP wrap over MP-FINGERPRINT. Returns stable 5-key dict {hash, format, has_styles_xml, byte_count, drift_status}; drift_status is None (JSON null) when no baseline_hash supplied (short-circuits compare() rather than relying on UNKNOWN — keeps the wire contract clean). Useful for detecting accidental theme/style drift across model regenerations.</purpose>
+      <path>src/mint_python/mcp/fingerprint.py + module-tail deferred-import in src/mint_python/mcp/document.py to register @server.tool</path>
+      <depends>MP-FINGERPRINT (Phase-16 W1 port, commit b5d4748), mint._security.safe_doc, fastmcp.Context + ToolError</depends>
       <consumed-by>External MCP clients via mint_fingerprint_document tool</consumed-by>
       <verification-ref>V-MP-MCP-FINGERPRINT</verification-ref>
       <annotations>
-        <fn-mint_fingerprint_document PURPOSE="@server.tool async; wraps MP-FINGERPRINT.fingerprint + compare; canonicalizes 5-key dict with drift_status nullable" />
-        <const-CANONICAL_FP_KEYS PURPOSE="VF-020 inv-5 STABLE-KEYS oracle" />
-        <log-marker-BLOCK_FP_DONE PURPOSE="INFO; payload hash format drift_status" />
+        <fn-mint_fingerprint_document PURPOSE="@server.tool async fn(document_path, baseline_hash=None, *, ctx) → 5-key dict; surfaces InvalidDocument / MissingStylesXml as structured errors" />
+        <fn-_canonicalize_result PURPOSE="FingerprintResult + optional baseline_hash → 5-key dict; drift_status as StrEnum.value or None" />
+        <const-CANONICAL_FP_KEYS PURPOSE="('hash','format','has_styles_xml','byte_count','drift_status') — VF-020 inv-5 STABLE-KEYS oracle" />
+        <type-FingerprintDocumentError PURPOSE="ToolError base for fingerprint-tool failures" />
+        <type-InvalidDocument PURPOSE="path-traversal / not-zip" />
+        <type-MissingStylesXml PURPOSE="MissingStyleXmlError surfaced as structured MISSING_STYLES_XML" />
+        <log-marker-BLOCK_FP_DONE PURPOSE="INFO; success path; payload hash format drift_status" />
+        <log-marker-BLOCK_FP_MISSING_STYLES PURPOSE="INFO; missing-styles raise path; payload document_path" />
       </annotations>
     </MP-MCP-FINGERPRINT>
 
-    <MP-MCP-EXTRACT NAME="mint_extract_content MCP tool (A4 wrap)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-2">
-      <purpose>MCP wrap over MP-EXTRACT. Returns a design-tokens dict (theme palette + typography + layouts) so an operator workflow can extract a token baseline from an existing document (UC-004).</purpose>
-      <path>src/mint_python/mcp/extract.py</path>
-      <depends>MP-EXTRACT (Phase-16 port; W1 dependency), mint._security.safe_doc, fastmcp.Context + ToolError</depends>
+    <MP-MCP-EXTRACT NAME="mint_extract_content MCP tool (A4 wrap)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-2" COMMIT="7c28cc7" COMPLETED_AT="2026-05-11">
+      <purpose>MCP wrap over MP-EXTRACT. **Shape decision (option B nested reshape)**: returns 4-key dict {format, theme: {colors, typography, xml_sources}, layouts: [...], extracted_at: ISO8601}. Rationale: W1 port preserves the flat dict for legacy parity (forbidden-3), but the MCP wrap is a new public surface with no existing client to preserve — the nested shape is what the dev-plan output spec called for and is semantically self-describing for LLM-as-client consumers. `extracted_at` is wrap-time provenance not in the pure extractor. Missing-theme docx returns success with empty theme (NOT EXTRACTION_FAILED — matches W1 legacy parity).</purpose>
+      <path>src/mint_python/mcp/extract.py + module-tail deferred-import in src/mint_python/mcp/document.py to register @server.tool</path>
+      <depends>MP-EXTRACT (Phase-16 W1 port, commit a020cfd), mint._security.safe_doc, fastmcp.Context + ToolError</depends>
       <consumed-by>External MCP clients via mint_extract_content tool</consumed-by>
       <verification-ref>V-MP-MCP-EXTRACT</verification-ref>
       <annotations>
-        <fn-mint_extract_content PURPOSE="@server.tool async; wraps MP-EXTRACT.extract_style; canonicalizes dict; surfaces UNSUPPORTED_FORMAT / EXTRACTION_FAILED / INVALID_DOCUMENT" />
+        <fn-mint_extract_content PURPOSE="@server.tool async fn(document_path, *, ctx) → 4-key nested dict; surfaces UNSUPPORTED_FORMAT / EXTRACTION_FAILED / INVALID_DOCUMENT" />
+        <fn-_reshape_tokens PURPOSE="flat W1 dict {colors,typography,format,xml_sources,detected_layouts?} → nested {format, theme:{...}, layouts, extracted_at}" />
+        <const-CANONICAL_EXTRACT_KEYS PURPOSE="('format','theme','layouts','extracted_at') — VF-020 inv-5 STABLE-KEYS oracle" />
+        <type-InvalidDocument PURPOSE="path-traversal / not-zip" />
+        <type-UnsupportedFormat PURPOSE="extension not .docx/.pptx" />
+        <type-ExtractionFailed PURPOSE="ExtractionFailedError surfaced as structured tool error" />
         <log-marker-BLOCK_EXTRACT_DONE PURPOSE="INFO; payload format theme_keys_count layouts_count" />
       </annotations>
     </MP-MCP-EXTRACT>
 
-    <MP-THEME-EDIT NAME="Structured preset editor MCP tools (palette/typography/spacing)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-2">
-      <purpose>Three structured-patch MCP tools so a model can edit preset design tokens without composing valid YAML. Each tool validates a structured patch, merges into the current preset, writes a versioned `presets/&lt;name&gt;_v&lt;next-semver&gt;.yaml`. All gate through MP-AUTH-SHIM reusing MINT_TEMPLATE_WRITERS allowlist (themes are sub-noun of templates). Mirrors MP-TEMPLATES-WRITE versioning + audit-log pattern.</purpose>
-      <path>src/mint_python/mcp/preset_edit.py</path>
-      <depends>MP-AUTH-SHIM (require_template_writer + MINT_TEMPLATE_WRITERS), MP-STYLE (BUILTIN_PRESETS for base read), MP-MCP-RESOURCES (mint:// URIs continue to surface the new versions), pyyaml, fastmcp.Context + ToolError</depends>
+    <MP-THEME-EDIT NAME="Structured preset editor MCP tools (palette/typography/spacing)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-2" COMMIT="4e85a07" COMPLETED_AT="2026-05-11">
+      <purpose>Three structured-patch MCP tools so a model can edit preset design tokens without composing valid YAML. Each tool validates a structured patch, merges into the current preset, writes a versioned `presets/&lt;name&gt;_v&lt;next-semver&gt;.yaml` (NEVER overwrite — concurrent-write race surfaces PRESET_VERSION_CONFLICT via OS-level O_EXCL). All gate through MP-AUTH-SHIM reusing MINT_TEMPLATE_WRITERS allowlist (themes are sub-noun of templates per VF-022 inv-2 + forbidden-4). Mirrors MP-TEMPLATES-WRITE versioning + audit-log pattern.</purpose>
+      <path>src/mint_python/mcp/preset_edit.py + module-tail deferred-import in src/mint_python/mcp/document.py to register 3 @server.tool decorators</path>
+      <depends>MP-AUTH-SHIM (`require_template_writer` + TemplateWriteForbidden + MINT_TEMPLATE_WRITERS allowlist), MP-STYLE (BUILTIN_PRESETS for base read; falls back to `presets/&lt;name&gt;_v&lt;latest&gt;.yaml` if prior edit exists), pyyaml, fastmcp.Context + ToolError. NOTE: MP-MCP-RESOURCES does NOT currently chain to versioned preset files — its `mint://preset/&lt;name&gt;` handler reads BUILTIN_PRESETS only. After a preset edit, the new versioned YAML is NOT discoverable via mint:// URIs until MP-MCP-RESOURCES is extended (candidate Phase-17 work).</depends>
       <consumed-by>Frontier-model agents on the writer allowlist; future preset-tuning workflows</consumed-by>
       <verification-ref>V-MP-THEME-EDIT</verification-ref>
       <annotations>
-        <fn-mint_update_preset_palette PURPOSE="@server.tool async fn-mint_update_preset_palette(name, palette, author, ctx) — auth-checks via require_template_writer; merges palette dict (primary/secondary/accent/text/background); emits BLOCK_PRESET_WRITE" />
-        <fn-mint_update_preset_typography PURPOSE="@server.tool async; same pattern; merges typography (heading_font/body_font/base_size_pt/heading_scale/line_height)" />
-        <fn-mint_update_preset_spacing PURPOSE="@server.tool async; same pattern; merges spacing (paragraph_pt/section_pt/page_margin_top_pt/page_margin_side_pt)" />
-        <fn-_apply_patch PURPOSE="pure dict-merge; missing keys preserve existing values; validates ranges (positive spacing, hex format, non-empty font names); raises INVALID_PATCH on rejection BEFORE any disk I/O" />
-        <fn-_bump_preset_version PURPOSE="reads max version among presets/&lt;name&gt;_v*.yaml; returns next semver minor bump; mirrors MP-TEMPLATES-WRITE._bump_template_version" />
-        <fn-_append_preset_audit PURPOSE="appends one JSONL line to presets/_audit.jsonl: {timestamp, name, version, author, predecessor_version, patched_fields, content_sha256}" />
-        <type-InvalidPatch PURPOSE="exception for INVALID_PATCH structured error" />
-        <type-PresetVersionConflict PURPOSE="exception for concurrent-write collision" />
-        <log-marker-BLOCK_PRESET_WRITE PURPOSE="INFO; payload name version patched_fields content_sha256; fires per tool ([MP-ThemeEdit][palette|typography|spacing][BLOCK_PRESET_WRITE])" />
+        <fn-mint_update_preset_palette PURPOSE="@server.tool async; merges palette dict (primary/secondary/accent/text/background hex strings); emits [MP-ThemeEdit][palette][BLOCK_PRESET_WRITE]" />
+        <fn-mint_update_preset_typography PURPOSE="@server.tool async; merges typography (heading_font/body_font/base_size_pt/heading_scale/line_height); emits [MP-ThemeEdit][typography][BLOCK_PRESET_WRITE]" />
+        <fn-mint_update_preset_spacing PURPOSE="@server.tool async; merges spacing (paragraph_pt/section_pt/page_margin_top_pt/page_margin_side_pt); emits [MP-ThemeEdit][spacing][BLOCK_PRESET_WRITE]" />
+        <fn-_apply_palette_patch PURPOSE="pure dict-merge + HEX_RE validation; returns list[str] of keys actually changed" />
+        <fn-_apply_typography_patch PURPOSE="pure dict-merge + range validation (positive sizes, non-empty fonts); returns list[str]" />
+        <fn-_apply_spacing_patch PURPOSE="pure dict-merge + non-negative validation; returns list[str]" />
+        <fn-_bump_preset_version PURPOSE="reads max version among `presets/&lt;name&gt;_v*.yaml` siblings; returns next semver minor bump; mirrors MP-TEMPLATES-REGISTRY._bump_template_version" />
+        <fn-_resolve_base_preset_path PURPOSE="scans PRESETS_DIR for latest `&lt;name&gt;_v*.yaml`; falls back to BUILTIN_PRESETS — chains edits cleanly so built-ins only resolve on first-touch" />
+        <fn-_write_versioned_preset PURPOSE="atomic write via os.open(..., O_CREAT|O_EXCL); collision raises PresetVersionConflict so concurrent writers serialize deterministically" />
+        <fn-_append_preset_audit PURPOSE="appends one JSONL line to presets/_audit.jsonl with keys {audit_id, timestamp, name, surface, version, predecessor_version, author, patched_fields, content_sha256, written_to}" />
+        <type-PresetNotFound PURPOSE="PRESET_NOT_FOUND structured error" />
+        <type-InvalidPatch PURPOSE="INVALID_PATCH structured error — raised BEFORE any disk I/O" />
+        <type-PresetVersionConflict PURPOSE="PRESET_VERSION_CONFLICT — raised by O_EXCL collision in concurrent-write race" />
+        <const-CANONICAL_RESULT_KEYS PURPOSE="5-tuple: name, version, audit_id, predecessor_version, patched_fields" />
+        <const-PALETTE_KEYS PURPOSE="frozenset of allowed palette patch keys" />
+        <const-TYPOGRAPHY_KEYS PURPOSE="frozenset of allowed typography patch keys" />
+        <const-SPACING_KEYS PURPOSE="frozenset of allowed spacing patch keys" />
+        <const-HEX_RE PURPOSE="hex color regex for palette validation" />
+        <const-PRESETS_DIR PURPOSE="module-level Path; production = src/mint_python/core/presets; tests monkeypatch to tmp_path" />
+        <type-PatchFn PURPOSE="Callable[[dict[str, Any], dict[str, Any]], list[str]] — type alias for the 3 patch functions" />
+        <log-marker-BLOCK_PRESET_WRITE PURPOSE="INFO per tool surface; payload name version patched_fields content_sha256; writers tuple NEVER leaked (forbidden-3 mirror)" />
       </annotations>
     </MP-THEME-EDIT>
 
