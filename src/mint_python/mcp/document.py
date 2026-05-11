@@ -1,5 +1,5 @@
 # FILE: src/mint_python/mcp/document.py
-# VERSION: 0.2.0
+# VERSION: 0.3.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Generic FastMCP create_document tool — lifts the Phase-13
 #     MEMO-POC pipeline out of its hardcoded "memo" shape into a doc-type-
@@ -43,17 +43,24 @@
 #   _run_pipeline                - testable async core; takes log_prefix
 #                                  so create_memo alias keeps MP-Memo
 #                                  log markers (V-MP-MEMO-POC parity)
+#   _detect_template_languages   - detect ≥2 lang suffixes in required
+#                                  fields via _ISO_LANG_CODES allowlist
+#   _resolve_active_preset_version - resolve latest preset version string;
+#                                  lazy-imports preset_edit to avoid cycle
 #   server                       - FastMCP server instance (shared with
 #                                  mcp/memo.py's create_memo)
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.2.0 — Phase-14 W1 (MP-DOC-GENERIC). Renamed module
-#     memo.py → document.py; generalized Memo* types → Document*; added
-#     doc_type parameter through the pipeline and into structured_content
-#     (carries doc_type + template_version per V-MP-DOC-GENERIC
-#     scenario-6); log prefix is parameterized so create_memo alias keeps
-#     [MP-Memo] markers. Backwards-compat shim in mcp/memo.py.
+#   LAST_CHANGE: v0.3.0 — Phase-17 W17-3 (MP-AUDIT-EXTEND). Added
+#     `preset_version` stamp (ALWAYS) and `lang` stamp (when ≥2 distinct
+#     language-suffix fields) to _audit_instructions output. Closes
+#     V-MP-THEME-EDIT scenario-10 + V-MP-DOC-BUNDLE scenario-7b.
+#     New helpers: _detect_template_languages (_ISO_LANG_CODES allowlist),
+#     _resolve_active_preset_version (lazy-imports resolve_latest_preset_path
+#     from preset_edit.py). BLOCK_AUDIT_PRESET_VERSION + BLOCK_AUDIT_LANG
+#     log markers. _audit_instructions gains keyword-only preset_name +
+#     required_fields params; backwards-compat for existing callers.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -82,6 +89,14 @@ from mint_python.grace import bootstrap as grace_bootstrap
 from mint_python.qa.visual import score_document as _score_document
 
 logger = logging.getLogger(__name__)
+
+_ISO_LANG_CODES: frozenset[str] = frozenset(
+    {"en", "ru", "kk", "ky", "uz", "de", "fr", "es", "zh", "ja", "tr", "ar"}
+)
+
+_LANG_SUFFIX_RE = re.compile(
+    r"^(?P<base>[a-z][a-z0-9_]*?)_(?P<lang>[a-z]{2,3})$"
+)
 
 
 MEMO_REQUIRED_FIELDS: tuple[str, ...] = (
@@ -1299,6 +1314,9 @@ async def _run_pipeline(
             template.version,
             template_author=template.author,
             anonymised=anon.anonymous_flag,
+            preset_name="klawd",
+            required_fields=template.required_fields,
+            log_prefix=log_prefix,
         )
     )
     manifest = grace_bootstrap(
@@ -1410,6 +1428,63 @@ def _elicit_prompt(field_name: str, doc_type: str) -> str:
     return prompts.get(field_name, f"Provide a value for {field_name}:")
 
 
+def _detect_template_languages(
+    required_fields: tuple[str, ...],
+) -> list[str]:
+    """Detect bilingual/multilingual field suffixes in template
+    required_fields using an explicit ISO-639 allowlist.
+
+    Returns sorted list of distinct language codes when ≥2 are found,
+    empty list otherwise. Case-sensitive: only lowercase suffixes match
+    (scenario-9 — `scope_RU` does NOT count). Uses `_ISO_LANG_CODES`
+    explicit allowlist, NOT a generic `[a-z]{2,3}` regex (forbidden-4).
+
+    Algorithm:
+      1. For each field name, try to split on the LAST `_` delimiter.
+      2. If the suffix is in `_ISO_LANG_CODES`, record it.
+      3. Return sorted unique codes if count ≥ 2, else [].
+    """
+    codes: set[str] = set()
+    for field_name in required_fields:
+        m = _LANG_SUFFIX_RE.match(field_name)
+        if m and m.group("lang") in _ISO_LANG_CODES:
+            codes.add(m.group("lang"))
+    return sorted(codes) if len(codes) >= 2 else []
+
+
+def _resolve_active_preset_version(preset_name: str) -> str:
+    """Resolve the current version string for the named preset.
+
+    Uses `resolve_latest_preset_path` from preset_edit.py (single source
+    of truth for semver resolution). Falls back to '1.0' on ANY error
+    (forbidden-3 — never raises; terminal '1.0' fallback per
+    forbidden-8).
+
+    Lazy-imports preset_edit to avoid the circular-import cycle:
+    preset_edit → document.server → ... → preset_edit.
+    """
+    try:
+        from mint_python.mcp.preset_edit import resolve_latest_preset_path
+
+        preset_path = resolve_latest_preset_path(preset_name)
+        # Versioned sibling: parse version from filename.
+        m = re.search(r"_v(\d+\.\d+)\.yaml$", preset_path.name)
+        if m:
+            return m.group(1)
+        # BUILTIN_PRESETS baseline: read version from YAML content.
+        raw = yaml.safe_load(preset_path.read_text(encoding="utf-8")) or {}
+        v = raw.get("version")
+        if v:
+            return str(v)
+    except Exception:
+        logger.debug(
+            "[MP-Doc][audit] preset version resolution failed; "
+            "falling back to '1.0'",
+            exc_info=True,
+        )
+    return "1.0"
+
+
 def _audit_instructions(
     audit_id: str,
     fields_elicited: list[str],
@@ -1418,6 +1493,9 @@ def _audit_instructions(
     template_author: str = "",
     *,
     anonymised: bool = False,
+    preset_name: str = "klawd",
+    required_fields: tuple[str, ...] = (),
+    log_prefix: str = "MP-Doc",
 ) -> list[str]:
     """Compose the GRACE manifest instruction list for this run.
 
@@ -1431,12 +1509,46 @@ def _audit_instructions(
     tests' substring asserts on the manifest XML keep matching; other
     doc_types record MP-DOC-GENERIC instead.
 
+    Phase-17 W17-3 (MP-AUDIT-EXTEND) additions:
+      - `preset_version=<version>` — ALWAYS stamped; resolves the latest
+        versioned preset via resolve_latest_preset_path (closes
+        V-MP-THEME-EDIT scenario-10).
+      - `lang=<comma-separated codes>` — stamped when template has ≥2
+        distinct language-suffix fields (closes V-MP-DOC-BUNDLE
+        scenario-7b).
+
     When the anonymous-flag mitigation fired (MP-DOC-PERSONAL-GUARD),
     append `anonymised=true` to the manifest — flag only, NEVER the
     cleared values (forbidden-6 / scenario-19).
     """
     timestamp = datetime.now(tz=UTC).isoformat()
     generator = "MP-MEMO-POC" if doc_type == "memo" else "MP-DOC-GENERIC"
+
+    # START_BLOCK_AUDIT_PRESET_VERSION
+    preset_version = _resolve_active_preset_version(preset_name)
+    logger.info(
+        "[%s][grace][BLOCK_AUDIT_PRESET_VERSION] "
+        "preset=%s preset_version=%s",
+        log_prefix,
+        preset_name,
+        preset_version,
+    )
+    # END_BLOCK_AUDIT_PRESET_VERSION
+
+    lang_codes: list[str] = []
+    if required_fields:
+        lang_codes = _detect_template_languages(required_fields)
+    if lang_codes:
+        # START_BLOCK_AUDIT_LANG
+        logger.info(
+            "[%s][grace][BLOCK_AUDIT_LANG] "
+            "lang_codes=%s field_count=%d",
+            log_prefix,
+            ",".join(lang_codes),
+            len(required_fields),
+        )
+        # END_BLOCK_AUDIT_LANG
+
     instructions = [
         f"audit_id={audit_id}",
         f"generated_by={generator}",
@@ -1445,9 +1557,12 @@ def _audit_instructions(
         f"template={doc_type}.yaml",
         f"template_version={template_version}",
         "preset=klawd",
+        f"preset_version={preset_version}",
     ]
     if template_author:
         instructions.append(f"template_author={template_author}")
+    if lang_codes:
+        instructions.append(f"lang={','.join(lang_codes)}")
     if anonymised:
         instructions.append("anonymised=true")
     return instructions
