@@ -1,11 +1,175 @@
-# Handover — Phase-17 ready to plan
+# Handover — Phase-17 mid-flight (W17-3 + W17-4 remain)
 
-Written 2026-05-11 at the close of the Phase-16 session. Next session picks
-up here. The repo's `MEMORY.md` already loads automatically; the Phase-16
-brief is now archived at `docs/archive/HANDOVER-phase16-ready.md`. This file
-covers only what's NOT in memory and NOT already in the prior handover: the
-Phase-16 outcome, what changed in the surface area, the discoveries that
-should shape Phase-17 framing, and the candidate next phases.
+Written 2026-05-11. **Phase-17 is partially shipped**: W17-0 controller
+pre-flight + W17-1 parallel × 2 + W17-2 parallel × 2 all closed. Two waves
+remain: W17-3 single-worker MP-AUDIT-EXTEND, then W17-4 controller-only
+gate + 0.4.0a5 → 0.4.0a6 bump + handover archive.
+
+This handover replaces the original Phase-16-close version. The planning
+content below (waves, candidates, framing) is still valid for W17-3 + W17-4
+and Phase-18 candidates; the **Current state (2026-05-11 mid-flight)**
+section at the top is what a fresh session should read first.
+
+---
+
+## Current state (2026-05-11 mid-flight)
+
+- **Version**: `0.4.0a5` (Phase-16 close). Bump to `0.4.0a6` lands in W17-4.
+- **Tests**: 1348 pass + 7 skip; ruff + mypy clean; 100% repo-wide coverage
+  on `src/mint_python/`; `uv build` clean; constraint-8 grep gate (0 hits
+  for `from mint\.(ooxml|fingerprint|extract|edit)` in `src/mint_python/`);
+  constraint-4 grep gate (0 hits for semver-logic duplication in
+  `resources.py`).
+- **Live MCP surface — 16 tools** (15 from Phase-16 + 1 new W17-2):
+  - `mint_create_document`, `mint_create_memo` (alias)
+  - `mint_list_templates`, `mint_get_template`, `mint_update_template`
+  - `mint_list_presets`, `mint_get_preset`
+  - `mint_read_grace_manifest`
+  - `mint_validate_document`, `mint_fix_document`, `mint_fingerprint_document`,
+    `mint_extract_content`, `mint_edit_document`
+  - `mint_update_preset_palette/typography/spacing`
+  - **NEW in W17-2**: `mint_suggest_template` (template-picker UX)
+- **Live resource templates**: `mint://template/{name}`, `mint://preset/{name}`
+  — **NOW chains to versioned preset files** after W17-2 MP-MCP-RESOURCES-VERSIONED.
+- **Doc_types catalog** — 7 total: memo, letter, report, decision-record,
+  contract, nda-bilingual-ru-en, **technical-spec** (NEW W17-1).
+- **Phase-17 commits so far** (10):
+  - `2672bc1` W17-0 (a) — DocumentSpec extension
+  - `c0d8137` W17-0 (b) — resolve_latest_preset_path promoted public + collect_preset_versions
+  - `e2ebad0` W17-0 (c) — manifest 12-key canonical dict
+  - `4e3c0f5` W17-0 meta sync
+  - `381a10a` W17-1 MP-DOC-PERSONAL-GUARD
+  - `7359454` W17-1 MP-DOC-TECH-SPEC
+  - `8f660c8` W17-1 meta sync (incl. collect_preset_versions unit tests)
+  - `01cb44a` W17-2 MP-DOC-PICKER
+  - `ea23227` W17-2 MP-MCP-RESOURCES-VERSIONED
+  - `<latest>` W17-2 meta sync + picker tail-import
+
+## What W17-3 needs to do
+
+Single-worker dispatch (SWARM-CAREFUL). MP-AUDIT-EXTEND extends
+`_audit_instructions` in `src/mint_python/mcp/document.py` to stamp:
+1. `preset_version=<version>` ALWAYS — closes V-MP-THEME-EDIT scenario-10
+   deferred from Phase-16
+2. `lang=<comma-separated codes>` when template has ≥2 distinct language-suffix
+   fields (e.g. bilingual NDA's `scope_ru` + `scope_en`) — closes
+   V-MP-DOC-BUNDLE scenario-7b deferred from Phase-16
+
+Worker brief MUST:
+- Import `resolve_latest_preset_path` from `mint_python.mcp.preset_edit`
+  (W17-0 public helper) — NEVER reimplement semver logic.
+- Use explicit `_ISO_LANG_CODES` allowlist `{en, ru, kk, ky, uz, de, fr, es,
+  zh, ja, tr, ar}` for `_detect_template_languages` — NOT a generic
+  `[a-z]{2,3}` regex (would falsely match `_ms`, `_id`, `_pk`, `_no`, `_qa`).
+- Emit `BLOCK_AUDIT_PRESET_VERSION` (always) + `BLOCK_AUDIT_LANG` (bilingual
+  only) log markers.
+- Cover all 19 V-MP-AUDIT-EXTEND scenarios incl. multi-lang ≥3 codes, case
+  sensitivity rejection (RU vs ru), non-lang-suffix discrimination,
+  backwards-compat read of Phase-16 docx (preset_version=None cleanly),
+  semver natural-order (1.10 > 1.2), encoding round-trip, concurrent
+  edit+render race, manifest size bound, end-to-end round-trip via
+  `mint_read_grace_manifest`.
+
+After W17-3 closes, controller flips 3 V-MP entries in the sync commit:
+- V-MP-THEME-EDIT scenario-10: `deferred` → `passing`
+- V-MP-DOC-BUNDLE scenario-7: `partial` → `passing`
+- V-MP-MANIFEST-READ scenario-9: already added in W17-0, but worker should
+  exercise the round-trip with a real preset_version + lang stamp
+
+## What W17-4 needs to do (controller-only gate)
+
+1. **Run all 9 Gate-Phase-17 commands** per docs/verification-plan.xml
+   Gate-Phase-17. Note command-7 was updated to include `picker` in the
+   smoke import set; command-9 expects 16 MCP tools live (15 + new
+   `mint_suggest_template`).
+2. **Address ruff debt if any new errors surfaced**. Phase-17 has not
+   added new pre-existing-file ruff debt; the Phase-16 W4 `[tool.ruff.lint.per-file-ignores]`
+   block in `pyproject.toml` carries forward unchanged.
+3. **Bump version**: `pyproject.toml` 0.4.0a5 → 0.4.0a6; refresh `uv.lock`.
+4. **Tag** `v0.4.0a6` (annotated, NOT pushed) on the bump commit.
+5. **Archive** this file to `docs/archive/HANDOVER-phase17-ready.md`; write
+   a fresh `HANDOVER-phase18-ready.md` with Phase-18 candidates (see below).
+6. **Memory updates**: `project_phase17_framing.md` → archive entry; new
+   `project_phase17_shipped.md` capturing what landed + carried-forward gaps.
+
+## Verification refinements surfaced mid-flight
+
+Two worker-discovered nuances that future sessions / Phase-18 may want to
+revisit:
+
+1. **V-MP-DOC-PICKER scenario-8 Cyrillic-only threshold**: V- spec says
+   `score ≥ 0.4` for `intent="договор оказания услуг"` → top-1=contract.
+   Actual realistic score is ~0.3 because Cyrillic intent doesn't share
+   tokens with English-language template descriptions — only the bonus
+   keyword `договор` hits, producing exactly 0.3 (no jaccard contribution).
+   Worker tested at ≥0.3. **Phase-18 candidate**: add Cyrillic glosses to
+   template `description:` fields so jaccard contributes for cross-language
+   intents.
+2. **V-MP-MCP-RESOURCES-VERSIONED scenario-11 write-while-glob race**: the
+   spec mentions `yaml.safe_load raising on transient half-flushed file`.
+   Actual resolver doesn't parse YAML in the read path — it uses raw
+   `.read_text()`, which returns `""` for empty/half-flushed file. The
+   half-flushed-file tolerance is real but doesn't need yaml-error handling.
+   Worker rewrote the test to match implementation.
+
+## Discoveries to carry forward
+
+- **Circular-import pattern** (W17-2 discovery): `preset_edit` → `mcp.document`
+  → `mcp.resources` → `preset_edit` forms a cycle at module-load. Solution:
+  lazy-import preset_edit helpers inside the function that uses them
+  (`_resolve_preset_for_read` in resources.py). Future MCP modules importing
+  preset_edit helpers MUST follow this pattern. Captured in KG CrossLink on
+  MP-MCP-RESOURCES-VERSIONED → MP-THEME-EDIT.
+- **`_detect_anonymous_flag` returns `tuple[bool, str | None]`** (W17-1
+  worker improvement over original brief — second value is matched form,
+  surfaces as `match_form` in `BLOCK_ANONYMOUS_DETECTED` telemetry).
+- **Walker conditional-skip** is implemented as a 2-pass `_prepare_layout`
+  pre-processor (Phase A drops placeholder-only-empty blocks; Phase B drops
+  decorative headings whose immediate body block was dropped). Generic;
+  future optional fields in other templates benefit automatically.
+- **MP-DOC-PICKER bonus-term collision detection**: at module init the
+  picker builds a reverse-map keyword → set of doc_types; if any keyword
+  maps to ≥2 doc_types it emits `[MP-Picker][init][BLOCK_BONUS_COLLISION]`
+  WARNING. Helps maintainers spot regressions when adding templates.
+- **forbidden-9 mechanically enforced** (MP-DOC-PERSONAL-GUARD) via a
+  runtime test `test_forbidden_9_no_enforcement_claims_in_source` that
+  greps the source for "enforce/guarantee/prevent" near "anonymous/personal".
+  Pattern reusable for future "documentation must surface X" style rules
+  that benefit from mechanical checking.
+
+## Phase-18 candidates (after W17-4 closes)
+
+After Phase-17 ships at 0.4.0a6, the natural Phase-18 list:
+
+- **Legacy `src/mint/` retirement** (deferred from Phase-17): retire the
+  Phase-15 additive ports' legacy siblings. Phase-15 + Phase-16 ported
+  ooxml/fingerprint/extract/edit to mint_python; the legacy modules remain
+  for porting-parity tests + pre-existing scripts. Retirement = audit + migrate
+  consumers + delete + CLI dispatch update + requirements.xml constraint-7
+  rewrite. SWARM-FORBIDDEN single-worker (broad blast radius).
+- **`_resolve_target` `..` normalization**: pre-existing issue in BOTH
+  legacy `mint.ooxml` and pure-python port — python-docx-generated docx
+  contains rel `Target="../customXml/item1.xml"` that `_resolve_target`
+  doesn't normalize. `pack` round-trip fails on such files. ~20 LOC fix.
+- **RestrictedPython sandbox** (Phase-10 unblock, deferred since 2026-05-09):
+  MP-EXEC-{SMALL,MEDIUM,FRONTIER} + RestrictedPython integration. Big scope.
+- **Documentation + 0.4.0 release prep**: README rewrite, OPENING.md,
+  CHANGELOG.md (Phase-13 → Phase-17), CONTRIBUTING.md, 0.4.0 release tag,
+  screencasts of the cross-model demos.
+- **Cyrillic template descriptions** (V-MP-DOC-PICKER refinement above)
+- **mint_get_preset(name@version) explicit version pinning** (V-MP-MCP-RESOURCES-VERSIONED
+  worker noted as Phase-18 candidate)
+
+---
+
+# Original Phase-17 framing (planning content)
+
+Written 2026-05-11 at the close of the Phase-16 session. The repo's
+`MEMORY.md` already loads automatically; the Phase-16 brief is archived
+at `docs/archive/HANDOVER-phase16-ready.md`. This section covers what's
+NOT in memory and NOT already in the prior handover: the Phase-16
+outcome, what changed in the surface area, the discoveries that shaped
+Phase-17 framing, and the candidate next phases.
 
 ## Where we are
 
