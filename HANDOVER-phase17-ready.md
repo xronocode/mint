@@ -154,9 +154,68 @@ What surprised:
   use targeted `git add <specific paths>` rather than `git add .`. Both
   affected workers recovered, but it cost ~5 minutes of disruption each.
 
-## Phase-16 candidates — pick one path
+## Phase-17 framing — locked in 2026-05-11 from real-world gap analysis
 
-The Phase-16 closeout exposed several follow-up roads. None are pre-committed.
+**Phase-17 is reshaped around a same-day real-world test of `mint_create_document`.**
+The user invoked the new Phase-16 MCP surface from a separate Claude Desktop
+session to convert a draft technical-spec request into a docx. Three production
+gaps surfaced that should drive Phase-17:
+
+1. **Privacy gap — auto-fill of `sender` from session context**. Letter template
+   has `sender` in required_fields → Claude Desktop's chat-driven elicitation
+   fallback (project_phase13_smoke_findings) filled the value from the calling
+   model's session context (real name, company, email) WITHOUT asking the user.
+   This is a Claude-client behavior, not a MINT logic bug — but MINT can mitigate:
+   - make `sender` optional in letter.yaml (1-line YAML edit)
+   - add intent-flag `[anonymous]` recognition in the heuristic extractor
+     (~30 LOC in document.py) — blocks auto-fill of personal-data fields when
+     present
+   - surface `{anonymised: true, fields_omitted: [...]}` in structured_content
+     so the caller can see what got redacted
+2. **Engine gap — no `kind: table` in layout**. Phase-16 V-MP-DOC-BUNDLE
+   forbidden-1 explicitly forbade adding new layout block kinds. That was
+   correct Phase-16 hygiene but wrong as a permanent architectural rule.
+   Real-world documents (CSV schemas, calibration tables, technical specs)
+   need tables. Phase-17 lifts the constraint: walker gains `kind: table`
+   (and probably `kind: section` for nested structure) consuming the existing
+   MP-TABLE module from `src/mint_python/core/table.py` (Phase-7).
+3. **Catalog gap — no `technical-spec` doc_type**. Adding Phase-16 doc_types
+   (report / ADR / contract / bilingual NDA) closed the simple-prose set but
+   not the engineering-document set. `templates/technical-spec.yaml` with
+   nested `kind: table` support is the natural addition.
+4. **UX gap — silent template fallback**. When no template matches well,
+   `mint_create_document` picks the closest by heuristic and ships. Better:
+   when match quality is below threshold, return structured "no good match —
+   try X / Y / Z" so the caller can re-prompt. Or in chat-driven fallback,
+   surface the alternatives to the user.
+
+### Wave shape (proposed)
+
+- **Wave 17-1 (privacy guardrails)** — MP-DOC-PERSONAL-GUARD. Intent-flag
+  `[anonymous]` parsing; heuristic-blocklist for `sender / author / contact`
+  when flag present; `sender` optional in letter.yaml; `anonymised` key in
+  structured_content. ~80 LOC + tests. SWARM-SAFE.
+- **Wave 17-2 (layout engine extension — biggest)**:
+  - MP-LAYOUT-TABLES: walker-side `kind: table` + `kind: section` integration
+    with `mint_python.core.table.Table`. Consumes the Phase-7 SDK. ~150-200 LOC.
+  - MP-DOC-TECH-SPEC: `templates/technical-spec.yaml` (`required_fields=(title,
+    purpose, sections)`; sections support nested tables). Possibly companion
+    `data-request.yaml` / `api-spec.yaml` — decide at plan time.
+- **Wave 17-3 (template-picker UX)** — MP-DOC-PICKER. When heuristic match
+  quality < threshold, return structured `{match_quality: 'weak', suggestions:
+  [...]}` instead of silent fallback. Chat-driven fallback surfaces alternatives.
+- **Wave 17-4 (close Phase-16 deferrals — three shared root cause)**:
+  - V-MP-THEME-EDIT scenario-10: stamp `preset_version` in `_audit_instructions`
+  - V-MP-DOC-BUNDLE scenario-7b: bilingual NDA language metadata in manifest
+  - MP-MCP-RESOURCES versioned-preset chain
+- **Wave 17-5 (gate + 0.4.0a5 → 0.4.0a6 bump + handover)**.
+
+Total: 5 waves, ~6-8 modules, ~600-900 LOC.
+
+### Lower-priority Phase-17 candidates (de-prioritized after real-world findings)
+
+The original Phase-17 candidate list (below) is still valid but takes back
+seat to the gap-analysis-driven framing above:
 
 ### Option A — close the Phase-16 deferrals (GRACE manifest extensions + preset chain)
 
