@@ -1923,7 +1923,44 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-THEME-EDIT</verification-ref>
     </MP-THEME-EDIT>
 
-    <MP-EDIT NAME="Pure-Python edit pipeline port (Phase-16 A5 port)" TYPE="CORE_LOGIC" LAYER="3" ORDER="40" STATUS="planned" ADDED_AT="2026-05-11">
+    <MP-OOXML NAME="Pure-Python OOXML pack/unpack port (Phase-16 W3a pre-port)" TYPE="CORE_LOGIC" LAYER="2" ORDER="40" STATUS="planned" ADDED_AT="2026-05-11" SCOPE_EXPANDED_AT="2026-05-11">
+      <contract>
+        <purpose>**Scope expansion added 2026-05-11 after Wave-16-2 close**: pre-flight inventory of `src/mint/edit.py` discovered 3 hot-path dependencies on `mint.ooxml` (unpack, pack, validate_relationships). Constraint-8 forbids `mint_python/*` from importing `mint.*`, and `mint.ooxml` itself is fully self-contained (zero `from mint.*` imports; stdlib + lxml only), so the cleanest path is to port `mint.ooxml` BEFORE MP-EDIT lands. This W3a port preserves the legacy public API verbatim (OOXMLError / UnpackResult / PackResult dataclasses + unpack / pack / merge_runs / escape_smart_quotes / validate_relationships functions). Legacy module stays in place additively. Unblocks MP-EDIT (W3b) to depend on `mint_python.ooxml` instead of `mint.ooxml`.</purpose>
+        <inputs>
+          <param name="document_path / unpack_dir / output_path" type="Path" desc="OOXML file path OR unpack-tree directory; same signatures as legacy" />
+        </inputs>
+        <outputs>
+          <param name="UnpackResult" type="dataclass" desc="{unpack_dir, manifest, original_zip_info, ...}" />
+          <param name="PackResult" type="dataclass" desc="{output_path, _stats, auto_repairs_applied, ...}" />
+          <param name="merge_runs / escape_smart_quotes" type="int" desc="returns count of mutations applied to the in-memory tree" />
+          <param name="validate_relationships" type="None" desc="raises OOXMLError on dangling rels" />
+        </outputs>
+        <errors>
+          <error code="OOXMLError" desc="base class; raised for malformed zip / dangling rels / pretty-print failures" />
+        </errors>
+      </contract>
+      <interface>
+        <export-unpack PURPOSE="fn-unpack(document_path, unpack_dir) -> UnpackResult — opens zip, pretty-prints xml parts, returns manifest (preserves legacy signature including pretty-print, run-merge, smart-quote escape, binary preservation)" />
+        <export-pack PURPOSE="fn-pack(unpack_dir, output_path) -> PackResult — repackages tree into output_path; runs auto-repair (durableId regeneration, xml:space=preserve insertion, rsid normalization); returns PackResult with stats" />
+        <export-validate_relationships PURPOSE="fn-validate_relationships(unpack_dir) -> None — raises OOXMLError on dangling rels detected" />
+        <export-merge_runs PURPOSE="fn-merge_runs(tree) -> int — coalesce adjacent w:r elements with identical run properties; returns count merged" />
+        <export-escape_smart_quotes PURPOSE="fn-escape_smart_quotes(tree) -> int — Unicode smart quote → ASCII normalization on text nodes" />
+        <type-OOXMLError PURPOSE="exception base for OOXML pack/unpack failures" />
+        <type-UnpackResult PURPOSE="frozen dataclass for unpack output" />
+        <type-PackResult PURPOSE="frozen dataclass for pack output" />
+      </interface>
+      <depends>stdlib only (logging, re, unicodedata, zipfile, dataclasses, pathlib, typing) + lxml. Constraint-8 compliant — zero `from mint.*` imports in source.</depends>
+      <target>
+        <source>src/mint_python/ooxml.py</source>
+        <tests>tests/unit/test_mp_ooxml.py</tests>
+      </target>
+      <observability>
+        <log-prefix>MP-OOXML</log-prefix>
+      </observability>
+      <verification-ref>V-MP-OOXML</verification-ref>
+    </MP-OOXML>
+
+    <MP-EDIT NAME="Pure-Python edit pipeline port (Phase-16 A5 port)" TYPE="CORE_LOGIC" LAYER="3" ORDER="41" STATUS="planned" ADDED_AT="2026-05-11" SCOPE_REVISED_AT="2026-05-11">
       <contract>
         <purpose>Port `src/mint/edit.py` (~2003 LOC) to `src/mint_python/edit.py` — the largest port of the Pure Python Edition cycle. Preserves the legacy M-EDIT public surface verbatim: EditPlan / EditOp / TextAnchor / OpOutcome dataclasses + edit() entrypoint + resolve_anchor() + make_edit_metadata() + apply_tracked_change + comment handlers. Section-by-section port plan: (1) anchor resolver + extract_text_with_anchors (~500 LOC) — read-path, safe to land first; (2) op handler dispatch + execute_op (~800 LOC) — write path; (3) tracked-change / comment subsystem (~400 LOC) — w:ins/w:del + commentsExtended; (4) metadata + render_diff (~300 LOC). Legacy module stays in place additively; Phase-17 (or later) retires the legacy copy after tools/* + tests migrate to the pure-python sibling.</purpose>
         <inputs>
@@ -1953,10 +1990,10 @@ writeFileSync('output.docx', buffer);
         <type-OpOutcome PURPOSE="dataclass" />
         <type-EditResult PURPOSE="dataclass" />
       </interface>
-      <depends>lxml ≥5.x, python-docx ≥1.1, mint_python.validate (re-validation after pack), mint_python.fingerprint (drift check). MUST NOT import from src/mint/. The OOXML pack/unpack helper lives in src/mint/ooxml.py today; the port either (a) brings it along as MP-OOXML in Phase-16 or (b) duplicates the small surface needed (recommend a — flagged as scope-expansion candidate). Worker brief MUST inventory ooxml imports up-front.</depends>
+      <depends>MP-OOXML (Phase-16 W3a pre-port, ORDER=40) for unpack/pack/validate_relationships, mint_python.validate (re-validation after pack; SeverityMode self-defined there), mint_python.fingerprint (drift check), lxml ≥5.x, python-docx ≥1.1. MUST NOT import from src/mint/. Scope-revision 2026-05-11: ooxml coupling pre-resolved by W3a — worker brief no longer needs ooxml inventory step.</depends>
       <target>
-        <source>src/mint_python/edit.py (+ possibly src/mint_python/ooxml.py as scope-expansion if M-OOXML coupling forces it)</source>
-        <tests>tests/unit/test_mp_edit.py + tests/integration/test_mp_edit_e2e.py (port the existing test_edit.py + test_edit_e2e.py with imports re-pointed; expand if scope-expansion lands)</tests>
+        <source>src/mint_python/edit.py (scope-revision 2026-05-11: src/mint_python/ooxml.py ships separately as MP-OOXML W3a)</source>
+        <tests>tests/unit/test_mp_edit.py + tests/integration/test_mp_edit_e2e.py (port the existing test_edit.py + test_edit_e2e.py with imports re-pointed at mint_python.edit and mint_python.ooxml)</tests>
       </target>
       <observability>
         <log-prefix>MP-Edit</log-prefix>
@@ -1964,7 +2001,7 @@ writeFileSync('output.docx', buffer);
       <verification-ref>V-MP-EDIT</verification-ref>
     </MP-EDIT>
 
-    <MP-MCP-EDIT NAME="mint_edit_document MCP tool (Phase-16 A5 wrap)" TYPE="INTEGRATION" LAYER="4" ORDER="41" STATUS="planned" ADDED_AT="2026-05-11">
+    <MP-MCP-EDIT NAME="mint_edit_document MCP tool (Phase-16 A5 wrap)" TYPE="INTEGRATION" LAYER="4" ORDER="42" STATUS="planned" ADDED_AT="2026-05-11">
       <contract>
         <purpose>MCP-tool wrap over MP-EDIT (the Phase-16 port). Caller submits document_path + EditPlan JSON; the tool validates plan shape, calls mint_python.edit.edit, returns the canonical EditResult dict. Mutates the caller-supplied path in place; backup invariant inherited from MP-EDIT. No allowlist (caller-owned doc, parallel to MP-MCP-FIX).</purpose>
         <inputs>
@@ -2338,9 +2375,10 @@ writeFileSync('output.docx', buffer);
       <step-6 module="MP-MCP-FINGERPRINT" status="done" verification="V-MP-MCP-FINGERPRINT" COMMIT="94c6e5a" COMPLETED_AT="2026-05-11">**Wave-16-2** — MCP wrap over MP-FINGERPRINT. Canonicalizes the W1-reshaped FingerprintResult into a 5-key dict; drift_status is JSON null when no baseline_hash provided (wrap short-circuits compare()). Tail-import registered in document.py during W2 controller integration.</step-6>
       <step-7 module="MP-MCP-EXTRACT" status="done" verification="V-MP-MCP-EXTRACT" COMMIT="7c28cc7" COMPLETED_AT="2026-05-11">**Wave-16-2** — MCP wrap over MP-EXTRACT. Chose option (B) nested reshape: returns 4-key dict {format, theme:{colors,typography,xml_sources}, layouts, extracted_at} — the W1 port's flat dict is the porting-parity oracle (forbidden-3 bound), but the MCP wrap is a fresh public surface so the nested shape from dev-plan ships. Missing-theme docx returns success with empty theme (legacy parity inherited). Tail-import registered during W2 controller integration.</step-7>
       <step-8 module="MP-THEME-EDIT" status="done" verification="V-MP-THEME-EDIT" COMMIT="4e85a07" COMPLETED_AT="2026-05-11">**Wave-16-2** — Three structured-patch MCP tools (palette/typography/spacing). Gates through existing MP-AUTH-SHIM (MINT_TEMPLATE_WRITERS allowlist reused per VF-022 inv-2; NO separate MINT_PRESET_WRITERS). Versioned preset YAML via O_EXCL atomic write (concurrent-write race deterministic); sidecar presets/_audit.jsonl. V-MP-THEME-EDIT scenario-10 DEFERRED — document.py doesn't stamp preset_version into GRACE manifest yet; shared root cause with V-MP-DOC-BUNDLE scenario-7b. KNOWN GAP: MP-MCP-RESOURCES mint://preset/&lt;name&gt; handler reads BUILTIN_PRESETS only and does NOT chain to versioned files; after a preset edit, the new version is NOT discoverable via mint:// URIs (Phase-17 candidate).</step-8>
-      <step-9 module="MP-EDIT" status="planned" verification="V-MP-EDIT">**Wave-16-3** — Port src/mint/edit.py (~2003 LOC) to src/mint_python/edit.py preserving the legacy public surface. Largest single port of the Pure Python Edition cycle. Controller pre-flight: brief the worker section-by-section (anchor resolver / op apply / tracked-change / metadata); pre-decide whether to bring src/mint/ooxml.py along as a scope-expansion MP-OOXML port. SWARM-CAREFUL — single owner.</step-9>
-      <step-10 module="MP-MCP-EDIT" status="planned" verification="V-MP-MCP-EDIT">**Wave-16-3** — MCP wrap over MP-EDIT. Depends on step-9. Mutates caller-supplied path; backup invariant inherited. No allowlist (caller-owned doc).</step-10>
-      <step-gate module="(meta)" status="planned" verification="Gate-Phase-16">**Wave-16-4** — Gate-Phase-16 + version bump 0.4.0a4 → 0.4.0a5 + handover archive. Full test suite green + ruff/mypy/build clean + grep gate (V-MP-EDIT et al inv-1 NO-LEGACY-IMPORT: zero hits for `from mint\.\(fingerprint\|extract\|edit\)` in src/mint_python/ and tests/). Tag v0.4.0a5 on the bump commit.</step-gate>
+      <step-9 module="MP-OOXML" status="planned" verification="V-MP-OOXML" SCOPE_EXPANDED_AT="2026-05-11">**Wave-16-3a** — Scope-expansion added 2026-05-11 after Wave-16-2 close based on edit.py dependency inventory: edit.py imports 3 functions from mint.ooxml (unpack, pack, validate_relationships) on its hot path; mint.ooxml is fully self-contained (zero from-mint imports). Pre-port mint.ooxml → mint_python.ooxml (~881 LOC) BEFORE MP-EDIT so the W3b worker brief doesn't have to inventory ooxml coupling. Legacy module stays additively. SWARM-CAREFUL — single owner; pure port; low risk.</step-9>
+      <step-10 module="MP-EDIT" status="planned" verification="V-MP-EDIT" SCOPE_REVISED_AT="2026-05-11">**Wave-16-3b** — Port src/mint/edit.py (~2003 LOC) to src/mint_python/edit.py preserving the legacy public surface. Depends on W3a MP-OOXML port. Largest single port of the Pure Python Edition cycle. Controller pre-flight: brief the worker section-by-section (anchor resolver / op apply / tracked-change / metadata); pre-author tests/_helpers/edit_parity.py (legacy vs pure-python oracle). SWARM-CAREFUL — single owner.</step-10>
+      <step-11 module="MP-MCP-EDIT" status="planned" verification="V-MP-MCP-EDIT">**Wave-16-3c** — MCP wrap over MP-EDIT. Depends on step-10. Mutates caller-supplied path; backup invariant inherited. No allowlist (caller-owned doc).</step-11>
+      <step-gate module="(meta)" status="planned" verification="Gate-Phase-16">**Wave-16-4** — Gate-Phase-16 + version bump 0.4.0a4 → 0.4.0a5 + handover archive. Full test suite green + ruff/mypy/build clean + grep gate (V-MP-EDIT et al inv-1 NO-LEGACY-IMPORT: zero hits for `from mint\.\(ooxml\|fingerprint\|extract\|edit\)` in src/mint_python/ and tests/). Tag v0.4.0a5 on the bump commit.</step-gate>
     </Phase-16>
   </ImplementationOrder>
 

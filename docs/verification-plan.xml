@@ -2372,7 +2372,35 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE — disjoint write scope (src/mint_python/mcp/preset_edit.py + tests/integration/test_mp_theme_edit.py + presets/_audit.jsonl); MP-AUTH-SHIM is a stable consumed dependency. Tests use tmp_path-isolated presets/ + monkeypatched env + clean_writers_config fixture (reusable from V-MP-AUTH-SHIM).</autonomy-assessment>
     </V-MP-THEME-EDIT>
 
-    <V-MP-EDIT MODULE="MP-EDIT" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-11">
+    <V-MP-OOXML MODULE="MP-OOXML" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-11" SCOPE_EXPANDED_AT="2026-05-11">
+      <test-files>
+        <file status="planned">tests/unit/test_mp_ooxml.py</file>
+      </test-files>
+      <module-checks>
+        <check-1>pytest tests/unit/test_mp_ooxml.py -x</check-1>
+        <check-2>ruff check src/mint_python/ooxml.py</check-2>
+        <check-3>mypy src/mint_python/ooxml.py</check-3>
+      </module-checks>
+      <scenarios>
+        <scenario-1 kind="success" evidence="deterministic">unpack(memo_docx, tmp_path) returns UnpackResult with manifest enumerating word/document.xml + word/styles.xml etc. Pretty-prints XML parts; binary parts byte-preserved. test_scenario_1_unpack_basic.</scenario-1>
+        <scenario-2 kind="success" evidence="deterministic">pack(unpack_dir, output_path) round-trips: unpack → pack → unpack → identical manifest (modulo deterministic ordering). test_scenario_2_pack_unpack_roundtrip.</scenario-2>
+        <scenario-3 kind="success" evidence="deterministic">validate_relationships on a clean docx returns None; planted dangling rel raises OOXMLError. test_scenario_3_relationships_validation.</scenario-3>
+        <scenario-4 kind="success" evidence="deterministic">merge_runs coalesces adjacent w:r with identical rPr → returns count merged; tree has fewer elements. test_scenario_4_merge_runs.</scenario-4>
+        <scenario-5 kind="success" evidence="deterministic">escape_smart_quotes normalizes Unicode smart quotes to ASCII in text nodes. test_scenario_5_escape_smart_quotes.</scenario-5>
+        <scenario-6 kind="failure" evidence="deterministic">unpack on not-a-zip bytes raises OOXMLError (wraps BadZipFile). test_scenario_6_not_a_zip_raises.</scenario-6>
+        <scenario-7 kind="success" evidence="deterministic">**PORTING-PARITY**: unpack + pack output on the same fixture is byte-equivalent (modulo non-determinism like temp paths) to legacy mint.ooxml.unpack + mint.ooxml.pack. Import legacy in the test; assert manifests + auto-repair stats match. test_scenario_7_legacy_parity.</scenario-7>
+        <scenario-8 kind="success" evidence="deterministic">Constraint-8 grep gate: src/mint_python/ooxml.py contains zero `from mint\.|import mint\.` hits. test_scenario_8_no_legacy_import.</scenario-8>
+      </scenarios>
+      <forbidden-behaviors>
+        <forbidden-1>MUST NOT modify src/mint/ooxml.py (legacy stays additively).</forbidden-1>
+        <forbidden-2>MUST NOT import from src/mint/ (constraint-8). Pure stdlib + lxml only.</forbidden-2>
+        <forbidden-3>Public symbol names MUST NOT diverge from legacy mint.ooxml — porting-parity scenario-7 is the oracle.</forbidden-3>
+        <forbidden-4>Pretty-print / auto-repair / smart-quote behavior MUST NOT diverge from legacy on byte-equal inputs (porting-parity).</forbidden-4>
+      </forbidden-behaviors>
+      <autonomy-assessment>SWARM-CAREFUL — single worker; pure port; low risk (zero dependencies in source module). Pre-author tests/_helpers/ooxml_parity.py if useful as oracle for scenario-7.</autonomy-assessment>
+    </V-MP-OOXML>
+
+    <V-MP-EDIT MODULE="MP-EDIT" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-11" SCOPE_REVISED_AT="2026-05-11">
       <test-files>
         <file status="planned">tests/unit/test_mp_edit.py</file>
         <file status="planned">tests/integration/test_mp_edit_e2e.py</file>
@@ -2397,7 +2425,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <scenario-12 kind="success" evidence="integration">Section-by-section coverage: each of the 4 port-sections (anchor resolver / op handlers / tracked-change subsystem / metadata + render_diff) has at least 2 dedicated test scenarios; coverage on src/mint_python/edit.py is ≥95% (target: 100% by Phase-16 close).</scenario-12>
       </scenarios>
       <forbidden-behaviors>
-        <forbidden-1>MUST NOT import from src/mint/ (constraint-8). NO `import mint.ooxml`. If MP-EDIT requires OOXML pack/unpack, the port either brings a private helper or escalates to a controller-side scope-expansion to port MP-OOXML.</forbidden-1>
+        <forbidden-1>MUST NOT import from src/mint/ (constraint-8). Use mint_python.ooxml (W3a port). NO `import mint.ooxml` — the scope-expansion to port MP-OOXML already landed 2026-05-11.</forbidden-1>
         <forbidden-2>EditPlan.ops[*].anchor.value MUST NEVER carry raw OOXML XML — validate_plan rejects (UC-008 + VF-021 inv-3).</forbidden-2>
         <forbidden-3>Backup MUST land before any unpack / mutation; verified by trace order in scenario-11.</forbidden-3>
         <forbidden-4>Mid-pipeline op failure MUST NOT leave the source partially mutated — either the op fully succeeded (file updated) or the .bak is byte-identical to pre-call (VF-021 inv-4).</forbidden-4>
@@ -2645,7 +2673,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
         <command-3>mypy src/mint_python</command-3>
         <command-4>uv run --with pytest-cov pytest tests/ --cov=src/mint_python --cov-report=term --cov-fail-under=100</command-4>
         <command-5>uv build  # wheel must build cleanly</command-5>
-        <command-6>grep -rn "from mint\.\(fingerprint\|extract\|edit\)\|import mint\.\(fingerprint\|extract\|edit\)" src/mint_python/ tests/ 2&gt;/dev/null | wc -l | xargs -I{} test {} -eq 0  # gate proof for V-MP-{FINGERPRINT,EXTRACT,EDIT} forbidden-1 + VF-020 inv-1 + VF-021 inv-1</command-6>
+        <command-6>grep -rn "from mint\.\(ooxml\|fingerprint\|extract\|edit\)\|import mint\.\(ooxml\|fingerprint\|extract\|edit\)" src/mint_python/ tests/ 2&gt;/dev/null | wc -l | xargs -I{} test {} -eq 0  # gate proof for V-MP-{OOXML,FINGERPRINT,EXTRACT,EDIT} forbidden-1 + VF-020 inv-1 + VF-021 inv-1</command-6>
         <command-7>python -c "from mint_python.mcp import validate, fix, fingerprint, extract, edit, preset_edit; print('OK: 6 new mcp modules importable')"</command-7>
         <command-8>python -c "import yaml; [yaml.safe_load(open(f'templates/{n}.yaml')) for n in ['memo','letter','report','decision-record','contract','nda-bilingual-ru-en']]; print('OK: 6 doc_types load')"</command-8>
       </commands>
