@@ -1125,22 +1125,30 @@
 
     <!-- Phase 17: privacy guardrails + technical-spec doc_type + picker UX + close Phase-16 deferrals -->
 
-    <MP-DOC-PERSONAL-GUARD NAME="Privacy mitigations for create_document" TYPE="CORE_LOGIC" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-1">
-      <purpose>Mitigates the Phase-16 production gap: Claude Desktop chat-driven elicit-fallback fills `sender` from session context without prompting the user. MINT can MITIGATE via intent-flag detection + heuristic blocklist + anonymisation reporting; cannot ENFORCE (client decides what to fill in elicit responses). Story: "MINT respects anonymity hints".</purpose>
-      <path>src/mint_python/mcp/document.py (edits to _heuristic_extract + _run_pipeline structured_content) + templates/letter.yaml (sender → optional)</path>
-      <depends>existing MP-DOC-GENERIC heuristic extractor; existing templates/letter.yaml; no new external deps</depends>
-      <consumed-by>external MCP clients via mint_create_document tool when intent contains anonymity-hint phrases</consumed-by>
+    <MP-DOC-PERSONAL-GUARD NAME="Privacy mitigations for create_document" TYPE="CORE_LOGIC" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-1" COMMIT="381a10a" COMPLETED_AT="2026-05-11">
+      <purpose>Mitigates the Phase-16 production gap: Claude Desktop chat-driven elicit-fallback fills `sender` from session context without prompting the user. MINT can MITIGATE via intent-flag detection + heuristic blocklist + anonymisation reporting + walker conditional-skip + elicit-skip for blocklisted-and-optional fields; cannot ENFORCE (client decides what to fill in elicit responses). Story: "MINT respects anonymity hints". forbidden-9 mechanically enforced via runtime grep test (test_forbidden_9_no_enforcement_claims_in_source).</purpose>
+      <path>src/mint_python/mcp/document.py (+369 LOC: _heuristic_extract wrapper, _run_pipeline structured_content shape, _build_document walker conditional-skip via _prepare_layout, _audit_instructions extension) + templates/letter.yaml (sender → optional)</path>
+      <depends>existing MP-DOC-GENERIC heuristic extractor + walker + audit-instructions builder; existing templates/letter.yaml; stdlib `hashlib` for value_sha8 redaction; no new external deps</depends>
+      <consumed-by>external MCP clients via mint_create_document tool when intent contains anonymity-hint phrases; mint_create_memo (alias) inherits the behavior</consumed-by>
       <verification-ref>V-MP-DOC-PERSONAL-GUARD</verification-ref>
       <annotations>
-        <fn-_detect_anonymous_flag PURPOSE="case-insensitive ANCHORED match for [anonymous] / `anonymous` / `анонимно` / `без личных данных`; returns bool" />
-        <fn-_apply_personal_blocklist PURPOSE="clears _PERSONAL_FIELDS values in DocumentSpec; emits BLOCK_ANONYMISE per cleared field" />
-        <fn-_render_anonymisation_report PURPOSE="merges anonymised + fields_omitted into tool result structured_content" />
-        <const-_PERSONAL_FIELDS PURPOSE="frozenset of field names treated as personal-data: sender, author, contact, from_, to_, signature, signer, recipient" />
-        <log-marker-BLOCK_ANONYMISE PURPOSE="INFO; payload field=&lt;name&gt; reason=anonymous_intent_flag per cleared field" />
+        <fn-_detect_anonymous_flag PURPOSE="anchored named-group regex over intent → `tuple[bool, str | None]` (matched, form). Form is one of {bracket, word_ru, phrase_ru} (English bare `anonymous` is too ambiguous — only the bracket form fires for EN). Pure regex; no I/O." />
+        <fn-_apply_personal_blocklist PURPOSE="clears _PERSONAL_FIELDS values in DocumentSpec; returns (modified_spec, sorted_cleared_list); emits BLOCK_ANONYMISE per cleared field with value_sha8 + value_len redaction (raw value NEVER logged — forbidden-6)" />
+        <fn-_render_anonymisation_report PURPOSE="merges anonymised:bool + fields_omitted:list[str] into tool result structured_content alongside existing keys" />
+        <fn-_extract_with_anonymisation PURPOSE="wrapper preserving the legacy `_heuristic_extract(intent, source_md) -> DocumentSpec` signature MP-Memo tests depend on; threads anonymisation state through" />
+        <fn-_prepare_layout PURPOSE="2-pass walker pre-processor (~50 LOC): Phase A drops placeholder-only-empty blocks; Phase B drops decorative headings whose immediate non-spacer body block was dropped. Scope-expanded from V-MP-DOC-PERSONAL-GUARD scenario-16." />
+        <fn-_entry_resolves_empty PURPOSE="Phase-A helper: returns True for kind ∈ {paragraph, heading} where text matches placeholder-only regex AND spec.field is empty AND no `default:` YAML key" />
+        <type-_AnonymisationOutcome PURPOSE="dataclass threading anonymised flag + fields_omitted list through the pipeline without leaking values" />
+        <const-_PERSONAL_FIELDS PURPOSE="15-name frozenset: sender, author, contact, from_, to_, signature, signer, recipient, cc, bcc, phone, email, address, signer_name, signer_email" />
+        <const-_ANONYMOUS_FLAG_RE PURPOSE="named-group regex with bracket / word_ru / phrase_ru alternatives; anchored (no-word lookbehind/lookahead for Cyrillic word form); IGNORECASE" />
+        <const-_PLACEHOLDER_ONLY_RE PURPOSE="regex matching layout text containing exactly one `{{ field }}` placeholder with optional surrounding whitespace" />
+        <log-marker-BLOCK_ANONYMOUS_DETECTED PURPOSE="INFO; payload match_form={bracket|word_ru|phrase_ru} intent_len=&lt;int&gt;; once per call when flag detected" />
+        <log-marker-BLOCK_ANONYMISE PURPOSE="INFO; payload field=&lt;name&gt; reason=anonymous_intent_flag value_len=&lt;int&gt; value_sha8=&lt;hex8&gt;; once per cleared field; raw value NEVER logged" />
+        <log-marker-BLOCK_PERSONAL_ELICIT_HINT PURPOSE="INFO; payload field=&lt;name&gt;; once per personal-field elicit prompt that includes the personal_data=high hint" />
       </annotations>
     </MP-DOC-PERSONAL-GUARD>
 
-    <MP-DOC-TECH-SPEC NAME="Phase-17 technical-spec doc_type (demonstrates kind:table + kind:callout)" TYPE="UTILITY" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-1">
+    <MP-DOC-TECH-SPEC NAME="Phase-17 technical-spec doc_type (demonstrates kind:table + kind:callout)" TYPE="UTILITY" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-1" COMMIT="7359454" COMPLETED_AT="2026-05-11">
       <purpose>Closes catalog gap from Phase-16 production test (real-world TZ request → MINT picked letter). Pure-data: templates/technical-spec.yaml using the FULL engine layout vocabulary (heading + paragraph + table + callout + spacer). **KEY DISCOVERY**: walker has supported table + callout since Phase-14 — V-MP-DOC-BUNDLE forbidden-1 mis-froze them. This module amends that constraint + demonstrates the existing capability via a real doc_type. Engineering docs (CSV schemas, calibration data, technical specs) get a first-class shape.</purpose>
       <path>templates/technical-spec.yaml</path>
       <depends>MP-DOC-GENERIC (consumer pipeline — walker already supports table + callout), MP-TEMPLATES-REGISTRY (schema validator), mint_python.core.table.Table (Phase-7; consumed by walker)</depends>
