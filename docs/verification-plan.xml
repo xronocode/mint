@@ -2465,7 +2465,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
 
     <!-- Phase 17: privacy guardrails + technical-spec doc_type + picker UX + close Phase-16 deferrals -->
 
-    <V-MP-DOC-PERSONAL-GUARD MODULE="MP-DOC-PERSONAL-GUARD" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-11">
+    <V-MP-DOC-PERSONAL-GUARD MODULE="MP-DOC-PERSONAL-GUARD" PRIORITY="high" STATUS="passing" ADDED_AT="2026-05-11" COMPLETED_AT="2026-05-11" COMMIT="381a10a">
       <test-files>
         <file status="planned">tests/integration/test_mp_doc_personal_guard.py</file>
       </test-files>
@@ -2517,7 +2517,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-CAREFUL (escalated from SWARM-SAFE 2026-05-11 after deepening): single owner; touches document.py _heuristic_extract + _run_pipeline return shape + 1-line letter.yaml edit + **scope-expansion: walker conditional-skip in _build_document** (Q-A 2026-05-11 decision — adds ~20 LOC). Security-sensitive: 13 added scenarios + 6 added forbidden-behaviors. tests/integration use FakeMCPContext for elicit scripting + new helper tests/integration/_helpers/log_assertions.py::assert_no_value_in_logs.</autonomy-assessment>
     </V-MP-DOC-PERSONAL-GUARD>
 
-    <V-MP-DOC-TECH-SPEC MODULE="MP-DOC-TECH-SPEC" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-11" PRIORITY_ESCALATED_AT="2026-05-11">
+    <V-MP-DOC-TECH-SPEC MODULE="MP-DOC-TECH-SPEC" PRIORITY="high" STATUS="passing" ADDED_AT="2026-05-11" PRIORITY_ESCALATED_AT="2026-05-11" COMPLETED_AT="2026-05-11" COMMIT="7359454">
       <test-files>
         <file status="planned">tests/integration/test_mp_doc_tech_spec.py</file>
       </test-files>
