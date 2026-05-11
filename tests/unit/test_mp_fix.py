@@ -580,5 +580,5 @@ class TestForbiddenBehaviors:
 
         result = apply_fixes(doc, original_violations, rules_dir=RULES_DIR)
 
-        post_report = run_checks(doc, SeverityMode.AUDIT, rules_dir=RULES_DIR)
+        run_checks(doc, SeverityMode.AUDIT, rules_dir=RULES_DIR)
         assert result.iterations >= 1

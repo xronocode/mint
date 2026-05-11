@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from mint_python.core.style import BUILTIN_PRESETS
 from mint_python.mcp.resources import (
     ResourceDescriptor,
     ResourceNotFound,

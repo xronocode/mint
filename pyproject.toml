@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mint-runtime"
-version = "0.4.0a4"
+version = "0.4.0a5"
 description = "Model-Independent Normalization Toolkit — Claude-quality document generation for any LLM"
 
 requires-python = ">=3.12"
@@ -62,6 +62,20 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "RUF"]
+
+# Test files contain long OOXML literals + OOXML-derived test-name camelCase
+# (delText, paraId) + intentionally uppercase fixture constants; relaxing
+# specific lints in those files keeps test data readable without fragmenting
+# clearly-correct constructs across many short lines or renaming OOXML attrs.
+# Phase-16 W4 baseline (2026-05-11).
+[tool.ruff.lint.per-file-ignores]
+"tests/fixtures/_generate_edit_fixtures.py" = ["E501"]
+"tests/unit/test_plan.py" = ["E501"]
+"tests/unit/test_section.py" = ["E501"]
+"tests/unit/test_mp_edit.py" = ["N802"]
+"tests/integration/test_mp_mcp_resources.py" = ["N806"]
+"tests/integration/test_mp_memo_poc.py" = ["E501", "N806", "F841"]
+"tests/unit/conftest.py" = ["N814"]
 
 [tool.mypy]
 python_version = "3.12"

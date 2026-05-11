@@ -118,8 +118,15 @@ from mint_python.edit import (
     edit as _backend_edit,
 )
 from mint_python.mcp.document import server
-from mint_python.mcp.validate import _canonicalize_report
 from mint_python.validate import SeverityMode
+
+# _canonicalize_report is imported lazily inside _canonicalize_edit_result to
+# avoid a circular import: validate.py imports server from document.py, and
+# document.py tail-imports edit (us). Importing validate at module-load time
+# would create a cycle when `import mint_python.mcp.validate` is the first
+# trigger (the module-init order leaves _canonicalize_report undefined until
+# validate.py finishes its own module-level work). Lazy import deferred to
+# first call avoids the cycle entirely. See Gate-Phase-16 W4 finding.
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +298,8 @@ _EDIT_ERROR_MAP: dict[str, tuple[type[ToolError], str]] = {
         EditTrackedChangeInvalid,
         "EDIT_TRACKED_CHANGE_INVALID",
     ),
-    # BACKUP_FAILED is the legacy code from mint.edit / mint_python.edit. The
+    # BACKUP_FAILED is the legacy error code preserved verbatim by the W3b
+    # MP-EDIT port (legacy mint package + mint_python tree both raise it). The
     # MCP surface speaks an EDIT_-prefixed vocabulary, so we rename to
     # EDIT_BACKUP_FAILED at the boundary. Documented in MODULE_MAP.
     "BACKUP_FAILED": (EditBackupFailed, "EDIT_BACKUP_FAILED"),
@@ -352,6 +360,10 @@ def _canonicalize_edit_result(
     if result.validation_report is None:
         validation_dict: dict[str, Any] | None = None
     else:
+        # Lazy import to break the circular dependency documented at the top
+        # of this module — validate <-> document <-> edit.
+        from mint_python.mcp.validate import _canonicalize_report
+
         validation_dict = _canonicalize_report(
             result.validation_report, _SEVERITY_MAP[severity_mode]
         )

@@ -1159,14 +1159,9 @@ __all__ = [
 # and create_memo — list_templates, get_template, update_template,
 # list_presets, get_preset, and the mint:// resource handlers stay
 # unregistered and invisible to live MCP clients.
-from mint_python.mcp import manifest as _manifest  # noqa: E402, F401
-from mint_python.mcp import resources as _resources  # noqa: E402, F401
-from mint_python.templates import registry as _registry  # noqa: E402, F401
-
-# Phase-16 W1 (MCP-tool parity): mint_validate_document + mint_fix_document
-# tail-register via the same deferred-import pattern.
-from mint_python.mcp import fix as _fix  # noqa: E402, F401
-from mint_python.mcp import validate as _validate  # noqa: E402, F401
+# Phase-16 W3 (MCP-tool parity completion):
+# mint_edit_document (over W3b MP-EDIT port; depends transitively on W3a MP-OOXML).
+from mint_python.mcp import edit as _edit  # noqa: E402, F401
 
 # Phase-16 W2 (MCP-tool parity + structured preset editor):
 # mint_fingerprint_document (over W1 MP-FINGERPRINT port);
@@ -1174,8 +1169,12 @@ from mint_python.mcp import validate as _validate  # noqa: E402, F401
 # mint_update_preset_{palette,typography,spacing} (gated through MP-AUTH-SHIM).
 from mint_python.mcp import extract as _extract  # noqa: E402, F401
 from mint_python.mcp import fingerprint as _fingerprint  # noqa: E402, F401
-from mint_python.mcp import preset_edit as _preset_edit  # noqa: E402, F401
 
-# Phase-16 W3 (MCP-tool parity completion):
-# mint_edit_document (over W3b MP-EDIT port; depends transitively on W3a MP-OOXML).
-from mint_python.mcp import edit as _edit  # noqa: E402, F401
+# Phase-16 W1 (MCP-tool parity): mint_validate_document + mint_fix_document
+# tail-register via the same deferred-import pattern.
+from mint_python.mcp import fix as _fix  # noqa: E402, F401
+from mint_python.mcp import manifest as _manifest  # noqa: E402, F401
+from mint_python.mcp import preset_edit as _preset_edit  # noqa: E402, F401
+from mint_python.mcp import resources as _resources  # noqa: E402, F401
+from mint_python.mcp import validate as _validate  # noqa: E402, F401
+from mint_python.templates import registry as _registry  # noqa: E402, F401
