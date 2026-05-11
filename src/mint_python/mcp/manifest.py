@@ -31,9 +31,11 @@
 #   ManifestNotFound               - MANIFEST_NOT_FOUND (no grace/* part)
 #   ManifestParseError             - MANIFEST_PARSE_ERROR (malformed XML)
 #   InvalidDocument                - INVALID_DOCUMENT (bad zip / traversal)
-#   CANONICAL_KEYS                 - tuple of the 10 keys in the canonical
+#   CANONICAL_KEYS                 - tuple of the 12 keys in the canonical
 #                                    dict shape (returned dict is exactly
-#                                    these keys, no more)
+#                                    these keys, no more). Phase-17 W17-0
+#                                    added preset_version + lang for
+#                                    MP-AUDIT-EXTEND extended provenance.
 #   GRACE_NAMESPACE                - re-exported urn:mint:grace:2026:manifest
 #   _canonicalize                  - GRACEManifest -> canonical dict
 #   _select_most_recent            - list[GRACEManifest] -> the entry with
@@ -87,6 +89,14 @@ CANONICAL_KEYS: tuple[str, ...] = (
     "instructions",
     "fingerprint",
     "namespace",
+    # Phase-17 W17-0: 2 new keys for extended provenance.
+    # MP-AUDIT-EXTEND (W17-3) writes preset_version + lang into the
+    # instructions list; the canonicalizer here promotes them to typed
+    # fields. On Phase-16 docx (no preset_version stamp) preset_version
+    # surfaces as None; on monolingual templates lang surfaces as []
+    # (V-MP-AUDIT-EXTEND forbidden-6 — no KeyError on legacy reads).
+    "preset_version",
+    "lang",
 )
 
 
@@ -134,7 +144,7 @@ def _parse_kv_instructions(instructions: list[str]) -> dict[str, str]:
 
 
 def _canonicalize(manifest: GRACEManifest) -> dict[str, Any]:
-    """Project a GRACEManifest into the canonical 10-key dict shape.
+    """Project a GRACEManifest into the canonical 12-key dict shape.
 
     GRACE injection encodes audit metadata as `key=value` lines inside
     the manifest's `instructions` list (see document._audit_instructions).
@@ -144,7 +154,10 @@ def _canonicalize(manifest: GRACEManifest) -> dict[str, Any]:
     Missing fields surface as None (or empty list / empty string for
     the typed-collection fields), never KeyError — V-MP-MANIFEST-READ
     scenario-1 mandates "values may be None/empty when absent in source
-    manifest"."""
+    manifest". V-MP-MANIFEST-READ scenario-9 (Phase-17 W17-0 addition)
+    mandates the same for the new preset_version + lang keys: legacy
+    Phase-16 docx without those instructions surfaces preset_version=None
+    and lang=[] cleanly."""
     kv = _parse_kv_instructions(manifest.instructions)
 
     fields_elicited_raw = kv.get("fields_elicited", "")
@@ -154,6 +167,14 @@ def _canonicalize(manifest: GRACEManifest) -> dict[str, Any]:
         fields_elicited = [
             name.strip() for name in fields_elicited_raw.split(",") if name.strip()
         ]
+
+    # Phase-17 W17-0: parse lang from comma-separated string; empty / missing → [].
+    lang_raw = kv.get("lang", "")
+    lang: list[str] = (
+        [code.strip() for code in lang_raw.split(",") if code.strip()]
+        if lang_raw
+        else []
+    )
 
     return {
         "audit_id": kv.get("audit_id") or "",
@@ -166,6 +187,9 @@ def _canonicalize(manifest: GRACEManifest) -> dict[str, Any]:
         "instructions": list(manifest.instructions),
         "fingerprint": manifest.fingerprint or None,
         "namespace": manifest.namespace,
+        # Phase-17 W17-0 additions.
+        "preset_version": kv.get("preset_version") or None,
+        "lang": lang,
     }
 
 
@@ -236,10 +260,13 @@ async def mint_read_grace_manifest(
     """Read the GRACE manifest from a docx and return it as a canonical
     dict.
 
-    Returns a dict with the 10 canonical keys (audit_id, model_identity,
+    Returns a dict with the 12 canonical keys (audit_id, model_identity,
     fields_elicited, template, template_version, template_author,
-    timestamp, instructions, fingerprint, namespace). Values may be None
-    or empty when the source manifest doesn't carry that field.
+    timestamp, instructions, fingerprint, namespace, preset_version, lang).
+    Values may be None or empty when the source manifest doesn't carry
+    that field. Phase-17 W17-0 added preset_version + lang for extended
+    provenance — legacy Phase-16 docx without those instructions surfaces
+    preset_version=None and lang=[] (V-MP-MANIFEST-READ scenario-9).
 
     When the docx contains multiple `grace/manifest_*.xml` parts (Phase-14
     W3 append-extension scenario), returns the entry with the highest
