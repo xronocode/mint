@@ -1,0 +1,71 @@
+# MINT technical-spec template (Phase-17 W17-1 — MP-DOC-TECH-SPEC)
+#
+# Sixth governed doc_type after memo / letter / report / decision-record /
+# contract / nda-bilingual-ru-en. Closes the Phase-16 catalog gap surfaced
+# 2026-05-10: caller asked MINT to render an engineering "tech-spec" / "ТЗ",
+# picker scored letter highest because no tech-spec template existed.
+#
+# Engineering framing — anonymity-friendly: required_fields are content,
+# not personae. Sender / author / contact / signer fields are deliberately
+# absent so a tech-spec author can ship a doc without identifying themself.
+# (V-MP-DOC-TECH-SPEC forbidden-5.)
+#
+# This template also demonstrates the layout walker's full block-kind
+# vocabulary — heading / spacer / paragraph / table / callout — that the
+# engine has supported since Phase-14 W2 but no shipped template exercised
+# end-to-end before. (V-MP-DOC-BUNDLE forbidden-1 mis-froze this as "no
+# table / callout in YAML"; Phase-17 amends + this YAML demonstrates.)
+
+name: technical-spec
+version: "1.0"
+description: "Engineering technical specification — purpose, requirements table, sections, scope-boundary warning"
+doc_type: technical-spec
+
+# Anonymity-friendly required_fields: just (title, purpose, sections).
+# Other fields the layout references (requirement_*, priority_*,
+# scope_warning, notes) resolve to "" via _substitute when not provided,
+# so a minimal intent { title, purpose, sections } produces a valid docx.
+required_fields:
+  - title
+  - purpose
+  - sections
+
+# Engine-supported block kinds only (heading / spacer / paragraph / table /
+# callout — V-MP-DOC-TECH-SPEC forbidden-2/3). Every {{ placeholder }} maps
+# to a DocumentSpec field via _substitute; unresolved placeholders become
+# empty strings (engine doesn't raise on missing data).
+layout:
+  - kind: heading
+    level: 1
+    text: "{{ title }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Purpose
+  - kind: paragraph
+    text: "{{ purpose }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Requirements
+  - kind: table
+    header: ["ID", "Requirement", "Priority"]
+    rows:
+      - ["R-1", "{{ requirement_1 }}", "{{ priority_1 }}"]
+      - ["R-2", "{{ requirement_2 }}", "{{ priority_2 }}"]
+  - kind: spacer
+  - kind: callout
+    kind_of: warning
+    title: Scope boundary
+    body: "{{ scope_warning }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Sections
+  - kind: paragraph
+    text: "{{ sections }}"
+  - kind: spacer
+  - kind: callout
+    kind_of: info
+    title: Notes
+    body: "{{ notes }}"
