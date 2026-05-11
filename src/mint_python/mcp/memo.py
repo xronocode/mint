@@ -68,6 +68,8 @@ from mint_python.mcp.document import (
     DocumentTemplateNotFound as MemoTemplateNotFound,
 )
 
+import mint_python.mcp.telemetry as _telemetry  # noqa: F401 — registers mint_version + mint_telemetry tools
+
 
 def _load_template() -> MemoTemplate:
     """Compat wrapper — loads templates/memo.yaml. The Phase-14 generic
