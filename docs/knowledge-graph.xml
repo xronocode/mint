@@ -1015,7 +1015,25 @@
       </annotations>
     </MP-THEME-EDIT>
 
-    <MP-EDIT NAME="Pure-Python edit pipeline port (A5 port — biggest lift)" TYPE="CORE_LOGIC" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-3">
+    <MP-OOXML NAME="Pure-Python OOXML pack/unpack port (W3a pre-port)" TYPE="CORE_LOGIC" STATUS="planned" ADDED_AT="2026-05-11" SCOPE_EXPANDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-3a">
+      <purpose>Scope-expansion 2026-05-11 after Wave-16-2 close. Pre-flight inventory of edit.py found 3 hot-path imports from mint.ooxml (unpack, pack, validate_relationships). mint.ooxml itself is fully self-contained (zero from-mint imports). Pre-porting it BEFORE MP-EDIT keeps W3b's worker brief simple and avoids in-flight scope explosion. Preserves the legacy public API verbatim. Legacy module stays additively.</purpose>
+      <path>src/mint_python/ooxml.py</path>
+      <depends>stdlib only (logging, re, unicodedata, zipfile, dataclasses, pathlib, typing) + lxml ≥5.x. Constraint-8 compliant — zero `from mint.*` imports.</depends>
+      <consumed-by>MP-EDIT (Phase-16 W3b; uses unpack + pack + validate_relationships in the edit pipeline); future pure-python callers needing OOXML pack/unpack</consumed-by>
+      <verification-ref>V-MP-OOXML</verification-ref>
+      <annotations>
+        <fn-unpack PURPOSE="fn-unpack(document_path, unpack_dir) -> UnpackResult — opens zip, pretty-prints XML parts, returns manifest enumerating files; binary parts byte-preserved" />
+        <fn-pack PURPOSE="fn-pack(unpack_dir, output_path) -> PackResult — repackages tree; runs auto-repair (durableId regeneration, xml:space=preserve insertion, rsid normalization); returns PackResult with _stats" />
+        <fn-validate_relationships PURPOSE="fn-validate_relationships(unpack_dir) -> None — raises OOXMLError on dangling relationships" />
+        <fn-merge_runs PURPOSE="fn-merge_runs(tree) -> int — coalesce adjacent w:r elements with identical run properties; returns merged count" />
+        <fn-escape_smart_quotes PURPOSE="fn-escape_smart_quotes(tree) -> int — Unicode smart quote → ASCII normalization on text nodes; returns mutation count" />
+        <type-OOXMLError PURPOSE="exception base for OOXML pack/unpack failures" />
+        <type-UnpackResult PURPOSE="frozen dataclass for unpack output" />
+        <type-PackResult PURPOSE="frozen dataclass for pack output" />
+      </annotations>
+    </MP-OOXML>
+
+    <MP-EDIT NAME="Pure-Python edit pipeline port (A5 port — biggest lift)" TYPE="CORE_LOGIC" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-3b" SCOPE_REVISED_AT="2026-05-11">
       <purpose>Port of src/mint/edit.py (~2003 LOC) into the pure-python tree — the largest single port of the Pure Python Edition cycle. Preserves the legacy M-EDIT public surface verbatim: EditPlan / EditOp / TextAnchor / OpOutcome dataclasses + edit() + resolve_anchor() + make_edit_metadata() + apply_tracked_change + comment handlers. Section-by-section port plan: (1) anchor resolver + extract_text_with_anchors; (2) op dispatch + execute_op; (3) tracked-change / comment subsystem; (4) metadata + render_diff. Legacy module stays additively; Phase-17 (or later) retires it after consumers migrate.</purpose>
       <path>src/mint_python/edit.py (possibly + src/mint_python/ooxml.py as scope-expansion if M-OOXML coupling forces it)</path>
       <depends>lxml ≥5.x, python-docx ≥1.1, mint_python.validate (re-validation), mint_python.fingerprint (drift check). MUST NOT import from src/mint/.</depends>
@@ -1071,5 +1089,6 @@
     <CrossLink from="MP-FINGERPRINT" to="MP-VALIDATE" relation="MP-VALIDATE consumes fingerprint hashes for structural-drift signals; the Phase-16 port preserves the legacy API so this consumer needs no change." />
     <CrossLink from="MP-EDIT" to="MP-VALIDATE" relation="Post-pack re-validation; preserves the legacy DF-007 pipeline pattern with no consumer change." />
     <CrossLink from="MP-EDIT" to="MP-FINGERPRINT" relation="Drift check after edit; uses MP-FINGERPRINT (the Phase-16 port) so the constraint-8 NO-LEGACY-IMPORT gate holds." />
+    <CrossLink from="MP-EDIT" to="MP-OOXML" relation="Phase-16 W3b depends on W3a port. The 3 hot-path operations in edit (unpack input docx → resolve anchors → apply ops → pack output) call mint_python.ooxml.unpack / .validate_relationships / .pack respectively. Scope-expansion 2026-05-11 pre-ported MP-OOXML to keep this dependency inside the pure-python tree." />
   </Project>
 </KnowledgeGraph>
