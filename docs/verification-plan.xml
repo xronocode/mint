@@ -2372,7 +2372,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-SAFE — disjoint write scope (src/mint_python/mcp/preset_edit.py + tests/integration/test_mp_theme_edit.py + presets/_audit.jsonl); MP-AUTH-SHIM is a stable consumed dependency. Tests use tmp_path-isolated presets/ + monkeypatched env + clean_writers_config fixture (reusable from V-MP-AUTH-SHIM).</autonomy-assessment>
     </V-MP-THEME-EDIT>
 
-    <V-MP-OOXML MODULE="MP-OOXML" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-11" SCOPE_EXPANDED_AT="2026-05-11">
+    <V-MP-OOXML MODULE="MP-OOXML" PRIORITY="high" STATUS="passing" ADDED_AT="2026-05-11" SCOPE_EXPANDED_AT="2026-05-11" COMPLETED_AT="2026-05-11" COMMIT="dc44247">
       <test-files>
         <file status="planned">tests/unit/test_mp_ooxml.py</file>
       </test-files>
