@@ -660,7 +660,7 @@ class Chart:
         ImportError is re-raised with a ``pip install seaborn`` hint.
         """
         try:
-            import seaborn as sns  # type: ignore[import-untyped]  # noqa: F401  - lazy per V-MP-CHART forbidden-3
+            import seaborn as sns  # noqa: F401  - lazy per V-MP-CHART forbidden-3
         except ImportError as exc:
             raise ImportError(
                 "seaborn is optional — install with `pip install seaborn` "
@@ -686,7 +686,7 @@ class Chart:
         Raises ImportError with hint if plotly or kaleido is missing.
         """
         try:
-            import plotly  # type: ignore[import-not-found]  # noqa: F401
+            import plotly  # noqa: F401
         except ImportError as exc:
             raise ImportError(
                 "plotly is optional — install with `pip install plotly kaleido` "

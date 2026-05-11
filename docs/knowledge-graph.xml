@@ -1176,7 +1176,7 @@
       </annotations>
     </MP-DOC-PICKER>
 
-    <MP-AUDIT-EXTEND NAME="GRACE manifest extended provenance (preset_version + lang metadata)" TYPE="INTEGRATION" STATUS="passing" ADDED_AT="2026-05-11" COMPLETED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-3">
+    <MP-AUDIT-EXTEND NAME="GRACE manifest extended provenance (preset_version + lang metadata)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-11" COMPLETED_AT="2026-05-11" ACTIVATION_GATE="Wave-17-3">
       <purpose>Closes 2 Phase-16 deferrals sharing a single root cause: _audit_instructions stamps template_version but NOT preset_version (V-MP-THEME-EDIT scenario-10) nor lang metadata for bilingual templates (V-MP-DOC-BUNDLE scenario-7b). Phase-17 stamps both. After this lands the bilingual NDA cross-model handoff demo + preset-edit feedback loop work end-to-end.</purpose>
       <path>src/mint_python/mcp/document.py (extends the _audit_instructions helper)</path>
       <depends>MP-DOC-GENERIC (extends _audit_instructions build), MP-THEME-EDIT (versioned preset filename pattern), MP-MANIFEST-READ (downstream consumer surfaces the new fields)</depends>
