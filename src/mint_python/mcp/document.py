@@ -144,19 +144,35 @@ class DocumentGenerationFailed(DocumentError):  # noqa: N818 — error code DOC_
 class DocumentSpec:
     """Generic content fields covering every known doc_type's union.
 
-    Today (W1) only memo's 5 fields are present — the same shape MEMO-POC
-    used. As Phase-14 lands new doc_types, fields get added here (Letter
-    will need sender_address / recipient_address / salutation / closing;
-    Report will need executive_summary / recommendation, etc.). The
-    template's required_fields list determines which subset is actively
-    elicited for a given call.
+    Phase-13 memo had 5 fields. Phase-14/16 expanded the catalog (letter,
+    report, ADR, contract, NDA, technical-spec) — each new doc_type adds
+    its required_fields to this union shape. The template's required_fields
+    list determines which subset is actively elicited for a given call;
+    fields not in required_fields simply stay None.
+
+    Phase-17 W17-0 added engineering-doc fields (purpose, sections,
+    requirement_*, priority_*, scope_warning, notes) so MP-DOC-TECH-SPEC
+    can elicit them through the existing pipeline without dynamic-setattr
+    fragility (which would break if the dataclass ever becomes frozen).
     """
 
+    # Phase-13 memo + Phase-14 letter fields
     sender: str | None = None
     recipient: str | None = None
     date: str | None = None
     subject: str | None = None
     body: str | None = None
+
+    # Phase-17 technical-spec fields (W17-0 pre-flight extension)
+    title: str | None = None
+    purpose: str | None = None
+    sections: str | None = None
+    requirement_1: str | None = None
+    requirement_2: str | None = None
+    priority_1: str | None = None
+    priority_2: str | None = None
+    scope_warning: str | None = None
+    notes: str | None = None
 
     def filled(self, required_fields: tuple[str, ...]) -> list[str]:
         return [name for name in required_fields if getattr(self, name, None)]
