@@ -83,6 +83,14 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
+[[tool.mypy.overrides]]
+module = [
+    "fastmcp.tools.tool",
+    "plotly.*",
+    "seaborn",
+]
+ignore_missing_imports = true
+
 [dependency-groups]
 dev = [
     "lxml-stubs>=0.5.1",
