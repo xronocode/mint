@@ -854,80 +854,98 @@
 
     <!-- Phase 16: MCP-tool parity (A) + new doc_types (B) + structured preset editor (C) -->
 
-    <MP-MCP-VALIDATE NAME="mint_validate_document MCP tool (A1)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1">
-      <purpose>Closes the MCP-parity gap for the validation surface. Thin wrap around mint_python.validate.validate; read-only; no allowlist (V-MP-AUTH-SHIM forbidden-1 extends to read tools). Returns a canonical ValidationReport dict (stable key order).</purpose>
-      <path>src/mint_python/mcp/validate.py</path>
+    <MP-MCP-VALIDATE NAME="mint_validate_document MCP tool (A1)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1" COMMIT="25126bc" COMPLETED_AT="2026-05-11">
+      <purpose>Closes the MCP-parity gap for the validation surface. Thin wrap around mint_python.validate.validate; read-only; no allowlist (V-MP-AUTH-SHIM forbidden-1 extends to read tools). Returns a canonical 5-key ValidationReport dict (stable key order).</purpose>
+      <path>src/mint_python/mcp/validate.py + module-tail deferred-import in src/mint_python/mcp/document.py to register @server.tool</path>
       <depends>mint_python.validate (existing), mint._security.safe_doc (path-traversal guard), fastmcp.Context + ToolError</depends>
       <consumed-by>External MCP clients via mint_validate_document tool</consumed-by>
       <verification-ref>V-MP-MCP-VALIDATE</verification-ref>
       <annotations>
-        <fn-mint_validate_document PURPOSE="@server.tool async; wraps mint_python.validate.validate; canonicalizes ValidationReport dataclass to dict; surfaces structured errors with no traceback bleed" />
-        <fn-_canonicalize_report PURPOSE="ValidationReport dataclass → 6-key dict (passed, severity_mode, violations, counts, format) with stable key order" />
-        <const-CANONICAL_VALIDATE_KEYS PURPOSE="frozenset of dict keys always present in returned report — VF-020 inv-5 STABLE-KEYS oracle" />
+        <fn-mint_validate_document PURPOSE="@server.tool async; wraps mint_python.validate.validate; canonicalizes ValidationReport dataclass to 5-key dict; surfaces structured errors with no traceback bleed" />
+        <fn-_canonicalize_report PURPOSE="ValidationReport dataclass → 5-key dict (passed, severity_mode, violations, counts, format) with stable key order" />
+        <fn-_canonicalize_violation PURPOSE="Violation dataclass → 5-key sub-dict (rule_id, severity, message, hint, location)" />
+        <fn-_resolve_severity_mode PURPOSE="Literal['audit','lenient','strict'] → SeverityMode; case-insensitive; raises InvalidDocument on unknown values" />
+        <const-CANONICAL_VALIDATE_KEYS PURPOSE="frozenset of dict keys always present in returned report (5 keys) — VF-020 inv-5 STABLE-KEYS oracle" />
+        <type-InvalidDocument PURPOSE="fastmcp.exceptions.ToolError subclass; structured error for path-traversal / not-zip / unknown severity_mode" />
+        <type-ValidationBackendError PURPOSE="fastmcp.exceptions.ToolError subclass; structured error for rules-dir missing / lxml parse failure" />
         <log-marker-BLOCK_VALIDATE_DONE PURPOSE="INFO; payload severity_mode hard_count soft_count passed" />
       </annotations>
     </MP-MCP-VALIDATE>
 
-    <MP-MCP-FIX NAME="mint_fix_document MCP tool (A2)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1">
-      <purpose>Closes the MCP-parity gap for the auto-fix surface. Wraps mint_python.fix.fix; mutates caller-supplied .docx in place; preserves the backup-before-write invariant. No allowlist — caller-owned doc, not template/preset.</purpose>
-      <path>src/mint_python/mcp/fix.py</path>
-      <depends>mint_python.fix (existing), mint_python.validate (re-validation), mint._security.safe_doc, fastmcp.Context + ToolError</depends>
+    <MP-MCP-FIX NAME="mint_fix_document MCP tool (A2)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1" COMMIT="8d6a7ba" COMPLETED_AT="2026-05-11">
+      <purpose>Closes the MCP-parity gap for the auto-fix surface. Thin wrap calling mint_python.fix.run_checks + mint_python.fix.apply_fixes directly (NOT the high-level fix() helper) so the max_iterations contract parameter is honored. Mutates caller-supplied .docx in place; preserves the backup-before-write invariant. No allowlist — caller-owned doc, not template/preset.</purpose>
+      <path>src/mint_python/mcp/fix.py + module-tail deferred-import in src/mint_python/mcp/document.py to register @server.tool</path>
+      <depends>mint_python.fix.apply_fixes + FixReport + error types (DestructiveRejectedError, BackupFailedError, CascadeDetectedError), mint_python.validate.run_checks + SeverityMode (re-validation), mint._security.safe_doc, fastmcp.Context + ToolError</depends>
       <consumed-by>External MCP clients via mint_fix_document tool</consumed-by>
       <verification-ref>V-MP-MCP-FIX</verification-ref>
       <annotations>
-        <fn-mint_fix_document PURPOSE="@server.tool async; wraps mint_python.fix.fix; canonicalizes FixReport dict; surfaces DESTRUCTIVE_REJECTED / BACKUP_FAILED / CASCADE_DETECTED / INVALID_DOCUMENT as structured errors" />
-        <fn-_canonicalize_fix_report PURPOSE="FixReport dataclass → 6-key dict (applied_fixes, remaining_violations, backup_path, iterations, diff_summary, severity_mode)" />
-        <const-CANONICAL_FIX_KEYS PURPOSE="VF-020 inv-5 STABLE-KEYS oracle" />
+        <fn-mint_fix_document PURPOSE="@server.tool async; orchestrates run_checks → apply_fixes (with max_iterations cap) → canonicalize; surfaces DESTRUCTIVE_REJECTED / BACKUP_FAILED / CASCADE_DETECTED / INVALID_DOCUMENT as structured errors" />
+        <fn-_canonicalize_report PURPOSE="FixReport dataclass → 6-key dict (applied_fixes, remaining_violations, backup_path, iterations, diff_summary, severity_mode); fixed_path omitted (caller already knows it)" />
+        <const-CANONICAL_FIX_KEYS PURPOSE="('applied_fixes','remaining_violations','backup_path','iterations','diff_summary','severity_mode') — VF-020 inv-5 STABLE-KEYS oracle" />
+        <type-SeverityLiteral PURPOSE="Literal['audit','lenient','strict'] type alias" />
+        <type-FixDocumentError PURPOSE="ToolError base for fix-tool failures" />
+        <type-InvalidDocument PURPOSE="path-traversal / not-zip / unknown severity_mode" />
+        <type-DestructiveRejected PURPOSE="destructive violations short-circuit before mutation" />
+        <type-BackupFailed PURPOSE="can't write .bak (permission / disk); raised before in-place mutation" />
+        <type-CascadeDetected PURPOSE="no convergence after max_iterations" />
         <log-marker-BLOCK_FIX_DONE PURPOSE="INFO; payload iterations applied_count remaining_violations backup_path" />
+        <log-marker-BLOCK_DESTRUCTIVE_REJECTED PURPOSE="INFO; deny path; payload violation count" />
+        <log-marker-BLOCK_BACKUP_FAILED PURPOSE="INFO; payload original error class" />
+        <log-marker-BLOCK_CASCADE_DETECTED PURPOSE="INFO; payload iterations reached" />
       </annotations>
     </MP-MCP-FIX>
 
-    <MP-FINGERPRINT NAME="Pure-Python fingerprint port (A3 port)" TYPE="CORE_LOGIC" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1">
-      <purpose>Port of src/mint/fingerprint.py (~150 LOC) into the pure-python tree. Preserves the legacy public API (compute / compare / fingerprint / FingerprintResult / DriftStatus / FingerprintError) byte-for-byte; the legacy module stays in place additively. Closes the constraint-8 gap that prevented MP-MCP-FINGERPRINT from wrapping the fingerprint surface directly.</purpose>
+    <MP-FINGERPRINT NAME="Pure-Python fingerprint port (A3 port)" TYPE="CORE_LOGIC" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1" COMMIT="b5d4748" COMPLETED_AT="2026-05-11">
+      <purpose>Port of src/mint/fingerprint.py to the pure-python tree. Preserves the legacy public surface names (fingerprint / compute / compare / FingerprintResult / DriftStatus / FingerprintError / MissingStyleXmlError / HashFailedError) but RESHAPES per Phase-16 dev-plan output spec: FingerprintResult fields are {hash, format, has_styles_xml, byte_count} (legacy had {hash, document_path, format, xml_sources}); DriftStatus.UNKNOWN replaces legacy BASELINE_MISSING. Hash value byte-identical to legacy (porting-parity scenario-5 holds). Legacy module stays in place additively. Constraint-8 compliant.</purpose>
       <path>src/mint_python/fingerprint.py</path>
-      <depends>stdlib only (hashlib, zipfile, pathlib, dataclasses, enum, logging). Constraint-8 compliant.</depends>
-      <consumed-by>MP-MCP-FINGERPRINT (wraps fingerprint + compare); future drift-detection callers in mint_python/</consumed-by>
+      <depends>stdlib only (hashlib, zipfile, pathlib, dataclasses, enum, logging). Constraint-8 compliant — 0 hits on `from mint\.|import mint\.` grep.</depends>
+      <consumed-by>MP-MCP-FINGERPRINT (Phase-16 W2; wraps fingerprint + compare); future drift-detection callers under mint_python/</consumed-by>
       <verification-ref>V-MP-FINGERPRINT</verification-ref>
       <annotations>
         <fn-fingerprint PURPOSE="public entry; thin wrapper over compute()" />
-        <fn-compute PURPOSE="opens docx zip, locates styles.xml, SHA-256 over chunked content; raises MissingStyleXmlError / HashFailedError" />
+        <fn-compute PURPOSE="opens docx zip, locates styles.xml, SHA-256 over chunked content (_CHUNK_SIZE = 64 KB); raises MissingStyleXmlError / HashFailedError" />
         <fn-compare PURPOSE="pure equality check; None inputs → DriftStatus.UNKNOWN" />
-        <type-FingerprintResult PURPOSE="frozen dataclass: hash str, format str, has_styles_xml bool, byte_count int" />
-        <type-DriftStatus PURPOSE="StrEnum {MATCH, DRIFT, UNKNOWN}" />
+        <fn-_hash_member PURPOSE="private; chunk-streamed update of a sha256() over one zip member; returns (chunks_read, byte_count)" />
+        <type-FingerprintResult PURPOSE="frozen dataclass: hash str, format str, has_styles_xml bool, byte_count int (RESHAPED from legacy {hash,document_path,format,xml_sources})" />
+        <type-DriftStatus PURPOSE="StrEnum {MATCH, DRIFT, UNKNOWN} (UNKNOWN replaces legacy BASELINE_MISSING)" />
         <type-FingerprintError PURPOSE="exception base" />
-        <type-MissingStyleXmlError PURPOSE="exception" />
-        <type-HashFailedError PURPOSE="exception" />
+        <type-MissingStyleXmlError PURPOSE="exception; raised when docx lacks word/styles.xml" />
+        <type-HashFailedError PURPOSE="exception; raised on I/O / hash-backend failure mid-read" />
+        <const-_CHUNK_SIZE PURPOSE="64 KB chunk size for streamed SHA-256; hash output byte-identical to legacy thanks to SHA-256 associativity" />
         <log-marker-BLOCK_FP_COMPUTE PURPOSE="INFO; payload format byte_count chunks_read" />
       </annotations>
     </MP-FINGERPRINT>
 
-    <MP-EXTRACT NAME="Pure-Python content/style extraction port (A4 port)" TYPE="CORE_LOGIC" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1">
-      <purpose>Port of src/mint/extract.py (~210 LOC) into the pure-python tree. Preserves the legacy public API (extract_style / parse_theme / analyze_layouts / ExtractionFailedError / UnsupportedFormatError). Used by Operator workflows (UC-004: design-tokens.json baseline). Legacy module stays additively.</purpose>
+    <MP-EXTRACT NAME="Pure-Python content/style extraction port (A4 port)" TYPE="CORE_LOGIC" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1" COMMIT="a020cfd" COMPLETED_AT="2026-05-11">
+      <purpose>Port of src/mint/extract.py to the pure-python tree. Preserves the legacy public API (extract_style / parse_theme / analyze_layouts / ExtractionFailedError / UnsupportedFormatError). Used by Operator workflows (UC-004 design-tokens baseline). OUTPUT SHAPE: flat dict {colors, typography, format, xml_sources, detected_layouts?} (preserves legacy shape under forbidden-3 NO-DIVERGENCE; the dev-plan abstract description {format, theme:{...}, layouts:[...]} is a higher-level summary — the wrap layer MP-MCP-EXTRACT will canonicalize the flat shape if a nested shape is desired). NAMESPACES dict + _detect_format duplicated inline from mint._xml_ns since constraint-8 only excepts mint._security.safe_doc.</purpose>
       <path>src/mint_python/extract.py</path>
-      <depends>lxml ≥5.x, stdlib (zipfile, pathlib, logging). Constraint-8 compliant.</depends>
-      <consumed-by>MP-MCP-EXTRACT (wraps extract_style); future design-token baseline callers</consumed-by>
+      <depends>lxml ≥5.x, stdlib (zipfile, pathlib, logging). Constraint-8 compliant — 0 hits on `from mint\.|import mint\.` grep. NAMESPACES + _detect_format duplicated inline rather than imported from mint._xml_ns.</depends>
+      <consumed-by>MP-MCP-EXTRACT (Phase-16 W2; wraps extract_style); future design-token baseline callers under mint_python/</consumed-by>
       <verification-ref>V-MP-EXTRACT</verification-ref>
       <annotations>
-        <fn-extract_style PURPOSE="public entry; format detection + theme parse + layout enumeration → dict" />
-        <fn-parse_theme PURPOSE="theme.xml parser; lxml-driven" />
-        <fn-analyze_layouts PURPOSE="layout enumerator" />
-        <type-ExtractionFailedError PURPOSE="exception" />
-        <type-UnsupportedFormatError PURPOSE="exception" />
-        <log-marker-BLOCK_EXTRACT_DONE PURPOSE="INFO; payload format theme_keys_count layouts_count" />
+        <fn-extract_style PURPOSE="public entry; opens zip → parse_theme + analyze_layouts → flat dict; wraps everything except UnsupportedFormatError in ExtractionFailedError (matches legacy contract); missing theme.xml returns empty-theme dict WITHOUT raising (legacy parity)" />
+        <fn-parse_theme PURPOSE="theme.xml parser; lxml-driven; returns dict of color names + typography; empty dict on missing theme" />
+        <fn-analyze_layouts PURPOSE="layout enumerator; ECMA-376 walkthrough; returns list of layout summaries" />
+        <fn-_detect_format PURPOSE="private; .docx/.pptx suffix sniffer; raises UnsupportedFormatError on anything else" />
+        <type-ExtractionFailedError PURPOSE="exception; raised by extract_style on BadZipFile / missing-file / wraps lxml ParseError" />
+        <type-UnsupportedFormatError PURPOSE="exception; raised by _detect_format on .txt etc.; public for callers who want to distinguish from extraction failures" />
+        <const-NAMESPACES PURPOSE="dict of OOXML namespace prefix → URI; duplicated inline from mint._xml_ns per constraint-8" />
+        <log-marker-BLOCK_EXTRACT_DONE PURPOSE="INFO; payload format theme_keys_count layouts_count; NEW marker added during port (legacy had no equivalent)" />
       </annotations>
     </MP-EXTRACT>
 
-    <MP-DOC-BUNDLE NAME="Phase-16 doc_types bundle (report, ADR, contract, bilingual NDA)" TYPE="UTILITY" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1">
-      <purpose>Pure-data module shipping four new YAML doc_types. Consumed by the existing MP-DOC-GENERIC pipeline with zero Python changes. Bilingual NDA defaults to stacked Ru/En paragraphs (no engine extension). Demo coverage for O!Bank: product reports, product decisions (ADR), vendor contracts, cross-border NDAs.</purpose>
+    <MP-DOC-BUNDLE NAME="Phase-16 doc_types bundle (report, ADR, contract, bilingual NDA)" TYPE="UTILITY" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-1" COMMIT="7e10bd9" COMPLETED_AT="2026-05-11">
+      <purpose>Pure-data module shipping four new YAML doc_types. Consumed by the existing MP-DOC-GENERIC pipeline with zero Python changes. Bilingual NDA uses stacked Ru/En paragraphs (no engine extension). Bilingual recipe is a load-bearing invariant for future i18n doc_types: paired &lt;field&gt;_&lt;lang&gt; required_fields + adjacent paragraph blocks in `layout`. Demo coverage for O!Bank: product reports, product decisions (ADR), vendor contracts, cross-border NDAs.</purpose>
       <path>templates/report.yaml + templates/decision-record.yaml + templates/contract.yaml + templates/nda-bilingual-ru-en.yaml</path>
-      <depends>MP-DOC-GENERIC (consumer pipeline), MP-TEMPLATES-REGISTRY (schema validator). No Python code; pure data.</depends>
+      <depends>MP-DOC-GENERIC (consumer pipeline; relies on DocumentSpec being a non-frozen @dataclass so the 4 new templates' ~20 non-DocumentSpec fields are set via setattr — if DocumentSpec ever becomes frozen / __slots__-bound, this module breaks), MP-TEMPLATES-REGISTRY (schema validator).</depends>
       <consumed-by>create_document tool; any future doc-type catalog UI</consumed-by>
       <verification-ref>V-MP-DOC-BUNDLE</verification-ref>
       <annotations>
         <yaml-report PURPOSE="doc_type=report; required_fields=(title, author, date, summary, sections, conclusions); layout walks each section heading+body" />
         <yaml-decision-record PURPOSE="doc_type=decision-record; required_fields=(title, author, date, status, context, decision, consequences); ADR shape" />
         <yaml-contract PURPOSE="doc_type=contract; required_fields=(parties, effective_date, term, scope, obligations, signatures); formal contract shape" />
-        <yaml-nda-bilingual PURPOSE="doc_type=nda-bilingual-ru-en; required_fields=(party_a, party_b, effective_date, scope_ru, scope_en, term_ru, term_en, signatures); stacked Ru/En clause layout (each clause = paired paragraphs)" />
+        <yaml-nda-bilingual PURPOSE="doc_type=nda-bilingual-ru-en; required_fields=(party_a, party_b, effective_date, scope_ru, scope_en, term_ru, term_en, signatures); stacked Ru/En clause layout (each clause = paired paragraphs scope_ru followed by scope_en in body order)" />
+        <pattern-bilingual-stacked PURPOSE="Canonical recipe for bilingual doc_types: paired &lt;field&gt;_&lt;lang&gt; required_fields + adjacent paragraph blocks. Validated by V-MP-DOC-BUNDLE scenario-4. Reusable for NDA-Ky, Contract-Kk, etc. — zero engine work." />
       </annotations>
     </MP-DOC-BUNDLE>
 
