@@ -272,7 +272,39 @@ class DocumentTypeNotFound(DocumentError):  # noqa: N818 — error code DOC_TYPE
     boundary (no YAML file with that name exists), so the message lists
     the doc_types that ARE available — gives the connected model a
     chance to retry with a valid name.
+
+    Phase-17 Wave-17-2 (MP-DOC-PICKER): the message now ALSO surfaces
+    the top-3 keyword-scored suggestions when caller passes them via
+    `suggestions=`. The picker tool (mcp.picker.suggest_templates)
+    computes them; the raise site lazy-imports the helper so this
+    module's import graph stays unchanged (picker imports `server`
+    from us, so a top-level import would cycle).
     """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        suggestions: list[dict[str, Any]] | None = None,
+    ) -> None:
+        # Keep the `DOC_TYPE_NOT_FOUND:` prefix intact so callers'
+        # substring asserts on the error code don't regress (legacy
+        # callers in older tests parse the prefix off the message).
+        # Append the top-3 picker output AFTER the available-types
+        # list so the existing "Available: ..." parsing path is
+        # untouched.
+        if suggestions:
+            picks = ", ".join(
+                f"{entry['name']} ({entry['match_score']:.2f})"
+                for entry in suggestions[:3]
+            )
+            message = f"{message} Top suggestions: {picks}"
+        super().__init__(message)
+        # Stash the structured suggestions on the instance so callers
+        # who want machine-readable form (e.g. an MCP wrapper that
+        # surfaces them as structured_content) can read them without
+        # re-parsing the prose message.
+        self.suggestions: list[dict[str, Any]] = list(suggestions or [])
 
 
 class DocumentGenerationFailed(DocumentError):  # noqa: N818 — error code DOC_GENERATION_FAILED mirrors class name; suffix omitted intentionally
@@ -650,9 +682,24 @@ def _load_template(doc_type: str) -> DocumentTemplate:
     paths = _template_paths(doc_type)
     if not paths:
         available = _available_doc_types()
+        # Phase-17 W17-2 (MP-DOC-PICKER): lazy-import the picker so the
+        # error message surfaces top-3 scored suggestions inline. The
+        # import is deferred to keep document.py free of an upward
+        # picker reference (picker imports `server` from us — top-level
+        # picker import here would cycle at module load).
+        suggestions: list[dict[str, Any]] = []
+        try:
+            from mint_python.mcp.picker import suggest_templates
+
+            suggestions = list(
+                suggest_templates(doc_type).get("suggestions", [])
+            )
+        except Exception:  # pragma: no cover — defensive; picker is non-failing by contract
+            suggestions = []
         raise DocumentTypeNotFound(
             f"DOC_TYPE_NOT_FOUND: no template for doc_type={doc_type!r}. "
-            f"Available: {', '.join(available) if available else '(none)'}"
+            f"Available: {', '.join(available) if available else '(none)'}",
+            suggestions=suggestions,
         )
     latest_path = paths[-1]
     raw = yaml.safe_load(latest_path.read_text(encoding="utf-8"))
