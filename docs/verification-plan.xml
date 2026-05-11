@@ -2553,7 +2553,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-CAREFUL (escalated from SWARM-SAFE 2026-05-11): pure YAML data BUT worker likely needs to extend DocumentSpec dataclass in document.py to add engineering-doc fields (purpose, sections, requirement_*, notes). **W17-0 controller pre-flight (2026-05-11 decision) pre-extends DocumentSpec BEFORE W17-1 dispatches** — both W17-1 workers then see the stable shape, no DocumentSpec collision with MP-DOC-PERSONAL-GUARD sibling worker.</autonomy-assessment>
     </V-MP-DOC-TECH-SPEC>
 
-    <V-MP-DOC-PICKER MODULE="MP-DOC-PICKER" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-11">
+    <V-MP-DOC-PICKER MODULE="MP-DOC-PICKER" PRIORITY="medium" STATUS="passing" ADDED_AT="2026-05-11" COMPLETED_AT="2026-05-11" COMMIT="01cb44a">
       <test-files>
         <file status="planned">tests/integration/test_mp_doc_picker.py</file>
       </test-files>
@@ -2668,7 +2668,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-CAREFUL (escalated 2026-05-11 after deepening): single owner; touches same document.py as W17-1 + W17-2; serial after both close. Most semantically-loaded Phase-17 module: manifest instructions ARE the cross-model audit-trail contract. Activates 2 deferred Phase-16 scenarios AND extends V-MP-MANIFEST-READ. 12 added scenarios; 5 added forbidden-behaviors; explicit ISO allowlist + semver-tuple sort + 12-key canonical manifest dict. Phase-17 cross-model handoff smoke doc lands in docs/cross-model-handoff-smoke.md (extend existing).</autonomy-assessment>
     </V-MP-AUDIT-EXTEND>
 
-    <V-MP-MCP-RESOURCES-VERSIONED MODULE="MP-MCP-RESOURCES-VERSIONED" PRIORITY="medium" STATUS="planned" ADDED_AT="2026-05-11">
+    <V-MP-MCP-RESOURCES-VERSIONED MODULE="MP-MCP-RESOURCES-VERSIONED" PRIORITY="medium" STATUS="passing" ADDED_AT="2026-05-11" COMPLETED_AT="2026-05-11" COMMIT="ea23227">
       <test-files>
         <file status="planned">tests/integration/test_mp_mcp_resources_versioned.py</file>
       </test-files>
