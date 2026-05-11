@@ -21,7 +21,6 @@ doc_type: letter
 required_fields:
   - recipient
   - body
-  - sender
   - date
 
 # Layout walks one block per entry; placeholders `{{ field }}` are

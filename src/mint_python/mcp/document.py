@@ -58,6 +58,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import uuid
@@ -90,6 +91,149 @@ MEMO_REQUIRED_FIELDS: tuple[str, ...] = (
     "subject",
     "body",
 )
+
+
+# --------------------------------------------------------------------------- #
+# Privacy mitigations (MP-DOC-PERSONAL-GUARD — Phase-17 W17-1)
+# --------------------------------------------------------------------------- #
+#
+# These constants + helpers implement MITIGATION (not enforcement) of privacy
+# leaks through MCP create_document. The calling client model can still fill
+# elicit-fallback prompts from its own session context — MINT cannot stop
+# that — but we (a) detect anonymity hints in the user's intent, (b) clear
+# heuristically-extracted personal data, (c) hint personal_data=high to the
+# client, (d) report what got anonymised in structured_content, and (e) skip
+# elicit entirely for personal+optional fields under anonymity.
+#
+# CONTRACT NOTE: MITIGATION ONLY — see V-MP-DOC-PERSONAL-GUARD forbidden-4
+# + forbidden-9. Do not use stronger language ("force", "guard", "block")
+# in user-facing strings; the contract is hint + clear-extracted-fields,
+# not a guarantee. Story is "MINT respects anonymity hints".
+
+
+_PERSONAL_FIELDS: frozenset[str] = frozenset({
+    "sender",
+    "author",
+    "contact",
+    "from_",
+    "to_",
+    "signature",
+    "signer",
+    "recipient",
+    "cc",
+    "bcc",
+    "phone",
+    "email",
+    "address",
+    "signer_name",
+    "signer_email",
+})
+
+
+# Anchored anonymous-flag regex. Four match forms, each captured in its own
+# named group so callers can report which form fired:
+#   - bracket   : `[anonymous]` (any case) — the canonical English flag form
+#   - word_en   : (unused at present; English bare "anonymous" is ambiguous
+#                 with prose describing anonymous data — only bracket form
+#                 fires for English. Group kept named for future explicit
+#                 word forms like "anonymous-mode" if a future scenario
+#                 requires.)
+#   - word_ru   : standalone "анонимно" word (Cyrillic — no ambiguous prose
+#                 usage in scope; safe to fire on standalone matches)
+#   - phrase_ru : "без личных данных" phrase
+# The boundaries use a non-word lookahead/lookbehind so "анонимной",
+# "анонимность" don't fire on word_ru, and "non-anonymous" / "anonymously"
+# don't fire on the bracket form's neighbours. Quoted forms like
+# '"[anonymous]"' STILL trigger — that's the safe default per scenario-9
+# (false-positive cost is just an extra hint; false-negative cost leaks PII).
+_ANONYMOUS_FLAG_RE = re.compile(
+    r"(?P<bracket>\[anonymous\])"
+    r"|(?<!\w)(?P<word_ru>анонимно)(?!\w)"
+    r"|(?<!\w)(?P<phrase_ru>без\s+личных\s+данных)(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def _detect_anonymous_flag(intent: str) -> tuple[bool, str | None]:
+    """Detect anonymity hint in user intent. Pure regex; no I/O.
+
+    Returns:
+        (matched, form) — form is one of "bracket", "word_en", "word_ru",
+        "phrase_ru" when matched=True; None when matched=False.
+
+    Anchored so accidental substrings don't trip the flag — "non-anonymous"
+    / "anonymously" do NOT trigger. "[anonymous]" inside quotes DOES still
+    trigger (scenario-9 safe-default: false-positive cost is one extra
+    hint + blocklist run; false-negative cost is real PII leak).
+    """
+    match = _ANONYMOUS_FLAG_RE.search(intent)
+    if match is None:
+        return False, None
+    return True, match.lastgroup
+
+
+def _apply_personal_blocklist(
+    spec: DocumentSpec,
+    blocklist: frozenset[str],
+    *,
+    log_prefix: str = "MP-Doc",
+) -> tuple[DocumentSpec, list[str]]:
+    """Clear any heuristically-set values whose field name is in the blocklist.
+
+    Emits one BLOCK_ANONYMISE log marker per cleared field; the marker
+    carries only field name, reason token, value length, and an 8-hex
+    sha256 prefix — NEVER the raw cleared value (forbidden-6 +
+    scenario-18 security-critical).
+
+    Idempotent: running twice over an already-cleared spec yields an empty
+    cleared-list and no additional log emissions (scenario-15).
+
+    Args:
+        spec: The DocumentSpec from _heuristic_extract.
+        blocklist: Set of field names to clear (typically _PERSONAL_FIELDS).
+        log_prefix: Routed through for create_memo log-marker parity.
+
+    Returns:
+        (spec, fields_cleared) — spec is the same instance, mutated;
+        fields_cleared is sorted for stable test ordering.
+    """
+    cleared: list[str] = []
+    for field_name in sorted(blocklist):
+        value = getattr(spec, field_name, None)
+        if not value:
+            continue
+        # Capture value BEFORE clearing so we can hash it for the audit
+        # log without ever re-reading it post-clear.
+        sha8 = hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:8]
+        value_len = len(str(value))
+        setattr(spec, field_name, None)
+        cleared.append(field_name)
+        logger.info(
+            "[%s][heuristic][BLOCK_ANONYMISE] "
+            "field=%s reason=anonymous_intent_flag value_len=%d value_sha8=%s",
+            log_prefix,
+            field_name,
+            value_len,
+            sha8,
+        )
+    return spec, sorted(cleared)
+
+
+def _render_anonymisation_report(
+    structured_content: dict[str, Any],
+    anonymised: bool,
+    fields_omitted: list[str],
+) -> dict[str, Any]:
+    """Merge anonymised flag + fields_omitted into the existing structured
+    content dict. Preserves every other key (status, path, doc_type, etc.).
+
+    fields_omitted is sorted (caller passes a sorted list from
+    _apply_personal_blocklist); we keep it that way for stable test
+    assertions and human readability.
+    """
+    structured_content["anonymised"] = anonymised
+    structured_content["fields_omitted"] = list(fields_omitted)
+    return structured_content
 
 
 # --------------------------------------------------------------------------- #
@@ -242,7 +386,22 @@ _INLINE_LABEL_SPLIT_RE = re.compile(
 )
 
 
-def _heuristic_extract(intent: str, source_md: str | None) -> DocumentSpec:
+@dataclass
+class _AnonymisationOutcome:
+    """Tracked alongside the heuristic spec — what got cleared by the
+    privacy mitigation pass, so the pipeline can both report it in
+    structured_content and feed it to the elicit-skip logic.
+    """
+
+    anonymous_flag: bool = False
+    match_form: str | None = None
+    fields_omitted: list[str] = field(default_factory=list)
+
+
+def _heuristic_extract(
+    intent: str,
+    source_md: str | None,
+) -> DocumentSpec:
     """Best-effort field extractor over free-text intent + optional source.
 
     Conservative — when uncertain, leaves the field as None so elicitation
@@ -345,6 +504,44 @@ def _heuristic_extract(intent: str, source_md: str | None) -> DocumentSpec:
             spec.body = None
 
     return spec
+
+
+def _extract_with_anonymisation(
+    intent: str,
+    source_md: str | None,
+    *,
+    log_prefix: str = "MP-Doc",
+) -> tuple[DocumentSpec, _AnonymisationOutcome]:
+    """Heuristic extract + privacy-mitigation pass.
+
+    Wraps `_heuristic_extract` and applies the MP-DOC-PERSONAL-GUARD
+    blocklist when the anonymity flag fires. Kept as a separate entry
+    so the public `_heuristic_extract` contract (DocumentSpec return) is
+    preserved for existing MP-Memo tests that call it directly.
+
+    Forbidden-5 boundary: spec.body / source_md-derived content is
+    NEVER scrubbed — only fields the heuristic populated on the spec.
+    One BLOCK_ANONYMOUS_DETECTED marker per call when the flag matches;
+    one BLOCK_ANONYMISE per cleared field (in `_apply_personal_blocklist`).
+    """
+    spec = _heuristic_extract(intent, source_md)
+    outcome = _AnonymisationOutcome()
+    matched, form = _detect_anonymous_flag(intent)
+    if matched:
+        outcome.anonymous_flag = True
+        outcome.match_form = form
+        logger.info(
+            "[%s][heuristic][BLOCK_ANONYMOUS_DETECTED] "
+            "match_form=%s intent_len=%d",
+            log_prefix,
+            form,
+            len(intent),
+        )
+        _, cleared = _apply_personal_blocklist(
+            spec, _PERSONAL_FIELDS, log_prefix=log_prefix
+        )
+        outcome.fields_omitted = cleared
+    return spec, outcome
 
 
 # --------------------------------------------------------------------------- #
@@ -507,11 +704,111 @@ _SUBSTITUTE_RE = re.compile(
 )
 
 
+_PLACEHOLDER_ONLY_RE = re.compile(
+    r"^\s*\{\{\s*(\w+)\s*\}\}\s*$"
+)
+
+
+def _entry_resolves_empty(entry: dict[str, Any], spec: DocumentSpec) -> bool:
+    """True iff the entry is a single-placeholder block with no default
+    fallback whose field resolves to empty in `spec`. Used by the walker
+    conditional-skip pass (MP-DOC-PERSONAL-GUARD scenario-16).
+
+    Only considers `kind: paragraph` and `kind: heading` entries with a
+    text that is exactly `{{ field }}` (no surrounding prose) — a partial
+    placeholder like `By {{ author }}` is NOT eligible because dropping
+    it would leave a meaningless "By " stub; the substitute handles that
+    via empty-string substitution.
+    """
+    if entry.get("kind") not in ("paragraph", "heading"):
+        return False
+    text = str(entry.get("text", ""))
+    m = _PLACEHOLDER_ONLY_RE.match(text)
+    if m is None:
+        return False
+    # If the YAML entry has an explicit `default:` key, the author told
+    # us they want a fallback string instead of a skip. Honor that.
+    # No shipped template uses YAML-level `default:` at present — the
+    # branch is defensive against future templates that opt out of
+    # the placeholder-skip behavior; coverage will land when such a
+    # template ships.
+    if entry.get("default"):  # pragma: no cover — defensive; see comment
+        return False
+    # The `_substitute` function ALSO supports inline Jinja-style
+    # default filters like `{{ name | default: "..." }}` — but those
+    # take the form "{{ name | default: '...' }}" with extra content
+    # AFTER the field name, so they wouldn't match _PLACEHOLDER_ONLY_RE
+    # in the first place. No additional guard needed.
+    field_name = m.group(1)
+    value = getattr(spec, field_name, None)
+    return not value
+
+
+def _prepare_layout(
+    layout: list[dict[str, Any]],
+    spec: DocumentSpec,
+) -> list[dict[str, Any]]:
+    """Walker conditional-skip pre-pass (MP-DOC-PERSONAL-GUARD scenario-16).
+
+    Two rules:
+      1. Drop blocks whose single `{{ field }}` placeholder resolves to
+         empty AND have no `default:` fallback (placeholder-only-empty).
+      2. Drop a "decorative" heading (literal text, no placeholder)
+         when its IMMEDIATELY-FOLLOWING content block in the original
+         layout was a placeholder-only-empty paragraph. Closes the
+         "Signed" + empty `{{ sender }}` pattern in letter.yaml: the
+         heading is semantically tied to the field beneath it, so
+         losing the field means losing the heading.
+
+    Spacers between a heading and its first content block are
+    transparent — they neither count as content nor block the
+    heading-decoration check. Headings whose text contains a
+    placeholder (e.g. letter's H1 `{{ recipient }}`) are NEVER
+    decorative — their text IS the primary content.
+
+    Side-effect-free: returns a new list; original layout unchanged.
+    """
+    # Phase A — mark each entry: keep | drop_empty_placeholder.
+    marks: list[str] = []
+    for entry in layout:
+        if _entry_resolves_empty(entry, spec):
+            marks.append("drop")
+        else:
+            marks.append("keep")
+
+    # Phase B — mark decorative headings whose immediate next non-spacer
+    # block was dropped in Phase A.
+    for i, entry in enumerate(layout):
+        if marks[i] != "keep":
+            continue
+        if entry.get("kind") != "heading":
+            continue
+        heading_text = str(entry.get("text", ""))
+        if "{{" in heading_text:
+            # Headings with placeholders are content, not decoration.
+            continue
+        # Find the immediately-following content (skip spacers).
+        for j in range(i + 1, len(layout)):
+            next_entry = layout[j]
+            if next_entry.get("kind") == "spacer":
+                continue
+            if marks[j] == "drop":
+                marks[i] = "drop"
+            break
+
+    return [entry for entry, mark in zip(layout, marks, strict=False) if mark == "keep"]
+
+
 def _build_document(spec: DocumentSpec, template: DocumentTemplate) -> DocumentLike:
     """Walk template.layout and assemble a Document with klawd preset.
 
     Returns the configured Document instance — caller saves and (optionally)
     injects GRACE manifest after.
+
+    Walker conditional-skip (MP-DOC-PERSONAL-GUARD scenario-16): a pre-pass
+    prunes layout entries whose single `{{ field }}` resolves to empty AND
+    have no default, INCLUDING parent decorative headings ("Signed" pattern)
+    whose body emptied out. See `_prepare_layout`.
     """
     # Local import to keep the module top-level light and avoid a circular
     # import surface during type-checking. Document is the SDK facade.
@@ -522,8 +819,10 @@ def _build_document(spec: DocumentSpec, template: DocumentTemplate) -> DocumentL
         title=spec.subject or template.name.title() or "Document",
     ).with_style_preset("klawd")
 
+    layout = _prepare_layout(template.layout, spec)
+
     section: Section | None = None
-    for entry in template.layout:
+    for entry in layout:
         kind = entry.get("kind")
         if kind == "heading":
             level = int(entry.get("level", 1))
@@ -775,7 +1074,7 @@ async def _run_pipeline(
          "extracted_so_far": dict, "guidance": str, "doc_type": str}
     """
     template = _load_template(doc_type)
-    spec = _heuristic_extract(intent, source_md)
+    spec, anon = _extract_with_anonymisation(intent, source_md, log_prefix=log_prefix)
 
     # START_BLOCK_PARSE_INTENT
     logger.info(
@@ -803,10 +1102,35 @@ async def _run_pipeline(
             # (verified in this session against Claude Desktop's MCP impl).
             # Skip this field; we'll surface the full missing list to the
             # caller as a "needs_more_info" response.
+            #
+            # SECURITY (scenario-13 / forbidden-8): under anonymous flag,
+            # do NOT echo blocklisted field names through missing_fields —
+            # that would push the client to re-ask the user for the very
+            # thing we're suppressing.
+            if anon.anonymous_flag and field_name in _PERSONAL_FIELDS:
+                continue
             fields_pending.append(field_name)
             continue
 
+        # Anonymous flag + personal field: skip the elicit entirely
+        # (scenario-12). The field is "optional under anonymity": we
+        # neither raise DocumentElicitationRejected nor block the build;
+        # the walker will skip the placeholder block downstream.
+        if anon.anonymous_flag and field_name in _PERSONAL_FIELDS:
+            continue
+
         prompt = _elicit_prompt(field_name, doc_type)
+        # Emit personal_data=high hint marker for fields in the blocklist
+        # (scenarios 7 + 17). This is a TRACE-side signal only — the
+        # actual prompt text is unchanged; clients that respect MCP
+        # elicit metadata could read this from log triage. The contract
+        # is hint-only (forbidden-9).
+        if field_name in _PERSONAL_FIELDS:
+            logger.info(
+                "[%s][elicit][BLOCK_PERSONAL_ELICIT_HINT] field=%s",
+                log_prefix,
+                field_name,
+            )
         try:
             result = await ctx.elicit(
                 message=prompt,
@@ -858,22 +1182,33 @@ async def _run_pipeline(
     # response. The connected model is expected to ask the user in chat
     # for the missing fields and re-invoke with a richer intent.
     if fields_pending:
-        return {
-            "status": "needs_more_info",
-            "missing_fields": fields_pending,
-            "extracted_so_far": {
-                name: getattr(spec, name, None)
-                for name in template.required_fields
-                if getattr(spec, name, None)
-            },
-            "doc_type": doc_type,
-            "guidance": (
-                "Your MCP client doesn't support server-driven elicitation "
-                "forms. Ask the user in chat for the missing fields listed "
-                "in `missing_fields`, then call this tool again with a "
-                "richer intent that contains those values inline."
-            ),
+        # SECURITY (forbidden-8): when under anonymous flag, suppress
+        # blocklisted entries from extracted_so_far. The blocklist run
+        # in _heuristic_extract already cleared the spec values, so this
+        # filter is belt-and-braces against future regressions where the
+        # spec might still carry a blocklisted value at this point.
+        extracted_so_far = {
+            name: getattr(spec, name, None)
+            for name in template.required_fields
+            if getattr(spec, name, None)
+            and not (anon.anonymous_flag and name in _PERSONAL_FIELDS)
         }
+        return _render_anonymisation_report(
+            {
+                "status": "needs_more_info",
+                "missing_fields": fields_pending,
+                "extracted_so_far": extracted_so_far,
+                "doc_type": doc_type,
+                "guidance": (
+                    "Your MCP client doesn't support server-driven elicitation "
+                    "forms. Ask the user in chat for the missing fields listed "
+                    "in `missing_fields`, then call this tool again with a "
+                    "richer intent that contains those values inline."
+                ),
+            },
+            anonymised=anon.anonymous_flag,
+            fields_omitted=anon.fields_omitted,
+        )
 
     # All required fields filled; assemble.
     output_dir = _resolve_output_dir()
@@ -906,7 +1241,9 @@ async def _run_pipeline(
     # GRACE audit injection — embeds metadata into the saved docx as a
     # custom XML part. The audit_id (UUID4) is the cross-reference back
     # to this generation; fields_elicited records what came from the user
-    # vs the heuristic.
+    # vs the heuristic. Under anonymous flag we also stamp anonymised=true
+    # (scenario-19); the cleared values are NEVER written into the
+    # manifest (forbidden-6 extended to audit trail).
     audit_instructions = list(
         _audit_instructions(
             audit_id,
@@ -914,6 +1251,7 @@ async def _run_pipeline(
             doc_type,
             template.version,
             template_author=template.author,
+            anonymised=anon.anonymous_flag,
         )
     )
     manifest = grace_bootstrap(
@@ -949,6 +1287,11 @@ async def _run_pipeline(
         "doc_type": doc_type,
         "template_version": template.version,
     }
+    _render_anonymisation_report(
+        result_dict,
+        anonymised=anon.anonymous_flag,
+        fields_omitted=anon.fields_omitted,
+    )
     try:
         qa_report = _score_document(output_path, preset_name="klawd")
     except Exception as exc:
@@ -1026,6 +1369,8 @@ def _audit_instructions(
     doc_type: str,
     template_version: str,
     template_author: str = "",
+    *,
+    anonymised: bool = False,
 ) -> list[str]:
     """Compose the GRACE manifest instruction list for this run.
 
@@ -1038,6 +1383,10 @@ def _audit_instructions(
     `generated_by=MP-MEMO-POC` line stays for memo doc_type so existing
     tests' substring asserts on the manifest XML keep matching; other
     doc_types record MP-DOC-GENERIC instead.
+
+    When the anonymous-flag mitigation fired (MP-DOC-PERSONAL-GUARD),
+    append `anonymised=true` to the manifest — flag only, NEVER the
+    cleared values (forbidden-6 / scenario-19).
     """
     timestamp = datetime.now(tz=UTC).isoformat()
     generator = "MP-MEMO-POC" if doc_type == "memo" else "MP-DOC-GENERIC"
@@ -1052,6 +1401,8 @@ def _audit_instructions(
     ]
     if template_author:
         instructions.append(f"template_author={template_author}")
+    if anonymised:
+        instructions.append("anonymised=true")
     return instructions
 
 
