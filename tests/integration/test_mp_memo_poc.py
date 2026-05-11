@@ -272,8 +272,12 @@ async def test_scenario_8_log_markers_in_order(
     assert elicit_idxs, "expected at least one BLOCK_ELICIT_FIELD"
     assert all(parse_idx < idx < build_idx for idx in elicit_idxs)
     assert build_idx > 0
-    assert grace_idx == build_idx + 1, (
-        "BLOCK_INJECT_GRACE must immediately follow BLOCK_BUILD_DOCX"
+    # Phase-17 W17-3 (MP-AUDIT-EXTEND): BLOCK_AUDIT_PRESET_VERSION now
+    # fires between BUILD_DOCX and INJECT_GRACE (and optionally
+    # BLOCK_AUDIT_LANG for bilingual templates), so INJECT_GRACE no
+    # longer immediately follows BUILD_DOCX.
+    assert grace_idx > build_idx, (
+        "BLOCK_INJECT_GRACE must follow BLOCK_BUILD_DOCX"
     )
 
     # Payload schema spot-checks.
