@@ -1,0 +1,68 @@
+# MINT bilingual NDA template (Phase-16 — MP-DOC-BUNDLE)
+#
+# Russian-English NDA. Bilingual layout WITHOUT any engine extension:
+# each Russian paragraph is immediately followed by its English
+# translation as a sibling paragraph. No columns, no tables, no new
+# block kinds — readers see the document as alternating Ru/En
+# paragraphs in reading order, which keeps both audiences happy and
+# satisfies V-MP-DOC-BUNDLE forbidden-1 (no engine extension).
+#
+# Headings are themselves bilingual via " / " concatenation in the
+# `text:` slot, e.g. "Scope / Сфера применения" — purely a YAML
+# string, the engine renders it as a single heading.
+
+name: nda-bilingual-ru-en
+version: "1.0"
+description: "Bilingual Ru-En NDA — stacked paragraphs, no engine extension"
+doc_type: nda-bilingual-ru-en
+
+# Required fields in declaration order. Bilingual fields are paired
+# (scope_ru / scope_en, term_ru / term_en) so the elicit dialog asks
+# each clause's Russian text before its English translation — natural
+# for a Russian-primary author drafting the agreement.
+required_fields:
+  - party_a
+  - party_b
+  - effective_date
+  - scope_ru
+  - scope_en
+  - term_ru
+  - term_en
+  - signatures
+
+# Layout walks STACKED Ru/En paragraphs. The invariant that
+# V-MP-DOC-BUNDLE scenario-4 asserts: for each bilingual clause,
+# w:p[i] carries the Russian text and w:p[i+1] carries the English
+# translation. We anchor this by placing the Russian paragraph
+# immediately before its English sibling, with no spacer / heading
+# between them.
+layout:
+  - kind: heading
+    level: 1
+    text: "Non-Disclosure Agreement / Соглашение о неразглашении"
+  - kind: paragraph
+    text: "Parties / Стороны: {{ party_a }} & {{ party_b }}"
+  - kind: paragraph
+    text: "Effective Date / Дата вступления в силу: {{ effective_date }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: "Scope / Сфера применения"
+  - kind: paragraph
+    text: "{{ scope_ru }}"
+  - kind: paragraph
+    text: "{{ scope_en }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: "Term / Срок"
+  - kind: paragraph
+    text: "{{ term_ru }}"
+  - kind: paragraph
+    text: "{{ term_en }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: "Signatures / Подписи"
+  - kind: paragraph
+    text: "{{ signatures }}"

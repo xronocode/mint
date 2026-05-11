@@ -1,0 +1,54 @@
+# MINT contract template (Phase-16 — MP-DOC-BUNDLE)
+#
+# Formal contract layout. Top block records parties / effective date /
+# term as simple labelled paragraphs; the operational body splits into
+# Scope / Obligations / Signatures sections. Engine surface unchanged
+# — heading + paragraph + spacer only.
+
+name: contract
+version: "1.0"
+description: "Formal contract — parties, effective date, term, scope, obligations, signatures"
+doc_type: contract
+
+# Required fields in declaration order. Parties first because every
+# downstream field depends on knowing who is bound by the contract.
+required_fields:
+  - parties
+  - effective_date
+  - term
+  - scope
+  - obligations
+  - signatures
+
+# Contract layout. The header block (parties / effective date / term)
+# lives under the H1; operational sections are H2 + paragraph pairs.
+# Signature block is its own H2 so a long signatures list keeps its
+# visual prominence.
+layout:
+  - kind: heading
+    level: 1
+    text: Contract
+  - kind: paragraph
+    text: "Parties: {{ parties }}"
+  - kind: paragraph
+    text: "Effective: {{ effective_date }}"
+  - kind: paragraph
+    text: "Term: {{ term }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Scope
+  - kind: paragraph
+    text: "{{ scope }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Obligations
+  - kind: paragraph
+    text: "{{ obligations }}"
+  - kind: spacer
+  - kind: heading
+    level: 2
+    text: Signatures
+  - kind: paragraph
+    text: "{{ signatures }}"
