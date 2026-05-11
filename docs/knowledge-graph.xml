@@ -1079,17 +1079,31 @@
       </annotations>
     </MP-EDIT>
 
-    <MP-MCP-EDIT NAME="mint_edit_document MCP tool (A5 wrap)" TYPE="INTEGRATION" STATUS="planned" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-3">
-      <purpose>MCP wrap over MP-EDIT. Validates plan shape (rejects raw OOXML per UC-008), delegates to mint_python.edit.edit, returns canonical EditResult dict. Mutates caller-supplied path; backup invariant inherited from MP-EDIT. No allowlist (caller-owned doc).</purpose>
-      <path>src/mint_python/mcp/edit.py</path>
-      <depends>MP-EDIT (Phase-16 port; W3 dependency), mint._security.safe_doc, fastmcp.Context + ToolError</depends>
+    <MP-MCP-EDIT NAME="mint_edit_document MCP tool (A5 wrap)" TYPE="INTEGRATION" STATUS="shipped" ADDED_AT="2026-05-11" ACTIVATION_GATE="Wave-16-3c" COMMIT="7be73cd" COMPLETED_AT="2026-05-11">
+      <purpose>MCP wrap over MP-EDIT (W3b). Validates plan shape via edit_plan_from_dict; adds WRAP-LAYER hardening that rejects literal OOXML substrings (case-insensitive `&lt;w:r` / `&lt;w:p` / `&lt;w:t` / `&lt;/w:`) in anchor.value BEFORE invoking edit() — satisfies V-MP-MCP-EDIT scenario-3 + VF-021 inv-3 NO-RAW-OOXML-IN-PLAN + UC-008 acceptance at the MCP boundary explicitly. Legacy MP-EDIT.validate_plan does NOT do this literal-substring reject; the substantive UC-008 guarantee at the core is build_edit_prompt redaction; this wrap adds the hard reject as a hardening layer. Mutates caller-supplied path; backup invariant inherited from MP-EDIT. NO allowlist (caller-owned doc).</purpose>
+      <path>src/mint_python/mcp/edit.py + module-tail deferred-import in src/mint_python/mcp/document.py to register @server.tool</path>
+      <depends>MP-EDIT (Phase-16 W3b port, commit 254f051), mint_python.validate.SeverityMode (W1 self-defined), mint._security.safe_doc, fastmcp.Context + ToolError. Reuses mint_python.mcp.validate._canonicalize_report for validation_report serialization (single source of truth — keeps shape parity with mint_validate_document).</depends>
       <consumed-by>External MCP clients via mint_edit_document tool</consumed-by>
       <verification-ref>V-MP-MCP-EDIT</verification-ref>
       <annotations>
-        <fn-mint_edit_document PURPOSE="@server.tool async; wraps validate_plan + edit; canonicalizes EditResult to dict; surfaces EDIT_PLAN_INVALID / EDIT_ANCHOR_* / EDIT_VALIDATION_FAILED / EDIT_BACKUP_FAILED / INVALID_DOCUMENT" />
-        <fn-_canonicalize_edit_result PURPOSE="EditResult dataclass → 9-key dict; outcomes list flattened to per-op {op_id, status, before, after, error?}" />
-        <const-CANONICAL_EDIT_RESULT_KEYS PURPOSE="VF-021 inv-6 STABLE-KEYS oracle" />
-        <log-marker-BLOCK_EDIT_DONE PURPOSE="INFO; outer integration marker; payload ops_total ops_succeeded ops_failed duration_ms" />
+        <fn-mint_edit_document PURPOSE="@server.tool async fn(document_path, plan_json, severity_mode='lenient', *, ctx) → 10-key canonical dict; surfaces 8 EditError variants as structured ToolError subclasses; emits BLOCK_EDIT_DONE outer marker after edit() returns" />
+        <fn-_canonicalize_edit_result PURPOSE="EditResult dataclass → 10-key dict (paths stringified; validation_report via _canonicalize_report; diff list of OpOutcome dicts)" />
+        <fn-_reject_raw_ooxml_in_plan PURPOSE="wrap-layer hardening; walks plan_json['ops'][*]['anchor']['value'] for case-insensitive substrings in _RAW_OOXML_NEEDLES; raises EditPlanInvalid naming the offending op_id BEFORE edit_plan_from_dict / edit() touches anything" />
+        <fn-_remap_edit_error PURPOSE="EditError.code → ToolError subclass dispatch via _EDIT_ERROR_MAP; unknown codes → EditUnknown (forward-compat for future MP-EDIT refactors)" />
+        <fn-_synthesize_mid_pipeline_error PURPOSE="when EditResult.success=False AND output_path is None AND diff non-empty, synthesizes EditError(code=diff[-1].error_code) with op_id=diff[-1].op_id and routes through _remap_edit_error — surfaces mid-pipeline op failures as structured ToolError rather than success envelopes" />
+        <const-CANONICAL_EDIT_RESULT_KEYS PURPOSE="('output_path','backup_path','success','ops_total','ops_succeeded','ops_failed','validation_report','diff','duration_ms','error') — mirrors EditResult field order; VF-021 inv-6 STABLE-KEYS oracle" />
+        <const-_RAW_OOXML_NEEDLES PURPOSE="('&lt;w:r','&lt;w:p','&lt;w:t','&lt;/w:') case-insensitive — unambiguous OOXML run/paragraph/text markers; checked against anchor.value strings only" />
+        <const-_EDIT_ERROR_MAP PURPOSE="EditError.code → ToolError subclass table (8 entries: EDIT_PLAN_INVALID/EDIT_OP_UNSUPPORTED/EDIT_ANCHOR_NOT_FOUND/EDIT_ANCHOR_AMBIGUOUS/EDIT_VALIDATION_FAILED/EDIT_TRACKED_CHANGE_INVALID/BACKUP_FAILED→EditBackupFailed/EDIT_UNKNOWN)" />
+        <type-InvalidDocument PURPOSE="path traversal / not-zip / safe_doc rejection" />
+        <type-EditPlanInvalid PURPOSE="EDIT_PLAN_INVALID from EditError OR wrap-layer raw-OOXML rejection" />
+        <type-EditOpUnsupported PURPOSE="EDIT_OP_UNSUPPORTED" />
+        <type-EditAnchorNotFound PURPOSE="EDIT_ANCHOR_NOT_FOUND; carries op_id from EditResult.diff[-1].op_id on mid-pipeline failures" />
+        <type-EditAnchorAmbiguous PURPOSE="EDIT_ANCHOR_AMBIGUOUS" />
+        <type-EditValidationFailed PURPOSE="EDIT_VALIDATION_FAILED" />
+        <type-EditBackupFailed PURPOSE="EDIT_BACKUP_FAILED at the wrap public contract; remaps from EditError.code='BACKUP_FAILED' (legacy spelling)" />
+        <type-EditTrackedChangeInvalid PURPOSE="EDIT_TRACKED_CHANGE_INVALID" />
+        <type-EditUnknown PURPOSE="forward-compat catch-all for future EditError codes" />
+        <log-marker-BLOCK_EDIT_DONE PURPOSE="INFO; outer integration marker emitted by the wrap (MP-EDIT itself does not emit this); payload ops_total ops_succeeded ops_failed duration_ms" />
       </annotations>
     </MP-MCP-EDIT>
 

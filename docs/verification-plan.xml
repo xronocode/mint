@@ -2433,7 +2433,7 @@ Byte-equality is NOT asserted — python-docx writes attributes in non-determini
       <autonomy-assessment>SWARM-CAREFUL — biggest single port of the Pure Python Edition cycle (~2003 LOC). Single dedicated worker. Controller pre-flight: brief worker section-by-section (anchor resolver / op apply / tracked-change / metadata); pre-decide OOXML coupling (scope-expansion to MP-OOXML port if needed); pre-author the porting-parity oracle (tests/_helpers/edit_parity.py: legacy vs pure-python on identical fixtures).</autonomy-assessment>
     </V-MP-EDIT>
 
-    <V-MP-MCP-EDIT MODULE="MP-MCP-EDIT" PRIORITY="high" STATUS="planned" ADDED_AT="2026-05-11">
+    <V-MP-MCP-EDIT MODULE="MP-MCP-EDIT" PRIORITY="high" STATUS="passing" ADDED_AT="2026-05-11" COMPLETED_AT="2026-05-11" COMMIT="7be73cd">
       <test-files>
         <file status="planned">tests/integration/test_mp_mcp_edit.py</file>
       </test-files>
