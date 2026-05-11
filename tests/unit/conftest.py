@@ -380,9 +380,13 @@ def backend_probe_patcher(monkeypatch: pytest.MonkeyPatch):
     real_urlopen = urllib.request.urlopen
     state: dict = {"missing": set(), "ollama_unreachable": False}
 
+    _known_backends = {"soffice", "pdftoppm"}
+
     def _fake_which(cmd: str, *args, **kwargs):
         if cmd in state["missing"]:
             return None
+        if cmd in _known_backends:
+            return f"/usr/bin/{cmd}"
         return real_which(cmd, *args, **kwargs)
 
     def _fake_urlopen(*args, **kwargs):
