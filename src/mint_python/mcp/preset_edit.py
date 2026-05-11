@@ -53,7 +53,16 @@
 #   _VERSIONED_FILENAME_RE        - parses <name>_v<MAJOR.MINOR>.yaml
 #   _semver_tuple / _bump_minor   - semver helpers (mirror
 #                                   MP-TEMPLATES-REGISTRY pattern)
-#   _resolve_base_preset_path     - latest versioned sibling OR built-in
+#   resolve_latest_preset_path    - PUBLIC (W17-0): latest versioned
+#                                   sibling OR built-in; imported by
+#                                   MP-AUDIT-EXTEND + MP-MCP-RESOURCES-
+#                                   VERSIONED (single source of truth
+#                                   for "what's the latest preset")
+#   collect_preset_versions       - PUBLIC (W17-0): ascending semver list
+#                                   of ALL available versions for `name`;
+#                                   used by MP-MCP-RESOURCES-VERSIONED
+#                                   to populate predecessor_versions
+#                                   metadata in list_presets summary
 #   _load_current_preset_raw     - parses current preset YAML into a
 #                                   plain dict (preserves comments-as-
 #                                   absent + key order via PyYAML)
@@ -201,7 +210,7 @@ def _bump_minor(version: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _resolve_base_preset_path(name: str) -> Path:
+def resolve_latest_preset_path(name: str) -> Path:
     """Return the path of the CURRENT latest version of `name` to bump from.
 
     Resolution order:
@@ -235,6 +244,46 @@ def _resolve_base_preset_path(name: str) -> Path:
     )
 
 
+def collect_preset_versions(name: str) -> list[str]:
+    """Return the sorted list of all available version strings for `name`.
+
+    Includes the baseline '1.0' from BUILTIN_PRESETS (or whatever the
+    base YAML's `version:` field declares) and every versioned sibling
+    in PRESETS_DIR. Returned in ascending semver order; the last element
+    is the same version that `resolve_latest_preset_path` resolves to.
+
+    Used by MP-MCP-RESOURCES-VERSIONED to populate the
+    `predecessor_versions` metadata in list_presets summary output —
+    callers see the full edit chain at a glance.
+
+    Raises PresetNotFound when `name` is not in BUILTIN_PRESETS AND no
+    versioned siblings exist — mirrors `resolve_latest_preset_path`.
+    """
+    versions: list[tuple[int, int]] = []
+
+    # Versioned siblings (Phase-16 W2+ edits).
+    if PRESETS_DIR.exists():
+        for path in PRESETS_DIR.glob(f"{name}_v*.yaml"):
+            match = _VERSIONED_FILENAME_RE.match(path.name)
+            if match and match.group("name") == name:
+                versions.append(_semver_tuple(match.group("version")))
+
+    # Built-in baseline. We don't actually parse the YAML for `version:` —
+    # by convention BUILTIN_PRESETS baselines are at 1.0; if the YAML
+    # disagrees the writer will catch it at the next edit.
+    if name in BUILTIN_PRESETS and (1, 0) not in versions:
+        versions.append((1, 0))
+
+    if not versions:
+        raise PresetNotFound(
+            f"PRESET_NOT_FOUND: no preset named {name!r}. "
+            f"Built-ins: {sorted(BUILTIN_PRESETS)}"
+        )
+
+    versions.sort()
+    return [f"{major}.{minor}" for major, minor in versions]
+
+
 def _load_current_preset_raw(name: str) -> tuple[dict[str, Any], str, Path]:
     """Return (preset_dict, current_version, source_path).
 
@@ -243,7 +292,7 @@ def _load_current_preset_raw(name: str) -> tuple[dict[str, Any], str, Path]:
     serializations). The version comes from the YAML's `version` field;
     if absent the fallback is '1.0' so the first bump produces 1.1.
     """
-    base_path = _resolve_base_preset_path(name)
+    base_path = resolve_latest_preset_path(name)
     raw_text = base_path.read_text(encoding="utf-8")
     raw = yaml.safe_load(raw_text)
     if not isinstance(raw, dict):
