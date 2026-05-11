@@ -1,5 +1,5 @@
 # FILE: src/mint_python/mcp/resources.py
-# VERSION: 0.1.0
+# VERSION: 0.2.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Phase-14 W4 (MP-MCP-RESOURCES) — wire FastMCP @server
 #     .resource handlers exposing `mint://template/<name>` and
@@ -8,16 +8,33 @@
 #     speak the MCP resources protocol (Claude Desktop today). Closes
 #     audit's Priority-1 — design tokens + governed templates as
 #     discoverable MCP resources.
+#
+#     Phase-17 W17-2 (MP-MCP-RESOURCES-VERSIONED) — chain the 3 preset
+#     handlers (resource read + list_presets + get_preset) to versioned
+#     preset YAML files written by mint_update_preset_palette/
+#     typography/spacing. Resolution + version-listing live in
+#     mint_python.mcp.preset_edit (single source of truth for "what is
+#     the latest version"): resources.py imports the W17-0-public
+#     `resolve_latest_preset_path` + `collect_preset_versions` and MUST
+#     NOT duplicate semver / regex logic (V-MP-MCP-RESOURCES-VERSIONED
+#     forbidden-4, mechanically grep-checked).
 #   SCOPE: Public surface = templated resource handlers (registered on
 #     the shared mcp.document.server), list_presets / get_preset MCP
 #     tools, ResourceNotFound / ResourceUriInvalid errors, helpers for
 #     enumeration + parsing that tests exercise directly.
 #   DEPENDS: mint_python.mcp.document (shared FastMCP server),
 #     mint_python.templates.registry (template lookup),
-#     mint_python.core.style (BUILTIN_PRESETS map).
+#     mint_python.core.style (BUILTIN_PRESETS map),
+#     mint_python.mcp.preset_edit (PRESETS_DIR + PresetNotFound +
+#     resolve_latest_preset_path + collect_preset_versions — W17-0
+#     public surface; the read-path's single source of truth for
+#     versioned preset resolution).
 #   LINKS: docs/development-plan.xml#MP-MCP-RESOURCES,
+#     docs/development-plan.xml#MP-MCP-RESOURCES-VERSIONED,
 #     docs/verification-plan.xml#V-MP-MCP-RESOURCES,
-#     docs/knowledge-graph.xml#MP-MCP-RESOURCES
+#     docs/verification-plan.xml#V-MP-MCP-RESOURCES-VERSIONED,
+#     docs/knowledge-graph.xml#MP-MCP-RESOURCES,
+#     docs/knowledge-graph.xml#MP-MCP-RESOURCES-VERSIONED
 # END_MODULE_CONTRACT
 #
 # START_MODULE_MAP
@@ -31,8 +48,21 @@
 #   _parse_uri            - dispatcher returning ("template"|"preset", name)
 #   _template_resource_content - serialize the latest TemplateSchema as
 #                           YAML for resources/read
-#   _preset_resource_content   - read the BUILTIN_PRESETS file and
-#                           return its raw text (json or yaml)
+#   _preset_resource_content   - read the LATEST resolved preset file
+#                           (versioned sibling OR BUILTIN_PRESETS
+#                           fallback) and return its raw text. Path
+#                           resolution delegates to
+#                           preset_edit.resolve_latest_preset_path; we
+#                           never duplicate semver logic locally
+#                           (forbidden-4).
+#   _resolve_preset_for_read   - thin wrapper around
+#                           resolve_latest_preset_path that surfaces
+#                           PresetNotFound as the existing
+#                           ResourceNotFound error and emits the
+#                           BLOCK_RESOLVE_VERSIONED log marker per call.
+#                           Also enforces forbidden-7 (resolved path
+#                           must be inside PRESETS_DIR OR equal to
+#                           BUILTIN_PRESETS[name] — no symlink escape).
 #   _list_mint_resources  - one ResourceDescriptor per (latest)
 #                           template + per preset; the source of truth
 #                           the templated resource handlers AND the
@@ -48,8 +78,19 @@
 # END_MODULE_MAP
 #
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: v0.1.0 — Phase-14 W4 initial implementation per
-#     V-MP-MCP-RESOURCES scenarios 1-5 + forbidden-1.
+#   LAST_CHANGE: v0.2.0 — Phase-17 W17-2 (MP-MCP-RESOURCES-VERSIONED):
+#     _preset_resource_content + list_presets + get_preset now call
+#     preset_edit.resolve_latest_preset_path (W17-0 public) instead of
+#     reading BUILTIN_PRESETS[name] directly, so external MCP clients
+#     see latest versioned content after every preset edit. list_presets
+#     summary gains `latest_version` + `predecessor_versions` keys when
+#     versioned siblings exist (additive only; no-sibling shape stays
+#     byte-identical to v0.1.0 per scenario-12). New BLOCK_RESOLVE_
+#     VERSIONED log marker per resolve call. Semver / regex logic
+#     remains exclusively in preset_edit.py (forbidden-4, mechanically
+#     grep-checked).
+#   v0.1.0 — Phase-14 W4 initial implementation per V-MP-MCP-RESOURCES
+#     scenarios 1-5 + forbidden-1.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -69,6 +110,14 @@ from mint_python.templates.registry import (
     TemplateNotFound,
     get_default_registry,
 )
+
+# NOTE: `mint_python.mcp.preset_edit` is imported lazily inside the helper
+# functions below to break a circular import — preset_edit imports
+# `mcp.document`, which transitively imports this module at register-time
+# to wire the @server.resource handlers. The lazy import means we pay one
+# attribute lookup per resolve call (microseconds; resolution is already
+# I/O-bound on the PRESETS_DIR.glob). See V-MP-MCP-RESOURCES-VERSIONED
+# forbidden-4 — duplicating semver logic is FAR worse than this indirection.
 
 logger = logging.getLogger(__name__)
 
@@ -173,22 +222,101 @@ def _template_resource_content(name: str) -> str:
     return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
 
-def _preset_resource_content(name: str) -> str:
-    """Read the BUILTIN_PRESETS file for `name` and return its raw text.
+def _resolve_preset_for_read(name: str) -> Path:
+    """Return the on-disk path of the latest preset version for `name`.
 
-    Raw text rather than parsed-and-reserialized — preserves the
-    canonical $schema URL and any author comments in the file.
+    Thin wrapper around `preset_edit.resolve_latest_preset_path` that:
+      - re-raises `PresetNotFound` as the existing `ResourceNotFound`
+        contract surface so the resource handlers + tools see ONE error
+        code regardless of where it originated;
+      - enforces forbidden-7 (the resolved path MUST equal
+        BUILTIN_PRESETS[name] or be a direct child of
+        preset_edit.PRESETS_DIR — no symlink escape, no path traversal);
+      - emits the BLOCK_RESOLVE_VERSIONED log marker per resolve call so
+        trace analysis can correlate every external preset read to a
+        concrete file + predecessor count.
 
-    Raises:
-        ResourceNotFound: name not in BUILTIN_PRESETS.
+    Semver / regex logic stays exclusively in preset_edit.py
+    (V-MP-MCP-RESOURCES-VERSIONED forbidden-4). Do NOT inline a second
+    versioned-filename regex or semver-tuple helper here — see the
+    forbidden-4 grep gate (mechanically enforced); duplication is the
+    silent-1.10-vs-1.2 regression hazard the gate was added to catch.
     """
-    if name not in BUILTIN_PRESETS:
+    # Local import deferred to call time — (1) breaks the circular
+    # import preset_edit → mcp.document → resources, and (2) ensures
+    # tests that monkeypatch `mint_python.mcp.preset_edit.PRESETS_DIR`
+    # see the patched value via the live module attribute.
+    from mint_python.mcp import preset_edit as _preset_edit
+
+    try:
+        resolved = _preset_edit.resolve_latest_preset_path(name)
+    except _preset_edit.PresetNotFound as exc:
         available = sorted(BUILTIN_PRESETS.keys())
         raise ResourceNotFound(
             f"RESOURCE_NOT_FOUND: no preset for mint://preset/{name}. "
             f"Available: {', '.join(available)}"
+        ) from exc
+
+    # forbidden-7: resolved path must satisfy
+    #   path == BUILTIN_PRESETS[name]  OR  path.parent == PRESETS_DIR.
+    # Guards against a malicious `klawd_v1.1.yaml` symlink pointing
+    # outside the presets dir; both legs are read-only by contract.
+    builtin_path = BUILTIN_PRESETS.get(name)
+    if not (resolved == builtin_path or resolved.parent == _preset_edit.PRESETS_DIR):
+        # Defensive — should be unreachable because resolve_latest_
+        # preset_path only returns paths from PRESETS_DIR.glob OR
+        # BUILTIN_PRESETS[name]. If a future refactor breaks that
+        # invariant we want a loud failure here, not silent leak.
+        raise ResourceNotFound(  # pragma: no cover
+            f"RESOURCE_NOT_FOUND: resolved path for {name!r} escapes "
+            f"the preset sandbox (got {resolved!r}); refusing to read."
         )
-    return BUILTIN_PRESETS[name].read_text(encoding="utf-8")
+
+    # Compute predecessor count for the log marker. Cheap (1 extra
+    # filesystem scan via collect_preset_versions — same dir, same
+    # glob). Kept here rather than in collect_preset_versions's caller
+    # so the marker is consistent across every consumer.
+    try:
+        versions = _preset_edit.collect_preset_versions(name)
+        predecessor_count = max(len(versions) - 1, 0)
+    except _preset_edit.PresetNotFound:  # pragma: no cover — resolve_latest succeeded above
+        predecessor_count = 0
+
+    # START_BLOCK_RESOLVE_VERSIONED
+    logger.info(
+        "[MP-Resources][preset][BLOCK_RESOLVE_VERSIONED] "
+        "name=%s resolved=%s predecessors=%d",
+        name,
+        resolved.name,
+        predecessor_count,
+    )
+    # END_BLOCK_RESOLVE_VERSIONED
+    return resolved
+
+
+def _preset_resource_content(name: str) -> str:
+    """Read the latest preset file for `name` and return its raw text.
+
+    Resolution order (handled by `_resolve_preset_for_read` →
+    `preset_edit.resolve_latest_preset_path`):
+      1. Highest-semver `<name>_v<X.Y>.yaml` in
+         `preset_edit.PRESETS_DIR` (versioned sibling, written by
+         mint_update_preset_* tools).
+      2. `BUILTIN_PRESETS[name]` baseline (untouched preset).
+      3. Raise `ResourceNotFound`.
+
+    Raw text rather than parsed-and-reserialized — preserves the
+    canonical $schema URL and any author comments in the file. The
+    new VERSIONED-aware read closes the Phase-16 W2 gap where
+    external MCP clients (Cursor, OpenWebUI, Claude Desktop) saw
+    only the built-in baseline even after a successful preset edit.
+
+    Raises:
+        ResourceNotFound: name not in BUILTIN_PRESETS AND no
+            versioned siblings in PRESETS_DIR.
+    """
+    resolved = _resolve_preset_for_read(name)
+    return resolved.read_text(encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
@@ -218,7 +346,13 @@ class ResourceDescriptor:
 def _preset_description(name: str) -> str:
     """Best-effort one-line summary of a preset; reads the file and
     extracts the `description` field if present (both YAML and JSON
-    presets use that key per docs/style-preset-schema.md)."""
+    presets use that key per docs/style-preset-schema.md).
+
+    Reads the BUILTIN_PRESETS baseline rather than the latest versioned
+    sibling — the description tracks the canonical preset identity, not
+    individual edits. Keeps list_presets output stable across the edit
+    chain (predecessor_versions surfaces edit history separately).
+    """
     path = BUILTIN_PRESETS[name]
     # Defensive against malformed presets; the tested presets all parse
     # successfully so the except branch is unreachable in practice.
@@ -317,19 +451,60 @@ async def preset_resource(name: str) -> str:
 
 
 @server.tool(name="mint_list_presets")
-async def list_presets(ctx: Context) -> list[dict[str, str]]:
+async def list_presets(ctx: Context) -> list[dict[str, Any]]:
     """Enumerate the design-token presets the server can apply when
     generating a document. Mirrors the resources/list surface for
     clients that don't speak the MCP resources protocol.
 
-    Each entry: uri, name, mimeType, description.
+    Base entry keys (always present): uri, name, mimeType, description.
+    Versioned-aware additive keys (present only when at least one
+    versioned sibling exists alongside the BUILTIN baseline):
+      - latest_version (str): semver string of the highest version on
+        disk for this canonical name.
+      - predecessor_versions (list[str]): every version ASCENDING up to
+        but excluding the latest. Empty for a fresh edit (one sibling)
+        because the full chain = ['1.0', '1.1'] and predecessors = ['1.0'].
+
+    Backwards-compat invariant (V-MP-MCP-RESOURCES-VERSIONED
+    scenario-12): when NO versioned siblings exist for `name`, the
+    returned dict's key set is byte-identical to the Phase-14 v0.1.0
+    shape — additive fields are omitted entirely, not None-valued, so
+    `set(entry) == {"uri", "name", "mimeType", "description"}` still
+    holds for the Phase-14 existing-tests path.
+
+    Returns ONE entry per BUILTIN canonical name (5 entries:
+    klawd, claret_serif, alga_corporate, minimal, compact) regardless
+    of how many versioned siblings exist (forbidden-5 / scenario-14).
     """
     del ctx
-    return [
-        descriptor.to_dict()
-        for descriptor in _list_mint_resources()
-        if descriptor.uri.startswith("mint://preset/")
-    ]
+    # Lazy import — see module-level note about circular import.
+    from mint_python.mcp import preset_edit as _preset_edit
+
+    entries: list[dict[str, Any]] = []
+    for descriptor in _list_mint_resources():
+        if not descriptor.uri.startswith("mint://preset/"):
+            continue
+        entry: dict[str, Any] = descriptor.to_dict()
+        # Resolve the version chain. collect_preset_versions raises
+        # PresetNotFound only when neither BUILTIN nor versioned
+        # siblings exist — which can't happen here because we iterate
+        # over the BUILTIN_PRESETS-derived descriptor list.
+        # descriptor list comes from BUILTIN_PRESETS so the
+        # PresetNotFound branch below is unreachable in practice; the
+        # try/except is defensive against a future shift in the
+        # enumerator's source-of-truth.
+        try:
+            versions = _preset_edit.collect_preset_versions(descriptor.name)
+        except _preset_edit.PresetNotFound:  # pragma: no cover
+            versions = []
+        # Additive ONLY when versioned siblings exist on top of the
+        # base (len > 1). Single-baseline presets keep the 4-key shape
+        # so existing Phase-14 callers / tests don't see a diff.
+        if len(versions) > 1:
+            entry["latest_version"] = versions[-1]
+            entry["predecessor_versions"] = versions[:-1]
+        entries.append(entry)
+    return entries
 
 
 @server.tool(name="mint_get_preset")
@@ -337,22 +512,17 @@ async def get_preset(name: str, *, ctx: Context) -> dict[str, str]:
     """Return the raw content + mimeType of a preset.
 
     Mirrors resources/read for clients without the resources protocol.
+    Chains to the latest versioned sibling via
+    `_resolve_preset_for_read` so external MCP clients always see the
+    most recent preset edit (Phase-17 W17-2 fix).
     """
     del ctx
-    if name not in BUILTIN_PRESETS:
-        # Same error class as the resource handler so callers across
-        # both surfaces see one consistent error code.
-        available = sorted(BUILTIN_PRESETS.keys())
-        raise ResourceNotFound(
-            f"RESOURCE_NOT_FOUND: no preset {name!r}. "
-            f"Available: {', '.join(available)}"
-        )
-    path = BUILTIN_PRESETS[name]
+    resolved = _resolve_preset_for_read(name)
     return {
         "name": name,
         "uri": f"mint://preset/{name}",
-        "mimeType": _preset_mime_for_path(path),
-        "content": path.read_text(encoding="utf-8"),
+        "mimeType": _preset_mime_for_path(resolved),
+        "content": resolved.read_text(encoding="utf-8"),
     }
 
 
