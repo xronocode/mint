@@ -178,7 +178,8 @@ async def test_scenario_1_round_trip_create_then_read_manifest() -> None:
 
     result = await mint_read_grace_manifest(str(docx), ctx=ctx)
 
-    # Canonical key set — exactly the 10 keys, no extras / missing.
+    # Canonical key set — exactly the 12 keys (Phase-17 W17-0 added
+    # preset_version + lang for extended provenance), no extras / missing.
     assert set(result.keys()) == set(CANONICAL_KEYS)
     # audit_id round-trip — UUID4 string injected during create_document.
     assert isinstance(result["audit_id"], str) and len(result["audit_id"]) >= 32
