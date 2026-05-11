@@ -34,6 +34,7 @@ from typing import Any
 from fastmcp import Context
 from fastmcp.tools.tool import ToolResult
 
+import mint_python.mcp.telemetry as _telemetry  # noqa: F401 — registers mint_version + mint_telemetry tools
 from mint_python.mcp import document as _doc
 from mint_python.mcp.document import (
     _DEFAULT_OUTPUT_DIR,
@@ -67,8 +68,6 @@ from mint_python.mcp.document import (
 from mint_python.mcp.document import (
     DocumentTemplateNotFound as MemoTemplateNotFound,
 )
-
-import mint_python.mcp.telemetry as _telemetry  # noqa: F401 — registers mint_version + mint_telemetry tools
 
 
 def _load_template() -> MemoTemplate:
