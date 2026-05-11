@@ -61,6 +61,7 @@
 #     from preset_edit.py). BLOCK_AUDIT_PRESET_VERSION + BLOCK_AUDIT_LANG
 #     log markers. _audit_instructions gains keyword-only preset_name +
 #     required_fields params; backwards-compat for existing callers.
+#     review-fix: 7 mechanical simplifications from code-simplifier agent.
 # END_CHANGE_SUMMARY
 
 from __future__ import annotations
@@ -72,7 +73,10 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mint_python.core.document import Document
 
 import yaml
 from fastmcp import Context, FastMCP
@@ -219,8 +223,9 @@ def _apply_personal_blocklist(
             continue
         # Capture value BEFORE clearing so we can hash it for the audit
         # log without ever re-reading it post-clear.
-        sha8 = hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:8]
-        value_len = len(str(value))
+        value_str = str(value)
+        sha8 = hashlib.sha256(value_str.encode("utf-8")).hexdigest()[:8]
+        value_len = len(value_str)
         setattr(spec, field_name, None)
         cleared.append(field_name)
         logger.info(
@@ -231,7 +236,7 @@ def _apply_personal_blocklist(
             value_len,
             sha8,
         )
-    return spec, sorted(cleared)
+    return spec, cleared
 
 
 def _render_anonymisation_report(
@@ -520,15 +525,14 @@ def _heuristic_extract(
                 spec.sender = m.group(1).strip()
             if not spec.recipient:
                 spec.recipient = m.group(2).strip()
-        else:
-            if not spec.sender:
-                m = _FROM_RE.search(intent)
-                if m:
-                    spec.sender = m.group(1).strip()
-            if not spec.recipient:
-                m = _RECIPIENT_RE.search(intent)
-                if m:
-                    spec.recipient = m.group(1).strip()
+    if not spec.sender:
+        m = _FROM_RE.search(intent)
+        if m:
+            spec.sender = m.group(1).strip()
+    if not spec.recipient:
+        m = _RECIPIENT_RE.search(intent)
+        if m:
+            spec.recipient = m.group(1).strip()
 
     if not spec.subject:
         m = _SUBJECT_RE.search(intent)
@@ -548,6 +552,11 @@ def _heuristic_extract(
             if chunks:
                 spec.body = "\n\n".join(chunks)
         except Exception:  # pragma: no cover — adapter errors fall through to elicit
+            logger.debug(
+                "[MP-Doc][heuristic] markdown_to_spec failed, "
+                "falling back to None",
+                exc_info=True,
+            )
             spec.body = None
 
     return spec
@@ -710,6 +719,7 @@ def _load_template(doc_type: str) -> DocumentTemplate:
                 suggest_templates(doc_type).get("suggestions", [])
             )
         except Exception:  # pragma: no cover — defensive; picker is non-failing by contract
+            logger.debug("[MP-Doc][load] picker suggestion failed", exc_info=True)
             suggestions = []
         raise DocumentTypeNotFound(
             f"DOC_TYPE_NOT_FOUND: no template for doc_type={doc_type!r}. "
@@ -861,7 +871,7 @@ def _prepare_layout(
     return [entry for entry, mark in zip(layout, marks, strict=False) if mark == "keep"]
 
 
-def _build_document(spec: DocumentSpec, template: DocumentTemplate) -> DocumentLike:
+def _build_document(spec: DocumentSpec, template: DocumentTemplate) -> Document:
     """Walk template.layout and assemble a Document with klawd preset.
 
     Returns the configured Document instance — caller saves and (optionally)
@@ -947,11 +957,6 @@ def _build_document(spec: DocumentSpec, template: DocumentTemplate) -> DocumentL
     return doc
 
 
-# Type alias for the Document return — helps downstream readers without
-# forcing the import at module top-level (Document carries a heavy import
-# graph that we don't want eagerly loaded just for type hints).
-DocumentLike = Any
-
 
 # Markdown signal characters — if any appear in body text, we route through
 # MP-MD-ADAPTER for proper block extraction. Plain text without any markup
@@ -1010,6 +1015,7 @@ def _render_body(section: Section, body_text: str) -> None:
     try:
         body_spec = markdown_to_spec(normalized)
     except Exception:  # pragma: no cover — adapter rarely fails on body content; fallback to raw
+        logger.debug("[MP-Doc][render] body adapter failed", exc_info=True)
         section.add_paragraph(Paragraph(body_text))
         return
 
@@ -1535,9 +1541,7 @@ def _audit_instructions(
     )
     # END_BLOCK_AUDIT_PRESET_VERSION
 
-    lang_codes: list[str] = []
-    if required_fields:
-        lang_codes = _detect_template_languages(required_fields)
+    lang_codes = _detect_template_languages(required_fields)
     if lang_codes:
         # START_BLOCK_AUDIT_LANG
         logger.info(
