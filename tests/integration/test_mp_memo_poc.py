@@ -894,10 +894,10 @@ def test_memo_filename_falls_back_when_date_unparseable() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_memo_returns_tool_result_with_resource_link() -> None:
+async def test_create_memo_returns_tool_result_with_embedded_resource() -> None:
     """The @server.tool wrapper returns a ToolResult with TextContent
-    (markdown link) + ResourceLink (file:// URI) + structured_content."""
-    from mcp.types import ResourceLink, TextContent
+    + EmbeddedResource (inline base64 blob) + structured_content."""
+    from mcp.types import EmbeddedResource, TextContent
 
     from mint_python.mcp.memo import create_memo
 
@@ -908,29 +908,27 @@ async def test_create_memo_returns_tool_result_with_resource_link() -> None:
     ctx = FakeMCPContext(answers={})
     result = await create_memo(intent=intent, source_md=None, ctx=ctx)
 
-    # Content array carries text + resource_link in that order.
     assert len(result.content) == 2
     assert isinstance(result.content[0], TextContent)
     assert "Memo ready" in result.content[0].text
-    assert "file://" in result.content[0].text  # markdown link
 
-    assert isinstance(result.content[1], ResourceLink)
-    assert str(result.content[1].uri).startswith("file://")
-    assert result.content[1].mimeType.endswith("wordprocessingml.document")
-    assert result.content[1].name.endswith(".docx")
+    assert isinstance(result.content[1], EmbeddedResource)
+    assert result.content[1].resource.mimeType == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert len(result.content[1].resource.blob) > 0
 
-    # Structured content carries the full pipeline result dict.
     assert result.structured_content["status"] == "complete"
     assert result.structured_content["audit_id"]
     assert "path" in result.structured_content
 
 
 @pytest.mark.asyncio
-async def test_create_memo_degraded_returns_text_only_no_resource_link() -> None:
+async def test_create_memo_degraded_returns_text_only_no_embedded_resource() -> None:
     """When pipeline returns needs_more_info, ToolResult content is text-only
-    (no docx exists yet, so no resource_link). structured_content carries
+    (no docx exists yet, so no embedded resource). structured_content carries
     missing_fields + extracted_so_far for the model to read."""
-    from mcp.types import ResourceLink
+    from mcp.types import EmbeddedResource
 
     from mint_python.mcp.memo import create_memo
 
@@ -941,9 +939,7 @@ async def test_create_memo_degraded_returns_text_only_no_resource_link() -> None
     assert result.structured_content["status"] == "needs_more_info"
     assert result.structured_content["missing_fields"]
 
-    # No ResourceLink in content — there's no file to point at.
-    assert all(not isinstance(c, ResourceLink) for c in result.content)
-    # Text summary names the missing fields for the model to read.
+    assert all(not isinstance(c, EmbeddedResource) for c in result.content)
     text_summary = result.content[0].text
     assert "Need more info" in text_summary
     assert "missing" in text_summary.lower()

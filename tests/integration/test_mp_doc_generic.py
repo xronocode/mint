@@ -228,7 +228,7 @@ async def test_scenario_6_structured_content_extends_with_doc_type_fields() -> N
     # ToolResult content blocks: TextContent with markdown link + ResourceLink.
     types_seen = {type(c).__name__ for c in tool_result.content}
     assert "TextContent" in types_seen
-    assert "ResourceLink" in types_seen
+    assert "EmbeddedResource" in types_seen
 
 
 # --------------------------------------------------------------------------- #
@@ -380,8 +380,8 @@ async def test_scenario_4_letter_doc_type_uses_real_letter_yaml() -> None:
 async def test_create_document_decorated_callable_returns_tool_result() -> None:
     """The @server.tool wrapper around create_document is callable in tests
     the same way as create_memo (Phase-13 pattern). Returned ToolResult
-    carries TextContent + ResourceLink + structured_content."""
-    from mcp.types import ResourceLink, TextContent
+    carries TextContent + EmbeddedResource + structured_content."""
+    from mcp.types import EmbeddedResource, TextContent
 
     from mint_python.mcp.document import create_document
 
@@ -397,10 +397,11 @@ async def test_create_document_decorated_callable_returns_tool_result() -> None:
     assert len(result.content) == 2
     assert isinstance(result.content[0], TextContent)
     assert "ready" in result.content[0].text.lower()
-    assert "file://" in result.content[0].text
 
-    assert isinstance(result.content[1], ResourceLink)
-    assert str(result.content[1].uri).startswith("file://")
+    assert isinstance(result.content[1], EmbeddedResource)
+    assert result.content[1].resource.mimeType == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
 
     assert result.structured_content["status"] == "complete"
     assert result.structured_content["doc_type"] == "memo"
@@ -580,15 +581,14 @@ def test_substitute_default_with_punctuation_inside() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Bug #3 — tool result text includes the file:// URI verbatim AND the
-# create_document docstring directs the model to relay it as-is.
+# Bug #3 — tool result text includes the file path AND the create_document
+# returns an EmbeddedResource with the file blob for Claude Desktop download.
 # --------------------------------------------------------------------------- #
 
 
-def test_to_tool_result_text_includes_file_uri_verbatim() -> None:
-    """The TextContent we return MUST contain the file:// URI as a raw
-    string (not just inside a markdown link). Easier for downstream
-    paraphrasing to preserve."""
+def test_to_tool_result_text_includes_file_path() -> None:
+    """The TextContent we return MUST contain the file path.
+    The EmbeddedResource blob lets Claude Desktop render a download link."""
     from mint_python.mcp.document import _to_tool_result
 
     fake_result = {
@@ -596,17 +596,16 @@ def test_to_tool_result_text_includes_file_uri_verbatim() -> None:
         "path": "/Users/example/Documents/MINT/memo_test.docx",
         "audit_id": "deadbeef-1234",
         "fields_elicited": [],
+        "fields_heuristic": [],
         "doc_type": "memo",
         "template_version": "1.0",
     }
     tool_result = _to_tool_result(fake_result)
     text = tool_result.content[0].text
-    # The raw file:// URI must appear in the text — not only inside a
-    # markdown-link parens.
-    assert "file:///Users/example/Documents/MINT/memo_test.docx" in text
-    # Imperative-style cue that helps relayers preserve the path.
-    assert "Open" in text or "Saved" in text or "open" in text
+    assert "memo_test.docx" in text
     assert "deadbeef-1234" in text
+    # File doesn't exist on disk in this unit test, so only TextContent
+    # is returned. Real calls always get TextContent + EmbeddedResource.
 
 
 def test_create_document_docstring_directs_verbatim_relay() -> None:

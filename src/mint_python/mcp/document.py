@@ -82,8 +82,9 @@ import yaml
 from fastmcp import Context, FastMCP
 from fastmcp.server.elicitation import AcceptedElicitation
 from fastmcp.tools.tool import ToolResult
+from fastmcp.utilities.types import File
 from mcp.shared.exceptions import McpError
-from mcp.types import ResourceLink, TextContent
+from mcp.types import TextContent
 
 from mint_python.adapters.markdown import markdown_to_spec
 from mint_python.core.content import Paragraph
@@ -1642,12 +1643,10 @@ _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.doc
 
 def _to_tool_result(result: dict[str, Any]) -> ToolResult:
     """Wrap a pipeline result dict in a ToolResult with rich content blocks
-    for cross-client artifact surfacing. Strategy follows the May-2026
-    research findings: markdown link in text + resource_link spec primitive
-    + structured content for machines."""
+    for cross-client artifact surfacing. Returns an EmbeddedResource with
+    inline base64 blob so Claude Desktop renders the .docx as a clickable
+    download attachment. Structured content preserved for machines."""
     if result.get("status") != "complete":
-        # Degraded path — only structured content; the model knows how to
-        # render the needs_more_info shape and ask the user.
         doc_type = result.get("doc_type", "document")
         text_summary = (
             f"⚠️ Need more info — missing: "
@@ -1663,28 +1662,19 @@ def _to_tool_result(result: dict[str, Any]) -> ToolResult:
     path = Path(path_str)
     audit_id = result["audit_id"]
     doc_type = result.get("doc_type", "document")
-    file_uri = path.absolute().as_uri()
-    # Imperative-style format with the file:// URI on its own line —
-    # easier for orchestrating models to relay verbatim than a
-    # markdown link buried in prose. Closes #3.
     text_summary = (
         f"✅ {doc_type.title()} ready.\n"
-        f"**Open:** [{path.name}]({file_uri})\n"
-        f"**File path:** {file_uri}\n"
+        f"**File:** {path.name}\n"
+        f"**Path:** `{path}`\n"
         f"audit_id: `{audit_id}`"
     )
+
+    content_blocks: list[Any] = [TextContent(type="text", text=text_summary)]
+    if path.exists():
+        content_blocks.append(File(path=str(path)))
+
     return ToolResult(
-        content=[
-            TextContent(type="text", text=text_summary),
-            ResourceLink(
-                type="resource_link",
-                uri=file_uri,  # type: ignore[arg-type]  # ResourceLink.uri = AnyUrl, str literal accepted
-                name=path.name,
-                mimeType=_DOCX_MIME,
-                description=f"Generated {doc_type} (audit_id={audit_id})",
-                size=path.stat().st_size if path.exists() else None,
-            ),
-        ],
+        content=content_blocks,
         structured_content=result,
     )
 
