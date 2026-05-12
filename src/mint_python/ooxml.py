@@ -63,6 +63,7 @@
 from __future__ import annotations
 
 import logging
+import posixpath
 import re
 import unicodedata
 import zipfile
@@ -571,9 +572,9 @@ def _rels_owner_dir(rels_posix: str) -> str:
 
 def _resolve_target(owner_dir: str, target: str) -> str | None:
     if target.startswith("/"):
-        return target.lstrip("/")
+        return posixpath.normpath(target.lstrip("/"))
     if owner_dir:
-        return f"{owner_dir}/{target}".replace("//", "/")
+        return posixpath.normpath(f"{owner_dir}/{target}")
     return target
 
 
