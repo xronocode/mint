@@ -426,7 +426,7 @@ _KV_RE = re.compile(
     r"(?:^|[\s,])"
     r"(sender|from|recipient|to|date|subject|body"
     r"|title|purpose|sections|notes|scope_warning)"
-    r"[ \t]*=[ \t]*([^,\n]+)",
+    r"[ \t]*=[ \t]*([^\s,]+(?:\s+(?!\w+=)[^\s,]+)*)",
     re.IGNORECASE,
 )
 # Body specifically — multi-line: "Body:\n\n<everything until EOF or another
