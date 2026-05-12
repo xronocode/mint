@@ -1376,6 +1376,7 @@ async def _run_pipeline(
         "path": str(output_path),
         "audit_id": audit_id,
         "fields_elicited": fields_elicited,
+        "fields_heuristic": fields_heuristic,
         "doc_type": doc_type,
         "template_version": template.version,
     }
