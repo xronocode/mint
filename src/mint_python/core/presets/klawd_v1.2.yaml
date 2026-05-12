@@ -1,0 +1,77 @@
+$schema: https://mint.dev/schema/style-preset-1.0.json
+name: klawd
+version: '1.2'
+description: Anthropic Claude baseline — primary-blue corporate identity per docs/reference/docx_showcase_guide.md
+color_palette:
+  primary: '#3366CC'
+  secondary: '#2E75B6'
+  accent: '#D5E8F0'
+  text: '#333333'
+  text_muted: '#666666'
+  background: '#FFFFFF'
+  border: '#D5E8F0'
+  success: '#2E8B57'
+  warning: '#E8A838'
+  error: '#C0392B'
+typography:
+  heading1:
+    font: Arial
+    size_pt: 16
+    color: '@primary'
+    bold: true
+    alignment: left
+    spacing_before_pt: 18
+    spacing_after_pt: 12
+    line_height: 1.25
+    keep_with_next: true
+  heading2:
+    font: Arial
+    size_pt: 14
+    color: '@secondary'
+    bold: true
+    alignment: left
+    spacing_before_pt: 12
+    spacing_after_pt: 9
+    line_height: 1.3
+    keep_with_next: true
+  heading3:
+    font: Arial
+    size_pt: 12
+    color: '@primary'
+    bold: true
+    alignment: left
+    spacing_before_pt: 9
+    spacing_after_pt: 6
+    line_height: 1.35
+    keep_with_next: true
+  body:
+    font: Arial
+    size_pt: 11
+    color: '@text'
+    alignment: left
+    spacing_before_pt: 0
+    spacing_after_pt: 6
+    line_height: 1.45
+  table_header:
+    font: Arial
+    size_pt: 11
+    color: '@background'
+    bold: true
+    alignment: left
+    spacing_before_pt: 0
+    spacing_after_pt: 0
+    line_height: 1.2
+  caption:
+    font: Arial
+    size_pt: 9
+    color: '@text_muted'
+    italic: true
+    alignment: left
+    spacing_before_pt: 2
+    spacing_after_pt: 6
+    line_height: 1.3
+spacing:
+  paragraph_default_before_pt: 0
+  paragraph_default_after_pt: 6
+  default_line_height: 1.45
+  table_cell_padding_pt: 4
