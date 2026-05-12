@@ -280,6 +280,23 @@ class TestMintVersionTool:
         assert result["telemetry_enabled"] is True
         assert "telemetry_dir" in result
 
+    @pytest.mark.asyncio
+    async def test_version_fallback_on_missing_package(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MINT_TELEMETRY", "1")
+        import importlib as _il
+        _il.reload(_sut)
+        import importlib.metadata as _im
+
+        monkeypatch.setattr(
+            _im, "version",
+            lambda _name: (_ for _ in ()).throw(Exception("nope")),
+        )
+        ctx = MagicMock()
+        result = await _sut.mint_version(ctx)
+        assert result["version"] == "unknown"
+
 
 class TestMintTelemetryTool:
     @pytest.mark.asyncio

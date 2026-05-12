@@ -1005,3 +1005,27 @@ async def test_memo_generation_failed_wraps_builder_exception(
     ctx = FakeMCPContext(answers={})
     with pytest.raises(MemoGenerationFailed, match="DOC_GENERATION_FAILED"):
         await _run_memo_pipeline(intent=intent, source_md=intent, ctx=ctx)
+
+
+def test_heuristic_extracts_key_value_format() -> None:
+    """_KV_RE extracts fields from compact key=value intent blobs."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    spec = _heuristic_extract(
+        "title=API Design purpose=Define interfaces sections=Auth,Storage",
+        None,
+    )
+    assert spec.title == "API Design"
+    assert spec.purpose == "Define interfaces"
+    assert spec.sections == "Auth,Storage"
+
+
+def test_heuristic_kv_does_not_overwrite_label() -> None:
+    """KV extraction skips fields already set by labelled-line extraction."""
+    from mint_python.mcp.memo import _heuristic_extract
+
+    spec = _heuristic_extract(
+        "subject: Priority One\nsubject=should be ignored",
+        None,
+    )
+    assert spec.subject == "Priority One"
