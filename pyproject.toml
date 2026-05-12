@@ -85,11 +85,15 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 module = [
-    "fastmcp.tools.tool",
+    "fastmcp.*",
     "plotly.*",
     "seaborn",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "mint_python.mcp.telemetry"
+disable_error_code = ["has-type", "untyped-decorator"]
 
 [dependency-groups]
 dev = [
