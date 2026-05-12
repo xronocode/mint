@@ -106,6 +106,7 @@ from fastmcp import Context
 
 from mint_python.core.style import BUILTIN_PRESETS
 from mint_python.mcp.document import server
+from mint_python.mcp.telemetry import track_call
 from mint_python.templates.registry import (
     TemplateNotFound,
     get_default_registry,
@@ -480,31 +481,21 @@ async def list_presets(ctx: Context) -> list[dict[str, Any]]:
     # Lazy import — see module-level note about circular import.
     from mint_python.mcp import preset_edit as _preset_edit
 
-    entries: list[dict[str, Any]] = []
-    for descriptor in _list_mint_resources():
-        if not descriptor.uri.startswith("mint://preset/"):
-            continue
-        entry: dict[str, Any] = descriptor.to_dict()
-        # Resolve the version chain. collect_preset_versions raises
-        # PresetNotFound only when neither BUILTIN nor versioned
-        # siblings exist — which can't happen here because we iterate
-        # over the BUILTIN_PRESETS-derived descriptor list.
-        # descriptor list comes from BUILTIN_PRESETS so the
-        # PresetNotFound branch below is unreachable in practice; the
-        # try/except is defensive against a future shift in the
-        # enumerator's source-of-truth.
-        try:
-            versions = _preset_edit.collect_preset_versions(descriptor.name)
-        except _preset_edit.PresetNotFound:  # pragma: no cover
-            versions = []
-        # Additive ONLY when versioned siblings exist on top of the
-        # base (len > 1). Single-baseline presets keep the 4-key shape
-        # so existing Phase-14 callers / tests don't see a diff.
-        if len(versions) > 1:
-            entry["latest_version"] = versions[-1]
-            entry["predecessor_versions"] = versions[:-1]
-        entries.append(entry)
-    return entries
+    with track_call("mint_list_presets"):
+        entries: list[dict[str, Any]] = []
+        for descriptor in _list_mint_resources():
+            if not descriptor.uri.startswith("mint://preset/"):
+                continue
+            entry: dict[str, Any] = descriptor.to_dict()
+            try:
+                versions = _preset_edit.collect_preset_versions(descriptor.name)
+            except _preset_edit.PresetNotFound:  # pragma: no cover
+                versions = []
+            if len(versions) > 1:
+                entry["latest_version"] = versions[-1]
+                entry["predecessor_versions"] = versions[:-1]
+            entries.append(entry)
+        return entries
 
 
 @server.tool(name="mint_get_preset")
@@ -517,13 +508,14 @@ async def get_preset(name: str, *, ctx: Context) -> dict[str, str]:
     most recent preset edit (Phase-17 W17-2 fix).
     """
     del ctx
-    resolved = _resolve_preset_for_read(name)
-    return {
-        "name": name,
-        "uri": f"mint://preset/{name}",
-        "mimeType": _preset_mime_for_path(resolved),
-        "content": resolved.read_text(encoding="utf-8"),
-    }
+    with track_call("mint_get_preset", doc_type=name):
+        resolved = _resolve_preset_for_read(name)
+        return {
+            "name": name,
+            "uri": f"mint://preset/{name}",
+            "mimeType": _preset_mime_for_path(resolved),
+            "content": resolved.read_text(encoding="utf-8"),
+        }
 
 
 __all__ = [

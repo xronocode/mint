@@ -84,6 +84,7 @@ from typing import Any
 from fastmcp import Context
 
 from mint_python.mcp.document import server
+from mint_python.mcp.telemetry import track_call
 from mint_python.templates.registry import (
     TemplateSummary,
     get_default_registry,
@@ -498,9 +499,10 @@ async def mint_suggest_template(
               currently in the registry (distinct from len(suggestions)
               when the registry has more than 3 templates).
     """
-    del ctx  # reserved for future progress reporting; registry is
-    # stateless per call so no context-bound state to thread.
-    return suggest_templates(intent)
+    with track_call("mint_suggest_template"):
+        del ctx  # reserved for future progress reporting; registry is
+        # stateless per call so no context-bound state to thread.
+        return suggest_templates(intent)
 
 
 __all__ = [

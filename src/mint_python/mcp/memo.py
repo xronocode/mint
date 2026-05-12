@@ -68,6 +68,7 @@ from mint_python.mcp.document import (
 from mint_python.mcp.document import (
     DocumentTemplateNotFound as MemoTemplateNotFound,
 )
+from mint_python.mcp.telemetry import track_call
 
 
 def _load_template() -> MemoTemplate:
@@ -114,8 +115,9 @@ async def create_memo(
     until at least one Claude Desktop session is verified working against
     create_document directly. Scheduled for removal as part of Phase-14 W4
     (MP-MCP-RESOURCES) along with the broader server rename."""
-    result = await _run_memo_pipeline(intent, source_md, ctx)
-    return _to_tool_result(result)
+    with track_call("mint_create_memo"):
+        result = await _run_memo_pipeline(intent, source_md, ctx)
+        return _to_tool_result(result)
 
 
 __all__ = [

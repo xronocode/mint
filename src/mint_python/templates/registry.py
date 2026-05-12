@@ -72,6 +72,7 @@ from mcp.shared.exceptions import McpError
 
 from mint_python.mcp.auth import require_template_writer
 from mint_python.mcp.document import _TEMPLATES_DIR, server
+from mint_python.mcp.telemetry import track_call
 
 logger = logging.getLogger(__name__)
 
@@ -196,11 +197,12 @@ def _validate(raw: Any, source_path: Path) -> TemplateSchema:
             f"TEMPLATE_INVALID_SCHEMA: {source_path} did not parse to a mapping "
             f"(got {type(raw).__name__})"
         )
-    for key in _REQUIRED_KEYS:
-        if key not in raw:
-            raise TemplateInvalidSchema(
-                f"TEMPLATE_INVALID_SCHEMA: {source_path} missing required key {key!r}"
-            )
+    missing = [key for key in _REQUIRED_KEYS if key not in raw]
+    if missing:
+        raise TemplateInvalidSchema(
+            f"TEMPLATE_INVALID_SCHEMA: {source_path} missing required key(s): "
+            + ", ".join(repr(k) for k in missing)
+        )
     name = raw["name"]
     version = raw["version"]
     required_fields = raw["required_fields"]
@@ -558,7 +560,8 @@ async def list_templates(ctx: Context) -> list[dict[str, str]]:
     picker before invoking create_document.
     """
     del ctx  # unused; the registry is read-only and stateless per tool call
-    return [summary.to_dict() for summary in get_default_registry().summaries()]
+    with track_call("mint_list_templates"):
+        return [summary.to_dict() for summary in get_default_registry().summaries()]
 
 
 @server.tool(name="mint_update_template")
@@ -578,6 +581,14 @@ async def update_template(
     version names the template_author in its lineage record (Phase-14
     W3 closes audit's Priority-4).
 
+    The `content` YAML must include ALL of these required keys:
+      - name (str): template display name
+      - doc_type (str): document type identifier
+      - description (str): human-readable description
+      - required_fields (list[str]): field names the pipeline will elicit
+      - layout (list[dict]): block declarations (heading/paragraph/table/
+        callout/spacer)
+
     If `author` is empty, falls back to ctx.elicit asking the user for
     an identity to record. This is a single-prompt elicit; declining
     raises TemplateAuthorRequired (we refuse to write an unsigned
@@ -586,34 +597,31 @@ async def update_template(
     clear -32601-shaped error and can retry the call with author
     supplied inline.
     """
-    if not author:
-        try:
-            result = await ctx.elicit(
-                message="Who should be recorded as the template author?",
-                response_type=str,  # type: ignore[arg-type]
-                response_title="author",
-            )
-        except McpError:
-            raise TemplateAuthorRequired(
-                "TEMPLATE_AUTHOR_REQUIRED: update_template called without "
-                "author and the MCP client does not support elicitation. "
-                "Retry with author= explicitly populated."
-            ) from None
-        if not isinstance(result, AcceptedElicitation):
-            raise TemplateAuthorRequired(
-                f"TEMPLATE_AUTHOR_REQUIRED: author elicit "
-                f"{getattr(result, 'action', 'declined')!r} for template {name!r}"
-            )
-        author = str(result.data)
+    with track_call("mint_update_template", doc_type=name):
+        if not author:
+            try:
+                result = await ctx.elicit(
+                    message="Who should be recorded as the template author?",
+                    response_type=str,  # type: ignore[arg-type]
+                    response_title="author",
+                )
+            except McpError:
+                raise TemplateAuthorRequired(
+                    "TEMPLATE_AUTHOR_REQUIRED: update_template called without "
+                    "author and the MCP client does not support elicitation. "
+                    "Retry with author= explicitly populated."
+                ) from None
+            if not isinstance(result, AcceptedElicitation):
+                raise TemplateAuthorRequired(
+                    f"TEMPLATE_AUTHOR_REQUIRED: author elicit "
+                    f"{getattr(result, 'action', 'declined')!r} for template {name!r}"
+                )
+            author = str(result.data)
 
-    registry = get_default_registry()
-    outcome = registry.update(name=name, content=content, author=author)
-    # Force re-resolution next time anyone reads the singleton — registry
-    # already refreshed itself in update(), but the singleton might be
-    # held by other references; this clear-and-rebuild gives every
-    # subsequent lookup a guaranteed-fresh view.
-    reset_default_registry()
-    return outcome
+        registry = get_default_registry()
+        outcome = registry.update(name=name, content=content, author=author)
+        reset_default_registry()
+        return outcome
 
 
 @server.tool(name="mint_get_template")
@@ -631,15 +639,16 @@ async def get_template(
     pinning supported in W2; explicit semver pinning ships with W3.
     """
     del ctx  # unused; reads stable registry state
-    schema = get_default_registry().get(name, version=version)
-    return {
-        "name": schema.name,
-        "version": schema.version,
-        "doc_type": schema.doc_type,
-        "description": schema.description,
-        "required_fields": list(schema.required_fields),
-        "layout": [dict(entry) for entry in schema.layout],
-    }
+    with track_call("mint_get_template", doc_type=name):
+        schema = get_default_registry().get(name, version=version)
+        return {
+            "name": schema.name,
+            "version": schema.version,
+            "doc_type": schema.doc_type,
+            "description": schema.description,
+            "required_fields": list(schema.required_fields),
+            "layout": [dict(entry) for entry in schema.layout],
+        }
 
 
 __all__ = [

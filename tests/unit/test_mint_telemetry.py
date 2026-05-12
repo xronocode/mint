@@ -64,10 +64,11 @@ class TestTelemetryDir:
 
 
 class TestEventField:
-    def test_updates_active_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_updates_active_event(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MINT_TELEMETRY", "1")
+        monkeypatch.setenv("MINT_TELEMETRY_DIR", str(tmp_path))
         importlib.reload(_sut)
-        with _sut.track_call("t") as ev:
+        with _sut.track_call("test_tool") as ev:
             _sut.event_field(extra_key="extra_val")
             assert ev["extra_key"] == "extra_val"
 

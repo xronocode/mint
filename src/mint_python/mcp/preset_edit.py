@@ -111,6 +111,7 @@ from fastmcp.exceptions import ToolError
 from mint_python.core.style import BUILTIN_PRESETS
 from mint_python.mcp.auth import require_template_writer
 from mint_python.mcp.document import server
+from mint_python.mcp.telemetry import track_call
 
 logger = logging.getLogger(__name__)
 
@@ -730,13 +731,14 @@ async def mint_update_preset_palette(
         PresetVersionConflict: target path already exists (race).
     """
     del ctx  # reserved for future progress reporting
-    return _update_preset(
-        name=name,
-        patch=palette,
-        author=author,
-        surface="palette",
-        patch_fn=_apply_palette_patch,
-    )
+    with track_call("mint_update_preset_palette", doc_type=name):
+        return _update_preset(
+            name=name,
+            patch=palette,
+            author=author,
+            surface="palette",
+            patch_fn=_apply_palette_patch,
+        )
 
 
 @server.tool(name="mint_update_preset_typography")
@@ -757,13 +759,14 @@ async def mint_update_preset_typography(
     Args + Returns: same shape as mint_update_preset_palette.
     """
     del ctx
-    return _update_preset(
-        name=name,
-        patch=typography,
-        author=author,
-        surface="typography",
-        patch_fn=_apply_typography_patch,
-    )
+    with track_call("mint_update_preset_typography", doc_type=name):
+        return _update_preset(
+            name=name,
+            patch=typography,
+            author=author,
+            surface="typography",
+            patch_fn=_apply_typography_patch,
+        )
 
 
 @server.tool(name="mint_update_preset_spacing")
@@ -782,13 +785,14 @@ async def mint_update_preset_spacing(
     Args + Returns: same shape as mint_update_preset_palette.
     """
     del ctx
-    return _update_preset(
-        name=name,
-        patch=spacing,
-        author=author,
-        surface="spacing",
-        patch_fn=_apply_spacing_patch,
-    )
+    with track_call("mint_update_preset_spacing", doc_type=name):
+        return _update_preset(
+            name=name,
+            patch=spacing,
+            author=author,
+            surface="spacing",
+            patch_fn=_apply_spacing_patch,
+        )
 
 
 __all__ = [
