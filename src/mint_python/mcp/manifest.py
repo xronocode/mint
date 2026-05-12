@@ -72,6 +72,7 @@ from fastmcp import Context
 from mint._security import safe_doc
 from mint_python.grace import GRACE_NS, GRACEManifest, _parse_manifest_xml
 from mint_python.mcp.document import server
+from mint_python.mcp.telemetry import track_call
 
 logger = logging.getLogger(__name__)
 
@@ -280,79 +281,74 @@ async def mint_read_grace_manifest(
             malformed.
     """
     del ctx  # reserved for future progress reporting
-    # Path traversal guard — fires BEFORE any zipfile open
-    # (V-MP-MANIFEST-READ scenario-4-b + VF-018 forbidden-4).
-    try:
-        resolved = safe_doc(document_path)
-    except (ValueError, OSError) as exc:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: path traversal or invalid path "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
+    with track_call("mint_read_grace_manifest"):
+        # Path traversal guard — fires BEFORE any zipfile open
+        # (V-MP-MANIFEST-READ scenario-4-b + VF-018 forbidden-4).
+        try:
+            resolved = safe_doc(document_path)
+        except (ValueError, OSError) as exc:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: path traversal or invalid path "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
 
-    if not resolved.is_file():
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: not a regular file "
-            f"document_path={document_path!r}"
-        )
+        if not resolved.is_file():
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: not a regular file "
+                f"document_path={document_path!r}"
+            )
 
-    try:
-        manifests = _read_all_manifests(resolved)
-    except ManifestParseError as exc:
-        # Already-structured; re-emit the trace marker before re-raise
-        # so the caller's caplog has evidence of which part tripped.
-        # Extract the xml_part_name from the message rather than threading
-        # it through — keeps the call surface narrow.
-        message = str(exc)
-        # Best-effort extraction for the log marker; safe fallback if
-        # message format ever drifts.
-        xml_part_name = ""
-        marker = "xml_part_name="
-        if marker in message:
-            tail = message.split(marker, 1)[1]
-            xml_part_name = tail.split(" ", 1)[0].strip("'\"")
-        # START_BLOCK_MANIFEST_PARSE_ERROR
+        try:
+            manifests = _read_all_manifests(resolved)
+        except ManifestParseError as exc:
+            message = str(exc)
+            xml_part_name = ""
+            marker = "xml_part_name="
+            if marker in message:
+                tail = message.split(marker, 1)[1]
+                xml_part_name = tail.split(" ", 1)[0].strip("'\"")
+            # START_BLOCK_MANIFEST_PARSE_ERROR
+            logger.info(
+                "[MP-Manifest][read][BLOCK_MANIFEST_PARSE_ERROR] "
+                "document_path=%s xml_part_name=%s",
+                str(resolved),
+                xml_part_name,
+            )
+            # END_BLOCK_MANIFEST_PARSE_ERROR
+            raise
+        except (zipfile.BadZipFile, OSError) as exc:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: not a valid zip / unreadable "
+                f"document_path={document_path!r}: {type(exc).__name__}"
+            ) from exc
+
+        if not manifests:
+            # START_BLOCK_MANIFEST_NOT_FOUND
+            logger.info(
+                "[MP-Manifest][read][BLOCK_MANIFEST_NOT_FOUND] "
+                "document_path=%s",
+                str(resolved),
+            )
+            # END_BLOCK_MANIFEST_NOT_FOUND
+            raise ManifestNotFound(
+                f"MANIFEST_NOT_FOUND: no urn:mint:grace:2026:manifest part "
+                f"in document_path={document_path!r}"
+            )
+
+        selected = _select_most_recent(manifests)
+        canonical = _canonicalize(selected)
+
+        # START_BLOCK_READ_MANIFEST
         logger.info(
-            "[MP-Manifest][read][BLOCK_MANIFEST_PARSE_ERROR] "
-            "document_path=%s xml_part_name=%s",
+            "[MP-Manifest][read][BLOCK_READ_MANIFEST] "
+            "document_path=%s manifest_count=%d selected_xml_part_name=%s",
             str(resolved),
-            xml_part_name,
+            len(manifests),
+            selected.xml_part_name,
         )
-        # END_BLOCK_MANIFEST_PARSE_ERROR
-        raise
-    except (zipfile.BadZipFile, OSError) as exc:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: not a valid zip / unreadable "
-            f"document_path={document_path!r}: {type(exc).__name__}"
-        ) from exc
+        # END_BLOCK_READ_MANIFEST
 
-    if not manifests:
-        # START_BLOCK_MANIFEST_NOT_FOUND
-        logger.info(
-            "[MP-Manifest][read][BLOCK_MANIFEST_NOT_FOUND] "
-            "document_path=%s",
-            str(resolved),
-        )
-        # END_BLOCK_MANIFEST_NOT_FOUND
-        raise ManifestNotFound(
-            f"MANIFEST_NOT_FOUND: no urn:mint:grace:2026:manifest part "
-            f"in document_path={document_path!r}"
-        )
-
-    selected = _select_most_recent(manifests)
-    canonical = _canonicalize(selected)
-
-    # START_BLOCK_READ_MANIFEST
-    logger.info(
-        "[MP-Manifest][read][BLOCK_READ_MANIFEST] "
-        "document_path=%s manifest_count=%d selected_xml_part_name=%s",
-        str(resolved),
-        len(manifests),
-        selected.xml_part_name,
-    )
-    # END_BLOCK_READ_MANIFEST
-
-    return canonical
+        return canonical
 
 
 __all__ = [

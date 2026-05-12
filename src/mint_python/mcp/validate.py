@@ -69,6 +69,7 @@ from fastmcp.exceptions import ToolError
 
 from mint._security import safe_doc
 from mint_python.mcp.document import server
+from mint_python.mcp.telemetry import track_call
 from mint_python.rules import Violation
 from mint_python.validate import (
     InvalidDocumentError,
@@ -230,68 +231,51 @@ async def mint_validate_document(
     """
     del ctx  # reserved for future progress reporting (e.g. per-rule progress)
 
-    # ---- Path traversal guard --------------------------------------------
-    # safe_doc fires BEFORE any zipfile open (VF-020 inv-4
-    # PATH-TRAVERSAL-PRE-ZIP). Both ValueError (own raises) and OSError
-    # (resolve() under perverse paths) collapse to INVALID_DOCUMENT.
-    try:
-        resolved = safe_doc(document_path)
-    except (ValueError, OSError) as exc:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: path traversal or invalid path "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
+    with track_call("mint_validate_document"):
+        # ---- Path traversal guard --------------------------------------------
+        try:
+            resolved = safe_doc(document_path)
+        except (ValueError, OSError) as exc:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: path traversal or invalid path "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
 
-    if not resolved.is_file():
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: not a regular file "
-            f"document_path={document_path!r}"
+        if not resolved.is_file():
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: not a regular file "
+                f"document_path={document_path!r}"
+            )
+
+        mode = _resolve_severity_mode(severity_mode)
+
+        # ---- Delegate to the backend ------------------------------------------
+        try:
+            report = _backend_validate(resolved, severity_mode=mode)
+        except InvalidDocumentError as exc:  # pragma: no cover
+            raise ValidationBackendError(
+                f"VALIDATION_BACKEND_ERROR: backend raised on parse "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
+        except FileNotFoundError as exc:
+            raise ValidationBackendError(
+                f"VALIDATION_BACKEND_ERROR: rules dir missing: {exc}"
+            ) from exc
+
+        canonical = _canonicalize_report(report, mode)
+
+        # START_BLOCK_VALIDATE_DONE
+        logger.info(
+            "[MP-McpValidate][run][BLOCK_VALIDATE_DONE] "
+            "severity_mode=%s hard_count=%d soft_count=%d passed=%s",
+            canonical["severity_mode"],
+            report.hard_count,
+            report.soft_count,
+            report.passed,
         )
+        # END_BLOCK_VALIDATE_DONE
 
-    mode = _resolve_severity_mode(severity_mode)
-
-    # ---- Delegate to the backend ------------------------------------------
-    # mint_python.validate.validate handles InvalidDocumentError internally
-    # for the BadZipFile / missing-internal-XML cases by returning a report
-    # with an XML-001 violation. That's the desired behavior here too —
-    # scenario-2 (broken styles.xml) is expected to return passed=False with
-    # violations, NOT raise. So we only treat raw exceptions from the
-    # backend (rules-dir disappeared, OSError on read) as
-    # VALIDATION_BACKEND_ERROR.
-    try:
-        report = _backend_validate(resolved, severity_mode=mode)
-    except InvalidDocumentError as exc:  # pragma: no cover — backend catches internally
-        # Defense-in-depth: the backend currently catches its own
-        # InvalidDocumentError and surfaces an XML-001 violation. If a
-        # future refactor lets it bubble, route to ValidationBackendError
-        # so the MCP boundary stays consistent.
-        raise ValidationBackendError(
-            f"VALIDATION_BACKEND_ERROR: backend raised on parse "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
-    except FileNotFoundError as exc:
-        # Rules dir disappeared between checks (rare; race against a
-        # repo cleanup tool). Surface as backend error rather than
-        # invalid-doc — the doc was fine, the validator infrastructure
-        # broke.
-        raise ValidationBackendError(
-            f"VALIDATION_BACKEND_ERROR: rules dir missing: {exc}"
-        ) from exc
-
-    canonical = _canonicalize_report(report, mode)
-
-    # START_BLOCK_VALIDATE_DONE
-    logger.info(
-        "[MP-McpValidate][run][BLOCK_VALIDATE_DONE] "
-        "severity_mode=%s hard_count=%d soft_count=%d passed=%s",
-        canonical["severity_mode"],
-        report.hard_count,
-        report.soft_count,
-        report.passed,
-    )
-    # END_BLOCK_VALIDATE_DONE
-
-    return canonical
+        return canonical
 
 
 __all__ = [

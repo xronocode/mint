@@ -82,6 +82,7 @@ from mint_python.extract import (
     extract_style,
 )
 from mint_python.mcp.document import server
+from mint_python.mcp.telemetry import track_call
 
 logger = logging.getLogger(__name__)
 
@@ -208,76 +209,61 @@ async def mint_extract_content(
     """
     del ctx  # reserved for future progress reporting (e.g. per-layer progress)
 
-    # ---- Path traversal guard --------------------------------------------
-    # safe_doc fires BEFORE any zipfile open (VF-020 inv-4
-    # PATH-TRAVERSAL-PRE-ZIP). Both ValueError (own raises) and OSError
-    # (resolve() under perverse paths) collapse to INVALID_DOCUMENT.
-    try:
-        resolved = safe_doc(document_path)
-    except (ValueError, OSError) as exc:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: path traversal or invalid path "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
+    with track_call("mint_extract_content"):
+        # ---- Path traversal guard --------------------------------------------
+        try:
+            resolved = safe_doc(document_path)
+        except (ValueError, OSError) as exc:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: path traversal or invalid path "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
 
-    # ---- Suffix check ----------------------------------------------------
-    # Surface UNSUPPORTED_FORMAT at the wrap boundary BEFORE delegating —
-    # the backend wraps UnsupportedFormatError into ExtractionFailedError
-    # (src/mint_python/extract.py line 240-242), so without this pre-check
-    # a .txt path would surface as EXTRACTION_FAILED. The dev-plan error
-    # map keeps these distinct, and connected models can route on the
-    # prefix without parsing prose.
-    if resolved.suffix.lower() not in _SUPPORTED_SUFFIXES:
-        raise UnsupportedFormat(
-            f"UNSUPPORTED_FORMAT: extension must be one of "
-            f"{list(_SUPPORTED_SUFFIXES)!r} "
-            f"document_path={document_path!r}"
+        # ---- Suffix check ----------------------------------------------------
+        if resolved.suffix.lower() not in _SUPPORTED_SUFFIXES:
+            raise UnsupportedFormat(
+                f"UNSUPPORTED_FORMAT: extension must be one of "
+                f"{list(_SUPPORTED_SUFFIXES)!r} "
+                f"document_path={document_path!r}"
+            )
+
+        if not resolved.is_file():
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: not a regular file "
+                f"document_path={document_path!r}"
+            )
+
+        # ---- Delegate to the backend -----------------------------------------
+        try:
+            flat = extract_style(resolved)
+        except UnsupportedFormatError as exc:  # pragma: no cover
+            raise UnsupportedFormat(
+                f"UNSUPPORTED_FORMAT: {exc} document_path={document_path!r}"
+            ) from exc
+        except ExtractionFailedError as exc:
+            raise ExtractionFailed(
+                f"EXTRACTION_FAILED: {exc} document_path={document_path!r}"
+            ) from exc
+
+        canonical = _reshape_tokens(flat)
+
+        theme_keys_count = len(canonical["theme"]["colors"]) + len(
+            canonical["theme"]["typography"]
         )
+        layouts_count = len(canonical["layouts"])
 
-    if not resolved.is_file():
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: not a regular file "
-            f"document_path={document_path!r}"
+        # START_BLOCK_EXTRACT_DONE
+        logger.info(
+            "[%s][run][BLOCK_EXTRACT_DONE] "
+            "format=%s theme_keys_count=%d layouts_count=%d",
+            _LOG_PREFIX,
+            canonical["format"],
+            theme_keys_count,
+            layouts_count,
         )
+        # END_BLOCK_EXTRACT_DONE
 
-    # ---- Delegate to the backend -----------------------------------------
-    # mint_python.extract.extract_style raises ExtractionFailedError for
-    # BadZipFile / missing-file / lxml ParseError. The intact-zip +
-    # missing-theme.xml case is NOT an error in the W1 port (line 247-249
-    # treats `detected_layouts` as optional and parse_theme tolerates a
-    # missing theme1.xml entry — see V-MP-EXTRACT scenario-4 reinterpreted
-    # by W1). We preserve that semantics at the wrap boundary: a docx with
-    # an intact zip and no theme.xml returns success with empty theme.
-    try:
-        flat = extract_style(resolved)
-    except UnsupportedFormatError as exc:  # pragma: no cover — pre-checked above; defensive
-        raise UnsupportedFormat(
-            f"UNSUPPORTED_FORMAT: {exc} document_path={document_path!r}"
-        ) from exc
-    except ExtractionFailedError as exc:
-        raise ExtractionFailed(
-            f"EXTRACTION_FAILED: {exc} document_path={document_path!r}"
-        ) from exc
-
-    canonical = _reshape_tokens(flat)
-
-    theme_keys_count = len(canonical["theme"]["colors"]) + len(
-        canonical["theme"]["typography"]
-    )
-    layouts_count = len(canonical["layouts"])
-
-    # START_BLOCK_EXTRACT_DONE
-    logger.info(
-        "[%s][run][BLOCK_EXTRACT_DONE] "
-        "format=%s theme_keys_count=%d layouts_count=%d",
-        _LOG_PREFIX,
-        canonical["format"],
-        theme_keys_count,
-        layouts_count,
-    )
-    # END_BLOCK_EXTRACT_DONE
-
-    return canonical
+        return canonical
 
 
 __all__ = [

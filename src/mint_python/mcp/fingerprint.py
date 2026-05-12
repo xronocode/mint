@@ -77,6 +77,7 @@ from mint_python.fingerprint import (
     fingerprint,
 )
 from mint_python.mcp.document import server
+from mint_python.mcp.telemetry import track_call
 
 logger = logging.getLogger(__name__)
 
@@ -203,67 +204,57 @@ async def mint_fingerprint_document(
     """
     del ctx  # reserved for future progress reporting
 
-    # ---- Path traversal guard --------------------------------------------
-    # safe_doc fires BEFORE any zipfile open (VF-020 inv-4
-    # PATH-TRAVERSAL-PRE-ZIP). Both ValueError (own raises) and OSError
-    # (resolve() under perverse paths) collapse to INVALID_DOCUMENT.
-    try:
-        resolved = safe_doc(document_path)
-    except (ValueError, OSError) as exc:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: path traversal or invalid path "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
+    with track_call("mint_fingerprint_document"):
+        # ---- Path traversal guard --------------------------------------------
+        try:
+            resolved = safe_doc(document_path)
+        except (ValueError, OSError) as exc:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: path traversal or invalid path "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
 
-    if not resolved.is_file():
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: not a regular file "
-            f"document_path={document_path!r}"
-        )
+        if not resolved.is_file():
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: not a regular file "
+                f"document_path={document_path!r}"
+            )
 
-    # ---- Delegate to the pure-python core --------------------------------
-    # fingerprint() raises FingerprintError on bad-zip / unsupported suffix
-    # and MissingStyleXmlError on the no-style-XML branch. We route each
-    # to its structured-tool-error sibling so the MCP boundary stays
-    # consistent (VF-020 inv-6 STRUCTURED-ERRORS-NO-TRACEBACK).
-    try:
-        result = fingerprint(resolved)
-    except MissingStyleXmlError as exc:
-        # START_BLOCK_FP_MISSING_STYLES
+        # ---- Delegate to the pure-python core --------------------------------
+        try:
+            result = fingerprint(resolved)
+        except MissingStyleXmlError as exc:
+            # START_BLOCK_FP_MISSING_STYLES
+            logger.info(
+                "[%s][compute][BLOCK_FP_MISSING_STYLES] document_path=%s",
+                _LOG_PREFIX,
+                str(resolved),
+            )
+            # END_BLOCK_FP_MISSING_STYLES
+            raise MissingStylesXml(
+                f"MISSING_STYLES_XML: no style XML members in "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
+        except FingerprintError as exc:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: fingerprint backend rejected document "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
+
+        canonical = _canonicalize_result(result, baseline_hash)
+
+        # START_BLOCK_FP_DONE
         logger.info(
-            "[%s][compute][BLOCK_FP_MISSING_STYLES] document_path=%s",
+            "[%s][compute][BLOCK_FP_DONE] "
+            "hash=%s format=%s drift_status=%s",
             _LOG_PREFIX,
-            str(resolved),
+            canonical["hash"],
+            canonical["format"],
+            canonical["drift_status"],
         )
-        # END_BLOCK_FP_MISSING_STYLES
-        raise MissingStylesXml(
-            f"MISSING_STYLES_XML: no style XML members in "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
-    except FingerprintError as exc:
-        # Catches the base class — covers HashFailedError (mid-read OSError)
-        # and the unsupported-suffix / bad-zip raises from compute(). Surface
-        # as INVALID_DOCUMENT so the connected model gets a routing-stable
-        # prefix; the underlying exception type is preserved on __cause__.
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: fingerprint backend rejected document "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
+        # END_BLOCK_FP_DONE
 
-    canonical = _canonicalize_result(result, baseline_hash)
-
-    # START_BLOCK_FP_DONE
-    logger.info(
-        "[%s][compute][BLOCK_FP_DONE] "
-        "hash=%s format=%s drift_status=%s",
-        _LOG_PREFIX,
-        canonical["hash"],
-        canonical["format"],
-        canonical["drift_status"],
-    )
-    # END_BLOCK_FP_DONE
-
-    return canonical
+        return canonical
 
 
 __all__ = [

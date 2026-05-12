@@ -118,6 +118,7 @@ from mint_python.edit import (
     edit as _backend_edit,
 )
 from mint_python.mcp.document import server
+from mint_python.mcp.telemetry import track_call
 from mint_python.validate import SeverityMode
 
 # _canonicalize_report is imported lazily inside _canonicalize_edit_result to
@@ -411,7 +412,27 @@ async def mint_edit_document(
 
     Args:
         document_path: Filesystem path to the .docx the caller owns.
-        plan_json: JSON-decoded EditPlan dict ({format, ops, metadata}).
+        plan_json: JSON-decoded EditPlan dict. Required schema:
+            {
+              "format": "docx",
+              "ops": [
+                {
+                  "type": "replace_text" | "insert_paragraph" |
+                          "delete_paragraph" | "set_paragraph_style" |
+                          "tracked_replace" | "tracked_delete" |
+                          "add_comment" | "accept_change" |
+                          "reject_change",
+                  "op_id": "<unique string>",
+                  "anchor": {
+                    "type": "paragraph_index" | "text" | "hash",
+                    "value": "<int for paragraph_index, str for text/hash>"
+                  },
+                  ...payload keys depending on op type (e.g. "text",
+                  "style_name", "author", "comment_text")
+                }
+              ],
+              "metadata": {}
+            }
         severity_mode: Strictness for the post-edit validation pass —
             'audit' / 'lenient' / 'strict'. Defaults to 'lenient'.
         ctx: FastMCP context (reserved; not currently consumed).
@@ -432,103 +453,83 @@ async def mint_edit_document(
     """
     del ctx  # reserved for future progress reporting
 
-    # ---- Severity validation (defensive — Literal pin should suffice) -----
-    if severity_mode not in _SEVERITY_MAP:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: unknown severity_mode={severity_mode!r} "
-            f"(expected one of {sorted(_SEVERITY_MAP)!r})"
+    with track_call("mint_edit_document"):
+        # ---- Severity validation (defensive — Literal pin should suffice) -----
+        if severity_mode not in _SEVERITY_MAP:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: unknown severity_mode={severity_mode!r} "
+                f"(expected one of {sorted(_SEVERITY_MAP)!r})"
+            )
+
+        # ---- Path traversal guard — VF-021 inv-1 PATH-TRAVERSAL-PRE-ZIP -------
+        try:
+            resolved = safe_doc(document_path)
+        except (ValueError, OSError) as exc:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: path traversal or invalid path "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
+
+        if not resolved.is_file():
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: not a regular file "
+                f"document_path={document_path!r}"
+            )
+
+        if not zipfile.is_zipfile(resolved):
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: not a valid zip archive "
+                f"document_path={document_path!r}"
+            )
+
+        # ---- Wrap-layer raw-OOXML rejection (UC-008 / VF-021 inv-3) -----------
+        _reject_raw_ooxml_in_plan(plan_json)
+
+        # ---- Plan shape validation — BEFORE any backup attempt ----------------
+        try:
+            plan = edit_plan_from_dict(plan_json)
+        except EditError as exc:
+            raise _remap_edit_error(exc, document_path=document_path) from exc
+
+        mode = _SEVERITY_MAP[severity_mode]
+
+        # ---- Delegate to the backend ------------------------------------------
+        try:
+            result = _backend_edit(
+                resolved,
+                plan,
+                severity_mode=mode,
+            )
+        except EditError as exc:
+            raise _remap_edit_error(exc, document_path=document_path) from exc
+
+        # ---- Mid-pipeline op failure → structured error with op_id ------------
+        if not result.success and result.output_path is None and result.diff:
+            last = result.diff[-1]
+            code = last.error_code or "EDIT_UNKNOWN"
+            synth = EditError(
+                result.error or "mid-pipeline op failure",
+                code=code,
+            )
+            raise _remap_edit_error(
+                synth, document_path=document_path, op_id=last.op_id
+            )
+
+        canonical = _canonicalize_edit_result(result, severity_mode)
+
+        # START_BLOCK_EDIT_DONE
+        logger.info(
+            "[%s][edit][BLOCK_EDIT_DONE] "
+            "ops_total=%d ops_succeeded=%d ops_failed=%d duration_ms=%d",
+            _LOG_PREFIX,
+            result.ops_total,
+            result.ops_succeeded,
+            result.ops_failed,
+            result.duration_ms,
         )
+        # END_BLOCK_EDIT_DONE
 
-    # ---- Path traversal guard — VF-021 inv-1 PATH-TRAVERSAL-PRE-ZIP -------
-    try:
-        resolved = safe_doc(document_path)
-    except (ValueError, OSError) as exc:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: path traversal or invalid path "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
-
-    if not resolved.is_file():
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: not a regular file "
-            f"document_path={document_path!r}"
-        )
-
-    if not zipfile.is_zipfile(resolved):
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: not a valid zip archive "
-            f"document_path={document_path!r}"
-        )
-
-    # ---- Wrap-layer raw-OOXML rejection (UC-008 / VF-021 inv-3) -----------
-    # Fires BEFORE edit_plan_from_dict so plan_json with raw OOXML never
-    # reaches the typed-validator (which the W3b port intentionally left
-    # silent on this case).
-    _reject_raw_ooxml_in_plan(plan_json)
-
-    # ---- Plan shape validation — BEFORE any backup attempt ----------------
-    # edit_plan_from_dict raises EditError(code=EDIT_PLAN_INVALID) /
-    # EDIT_OP_UNSUPPORTED on malformed shapes. Catching here means we
-    # short-circuit BEFORE entering edit() — VF-021 scenario-2 expects
-    # no .bak written on EDIT_PLAN_INVALID.
-    try:
-        plan = edit_plan_from_dict(plan_json)
-    except EditError as exc:
-        raise _remap_edit_error(exc, document_path=document_path) from exc
-
-    mode = _SEVERITY_MAP[severity_mode]
-
-    # ---- Delegate to the backend ------------------------------------------
-    # edit() raises EditError on:
-    #   - validate_plan failures (caught above by edit_plan_from_dict for the
-    #     subset it covers; the rest land here — e.g. plan.format='pptx')
-    #   - BACKUP_FAILED before any unpack
-    #   - EDIT_VALIDATION_FAILED in strict mode after pack
-    # Mid-pipeline op failure does NOT raise — it returns an EditResult with
-    # success=False and the failing op's outcome in diff[-1]. We surface
-    # that as a structured error too, carrying the op_id (VF-021 inv-4
-    # ATOMIC-OR-RESTORABLE — .bak is byte-identical to pre-call source).
-    try:
-        result = _backend_edit(
-            resolved,
-            plan,
-            severity_mode=mode,
-        )
-    except EditError as exc:
-        raise _remap_edit_error(exc, document_path=document_path) from exc
-
-    # ---- Mid-pipeline op failure → structured error with op_id ------------
-    # MP-EDIT returns success=False with diff[-1] carrying the failing op's
-    # error_code + op_id. validation_report and output_path are both None
-    # on this path. Surface as a ToolError so the MCP client sees a
-    # structured failure, not a "success" envelope with a hidden error.
-    if not result.success and result.output_path is None and result.diff:
-        last = result.diff[-1]
-        code = last.error_code or "EDIT_UNKNOWN"
-        # Synthesize an EditError so the same remap path applies.
-        synth = EditError(
-            result.error or "mid-pipeline op failure",
-            code=code,
-        )
-        raise _remap_edit_error(
-            synth, document_path=document_path, op_id=last.op_id
-        )
-
-    canonical = _canonicalize_edit_result(result, severity_mode)
-
-    # START_BLOCK_EDIT_DONE
-    logger.info(
-        "[%s][edit][BLOCK_EDIT_DONE] "
-        "ops_total=%d ops_succeeded=%d ops_failed=%d duration_ms=%d",
-        _LOG_PREFIX,
-        result.ops_total,
-        result.ops_succeeded,
-        result.ops_failed,
-        result.duration_ms,
-    )
-    # END_BLOCK_EDIT_DONE
-
-    return canonical
+        return canonical
 
 
 __all__ = [

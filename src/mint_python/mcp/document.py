@@ -413,12 +413,21 @@ _SUBJECT_RE = re.compile(
 )
 # Labelled-field pattern: "<label>:" anywhere on a line, value to end-of-line
 # OR end-of-string. LLMs frequently emit memos as labelled key-value blobs
-# when asked to be explicit; we match the conventional 5 labels.
+# when asked to be explicit; we match the conventional 5 labels plus
+# technical-spec labels (title, purpose, sections, etc.).
 _LABEL_RE = re.compile(
-    # `[ \t]*` after the colon (NOT `\s*`) — otherwise `\s` consumes the
-    # newline and an empty `subject:\n` line eats the next line as its value.
-    r"^[ \t]*(sender|from|recipient|to|date|subject|body)[ \t]*:[ \t]*(.+?)[ \t]*$",
+    r"^[ \t]*(sender|from|recipient|to|date|subject|body"
+    r"|title|purpose|sections|notes|scope_warning)"
+    r"[ \t]*:[ \t]*(.+?)[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
+)
+# key=value format — common fallback when LLMs emit compact single-line blobs.
+_KV_RE = re.compile(
+    r"(?:^|[\s,])"
+    r"(sender|from|recipient|to|date|subject|body"
+    r"|title|purpose|sections|notes|scope_warning)"
+    r"[ \t]*=[ \t]*([^,\n]+)",
+    re.IGNORECASE,
 )
 # Body specifically — multi-line: "Body:\n\n<everything until EOF or another
 # top-level label>". When present this overrides the labelled-line form.
@@ -433,7 +442,8 @@ _BODY_BLOCK_RE = re.compile(
 # the next token genuinely is one of our known labels followed by a
 # colon, so prose containing periods doesn't get clobbered.
 _INLINE_LABEL_SPLIT_RE = re.compile(
-    r"\.\s+(?=(?:sender|from|recipient|to|date|subject|body)\s*:)",
+    r"\.\s+(?=(?:sender|from|recipient|to|date|subject|body"
+    r"|title|purpose|sections|notes|scope_warning)\s*:)",
     re.IGNORECASE,
 )
 
@@ -489,6 +499,8 @@ def _heuristic_extract(
         "sender": "sender", "from": "sender",
         "recipient": "recipient", "to": "recipient",
         "date": "date", "subject": "subject", "body": "body",
+        "title": "title", "purpose": "purpose", "sections": "sections",
+        "notes": "notes", "scope_warning": "scope_warning",
     }
     # Multi-line body block first — captures the "Body:\n\n..." shape.
     m = _BODY_BLOCK_RE.search(intent)
@@ -538,6 +550,13 @@ def _heuristic_extract(
         m = _SUBJECT_RE.search(intent)
         if m:
             spec.subject = m.group(1).strip().rstrip(".")
+
+    # ---- Layer 2.5: key=value extraction --------------------------------
+    for match in _KV_RE.finditer(intent):
+        label, value = match.group(1).lower(), match.group(2).strip()
+        target = label_to_field.get(label)
+        if target and value and not getattr(spec, target):
+            setattr(spec, target, value.rstrip("."))
 
     # ---- Layer 3: body from source_md ----------------------------------
     if not spec.body and source_md and source_md.strip():
@@ -1159,6 +1178,7 @@ async def _run_pipeline(
 
     fields_elicited: list[str] = []
     fields_pending: list[str] = []  # filled when elicitation isn't supported
+    fields_heuristic: list[str] = list(spec.filled(template.required_fields))
     elicitation_supported = True
 
     for field_name in template.required_fields:
@@ -1322,6 +1342,7 @@ async def _run_pipeline(
             anonymised=anon.anonymous_flag,
             preset_name="klawd",
             required_fields=template.required_fields,
+            fields_heuristic=fields_heuristic,
             log_prefix=log_prefix,
         )
     )
@@ -1501,6 +1522,7 @@ def _audit_instructions(
     anonymised: bool = False,
     preset_name: str = "klawd",
     required_fields: tuple[str, ...] = (),
+    fields_heuristic: list[str] | None = None,
     log_prefix: str = "MP-Doc",
 ) -> list[str]:
     """Compose the GRACE manifest instruction list for this run.
@@ -1558,6 +1580,7 @@ def _audit_instructions(
         f"generated_by={generator}",
         f"generated_at={timestamp}",
         f"fields_elicited={','.join(fields_elicited) if fields_elicited else '(none)'}",
+        f"fields_heuristic={','.join(fields_heuristic) if fields_heuristic else '(none)'}",
         f"template={doc_type}.yaml",
         f"template_version={template_version}",
         "preset=klawd",
@@ -1607,8 +1630,10 @@ async def create_document(
         DocumentGenerationFailed: when the assembler raises after all
             fields are collected.
     """
-    result = await _run_pipeline(intent, doc_type, source_md, ctx)
-    return _to_tool_result(result)
+    from mint_python.mcp.telemetry import track_call
+    with track_call("mint_create_document", doc_type=doc_type):
+        result = await _run_pipeline(intent, doc_type, source_md, ctx)
+        return _to_tool_result(result)
 
 
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

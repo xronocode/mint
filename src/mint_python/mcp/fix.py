@@ -84,6 +84,7 @@ from mint_python.fix import (
     apply_fixes,
 )
 from mint_python.mcp.document import server
+from mint_python.mcp.telemetry import track_call
 from mint_python.validate import SeverityMode, run_checks
 
 logger = logging.getLogger(__name__)
@@ -237,111 +238,104 @@ async def mint_fix_document(
     """
     del ctx  # reserved for future progress reporting
 
-    if severity_mode not in _SEVERITY_MAP:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: unknown severity_mode "
-            f"severity_mode={severity_mode!r} "
-            f"(expected one of {sorted(_SEVERITY_MAP)!r})"
-        )
+    with track_call("mint_fix_document"):
+        if severity_mode not in _SEVERITY_MAP:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: unknown severity_mode "
+                f"severity_mode={severity_mode!r} "
+                f"(expected one of {sorted(_SEVERITY_MAP)!r})"
+            )
 
-    # Path traversal guard — fires BEFORE any zipfile open
-    # (V-MP-MCP-FIX scenario-3 + VF-020 forbidden-4).
-    try:
-        resolved = safe_doc(document_path)
-    except (ValueError, OSError) as exc:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: path traversal or invalid path "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
+        # Path traversal guard — fires BEFORE any zipfile open
+        try:
+            resolved = safe_doc(document_path)
+        except (ValueError, OSError) as exc:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: path traversal or invalid path "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
 
-    if not resolved.is_file():
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: not a regular file "
-            f"document_path={document_path!r}"
-        )
+        if not resolved.is_file():
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: not a regular file "
+                f"document_path={document_path!r}"
+            )
 
-    # Validate the file is actually a zip BEFORE handing to run_checks,
-    # so a plain-text file at a .docx path produces INVALID_DOCUMENT
-    # rather than whatever upstream error the validator chooses today.
-    if not zipfile.is_zipfile(resolved):
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: not a valid zip archive "
-            f"document_path={document_path!r}"
-        )
+        if not zipfile.is_zipfile(resolved):
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: not a valid zip archive "
+                f"document_path={document_path!r}"
+            )
 
-    mode = _SEVERITY_MAP[severity_mode]
+        mode = _SEVERITY_MAP[severity_mode]
 
-    # Pure-python core: run_checks gives us the violations list; apply_fixes
-    # handles the destructive short-circuit, backup, iterate-and-revalidate,
-    # cascade detection. We call apply_fixes directly (not mint_python.fix.
-    # fix) because the convenience wrapper does not surface max_iterations.
-    try:
-        validation = run_checks(resolved, mode)
-    except Exception as exc:
-        raise InvalidDocument(
-            f"INVALID_DOCUMENT: validation pre-pass failed "
-            f"document_path={document_path!r}: {type(exc).__name__}: {exc}"
-        ) from exc
+        try:
+            validation = run_checks(resolved, mode)
+        except Exception as exc:
+            raise InvalidDocument(
+                f"INVALID_DOCUMENT: validation pre-pass failed "
+                f"document_path={document_path!r}: {type(exc).__name__}: {exc}"
+            ) from exc
 
-    try:
-        report = apply_fixes(
-            resolved,
-            validation.violations,
-            max_iterations=max_iterations,
-        )
-    except DestructiveRejectedError as exc:
-        # START_BLOCK_DESTRUCTIVE_REJECTED
+        try:
+            report = apply_fixes(
+                resolved,
+                validation.violations,
+                max_iterations=max_iterations,
+            )
+        except DestructiveRejectedError as exc:
+            # START_BLOCK_DESTRUCTIVE_REJECTED
+            logger.info(
+                "[%s][apply][BLOCK_DESTRUCTIVE_REJECTED] document_path=%s",
+                _LOG_PREFIX,
+                str(resolved),
+            )
+            # END_BLOCK_DESTRUCTIVE_REJECTED
+            raise DestructiveRejected(
+                f"DESTRUCTIVE_REJECTED: refusing to apply destructive fixes "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
+        except BackupFailedError as exc:
+            # START_BLOCK_BACKUP_FAILED
+            logger.info(
+                "[%s][apply][BLOCK_BACKUP_FAILED] document_path=%s",
+                _LOG_PREFIX,
+                str(resolved),
+            )
+            # END_BLOCK_BACKUP_FAILED
+            raise BackupFailed(
+                f"BACKUP_FAILED: could not write .bak beside document "
+                f"document_path={document_path!r}: {exc}"
+            ) from exc
+        except CascadeDetectedError as exc:
+            # START_BLOCK_CASCADE_DETECTED
+            logger.info(
+                "[%s][apply][BLOCK_CASCADE_DETECTED] document_path=%s max_iterations=%d",
+                _LOG_PREFIX,
+                str(resolved),
+                max_iterations,
+            )
+            # END_BLOCK_CASCADE_DETECTED
+            raise CascadeDetected(
+                f"CASCADE_DETECTED: fix loop did not converge after "
+                f"max_iterations={max_iterations} document_path={document_path!r}: {exc}"
+            ) from exc
+
+        canonical = _canonicalize_report(report, severity_mode)
+
+        # START_BLOCK_FIX_DONE
         logger.info(
-            "[%s][apply][BLOCK_DESTRUCTIVE_REJECTED] document_path=%s",
+            "[%s][apply][BLOCK_FIX_DONE] "
+            "iterations=%d applied_count=%d remaining_violations=%d backup_path=%s",
             _LOG_PREFIX,
-            str(resolved),
+            report.iterations,
+            len(report.applied_fixes),
+            len(report.remaining_violations),
+            str(report.backup_path) if report.backup_path else "",
         )
-        # END_BLOCK_DESTRUCTIVE_REJECTED
-        raise DestructiveRejected(
-            f"DESTRUCTIVE_REJECTED: refusing to apply destructive fixes "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
-    except BackupFailedError as exc:
-        # START_BLOCK_BACKUP_FAILED
-        logger.info(
-            "[%s][apply][BLOCK_BACKUP_FAILED] document_path=%s",
-            _LOG_PREFIX,
-            str(resolved),
-        )
-        # END_BLOCK_BACKUP_FAILED
-        raise BackupFailed(
-            f"BACKUP_FAILED: could not write .bak beside document "
-            f"document_path={document_path!r}: {exc}"
-        ) from exc
-    except CascadeDetectedError as exc:
-        # START_BLOCK_CASCADE_DETECTED
-        logger.info(
-            "[%s][apply][BLOCK_CASCADE_DETECTED] document_path=%s max_iterations=%d",
-            _LOG_PREFIX,
-            str(resolved),
-            max_iterations,
-        )
-        # END_BLOCK_CASCADE_DETECTED
-        raise CascadeDetected(
-            f"CASCADE_DETECTED: fix loop did not converge after "
-            f"max_iterations={max_iterations} document_path={document_path!r}: {exc}"
-        ) from exc
+        # END_BLOCK_FIX_DONE
 
-    canonical = _canonicalize_report(report, severity_mode)
-
-    # START_BLOCK_FIX_DONE
-    logger.info(
-        "[%s][apply][BLOCK_FIX_DONE] "
-        "iterations=%d applied_count=%d remaining_violations=%d backup_path=%s",
-        _LOG_PREFIX,
-        report.iterations,
-        len(report.applied_fixes),
-        len(report.remaining_violations),
-        str(report.backup_path) if report.backup_path else "",
-    )
-    # END_BLOCK_FIX_DONE
-
-    return canonical
+        return canonical
 
 
 __all__ = [

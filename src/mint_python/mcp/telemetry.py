@@ -289,7 +289,7 @@ async def mint_version(ctx: Context) -> dict[str, Any]:
     from importlib.metadata import version as pkg_version
 
     try:
-        ver = pkg_version("mint-python")
+        ver = pkg_version("mint-runtime")
     except Exception:
         ver = "unknown"
     return {
