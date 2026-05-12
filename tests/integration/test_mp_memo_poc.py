@@ -1012,12 +1012,12 @@ def test_heuristic_extracts_key_value_format() -> None:
     from mint_python.mcp.memo import _heuristic_extract
 
     spec = _heuristic_extract(
-        "title=API Design purpose=Define interfaces sections=Auth,Storage",
+        "title=API Design purpose=Define interfaces sections=Auth and Storage",
         None,
     )
     assert spec.title == "API Design"
     assert spec.purpose == "Define interfaces"
-    assert spec.sections == "Auth,Storage"
+    assert spec.sections == "Auth and Storage"
 
 
 def test_heuristic_kv_does_not_overwrite_label() -> None:
