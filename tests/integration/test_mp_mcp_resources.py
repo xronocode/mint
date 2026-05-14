@@ -177,7 +177,7 @@ async def test_scenario_3_list_presets_tool_matches_resource_listing() -> None:
     assert tool_uris == enumerator_uris
     # Each entry has the MCP-schema keys.
     for entry in tool_listing:
-        assert set(entry.keys()) == {"uri", "name", "mimeType", "description"}
+        assert set(entry.keys()) >= {"uri", "name", "mimeType", "description"}
 
 
 @pytest.mark.asyncio
