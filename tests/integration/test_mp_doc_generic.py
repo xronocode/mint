@@ -627,3 +627,63 @@ def test_create_document_docstring_directs_verbatim_relay() -> None:
         "directive so connected models preserve the file:// link in "
         "their reply to the user (closes #3)"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Report-specific heuristic extraction (author / summary / conclusions)
+# --------------------------------------------------------------------------- #
+
+
+def test_report_labelled_fields_extracted() -> None:
+    """Report intent with labelled fields should extract all 6 required
+    fields: title, author, date, summary, sections, conclusions."""
+    from mint_python.mcp.document import _heuristic_extract
+
+    intent = (
+        "title: MINT SDK Quarterly Report\n"
+        "author: Quality Engineering Team\n"
+        "date: May 13, 2026\n"
+        "summary: This report summarises MINT achievements in Q1 2026.\n"
+        "sections: Template architecture, style system, validation pipeline.\n"
+        "conclusions: MINT v0.4.0 achieves 100% test coverage."
+    )
+    spec = _heuristic_extract(intent, source_md=None)
+    assert spec.title == "MINT SDK Quarterly Report"
+    assert spec.author == "Quality Engineering Team"
+    assert spec.date == "May 13, 2026"
+    assert spec.summary == "This report summarises MINT achievements in Q1 2026"
+    assert spec.sections == "Template architecture, style system, validation pipeline"
+    assert spec.conclusions == "MINT v0.4.0 achieves 100% test coverage"
+
+
+def test_report_kv_fields_extracted() -> None:
+    """Report intent with key=value format should extract author, summary,
+    conclusions."""
+    from mint_python.mcp.document import _heuristic_extract
+
+    intent = (
+        "author=QE Team "
+        "summary=Q1 2026 results "
+        "conclusions=All green"
+    )
+    spec = _heuristic_extract(intent, source_md=None)
+    assert spec.author == "QE Team"
+    assert spec.summary == "Q1 2026 results"
+    assert spec.conclusions == "All green"
+
+
+def test_report_filled_covers_author_summary_conclusions() -> None:
+    """DocumentSpec.filled() includes author/summary/conclusions for report
+    template required_fields."""
+    from mint_python.mcp.document import DocumentSpec
+
+    report_fields = (
+        "title", "author", "date", "summary", "sections", "conclusions",
+    )
+    spec = DocumentSpec(
+        title="T", author="A", date="2026-05-13",
+        summary="S", sections="X", conclusions="C",
+    )
+    assert spec.filled(report_fields) == [
+        "title", "author", "date", "summary", "sections", "conclusions",
+    ]

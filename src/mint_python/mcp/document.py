@@ -84,6 +84,7 @@ from fastmcp.server.elicitation import AcceptedElicitation
 from fastmcp.tools.tool import ToolResult
 from mcp.shared.exceptions import McpError
 from mcp.types import ResourceLink, TextContent
+from pydantic import AnyUrl
 
 from mint_python.adapters.markdown import markdown_to_spec
 from mint_python.core.content import Paragraph
@@ -359,6 +360,11 @@ class DocumentSpec:
     subject: str | None = None
     body: str | None = None
 
+    # Phase-16 report + contract fields
+    author: str | None = None
+    summary: str | None = None
+    conclusions: str | None = None
+
     # Phase-17 technical-spec fields (W17-0 pre-flight extension)
     title: str | None = None
     purpose: str | None = None
@@ -417,6 +423,7 @@ _SUBJECT_RE = re.compile(
 # technical-spec labels (title, purpose, sections, etc.).
 _LABEL_RE = re.compile(
     r"^[ \t]*(sender|from|recipient|to|date|subject|body"
+    r"|author|summary|conclusions"
     r"|title|purpose|sections|notes|scope_warning)"
     r"[ \t]*:[ \t]*(.+?)[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
@@ -425,6 +432,7 @@ _LABEL_RE = re.compile(
 _KV_RE = re.compile(
     r"(?:^|[\s,])"
     r"(sender|from|recipient|to|date|subject|body"
+    r"|author|summary|conclusions"
     r"|title|purpose|sections|notes|scope_warning)"
     r"[ \t]*=[ \t]*([^\s,]+(?:\s+(?!\w+=)[^\s,]+)*)",
     re.IGNORECASE,
@@ -443,6 +451,7 @@ _BODY_BLOCK_RE = re.compile(
 # colon, so prose containing periods doesn't get clobbered.
 _INLINE_LABEL_SPLIT_RE = re.compile(
     r"\.\s+(?=(?:sender|from|recipient|to|date|subject|body"
+    r"|author|summary|conclusions"
     r"|title|purpose|sections|notes|scope_warning)\s*:)",
     re.IGNORECASE,
 )
@@ -499,6 +508,7 @@ def _heuristic_extract(
         "sender": "sender", "from": "sender",
         "recipient": "recipient", "to": "recipient",
         "date": "date", "subject": "subject", "body": "body",
+        "author": "author", "summary": "summary", "conclusions": "conclusions",
         "title": "title", "purpose": "purpose", "sections": "sections",
         "notes": "notes", "scope_warning": "scope_warning",
     }
@@ -1673,7 +1683,7 @@ def _to_tool_result(result: dict[str, Any]) -> ToolResult:
             TextContent(type="text", text=text_summary),
             ResourceLink(
                 type="resource_link",
-                uri=file_uri,
+                uri=AnyUrl(file_uri),
                 name=path.name,
                 mimeType=_DOCX_MIME,
                 description=f"Generated {doc_type} (audit_id={audit_id})",

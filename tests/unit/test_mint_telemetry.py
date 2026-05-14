@@ -100,9 +100,9 @@ class TestTrackCall:
     def test_exception_flow(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MINT_TELEMETRY_DIR", str(tmp_path))
         importlib.reload(_sut)
-        with pytest.raises(ValueError, match="boom"):
-            with _sut.track_call("bad_tool") as ev:
-                raise ValueError("boom")
+        with pytest.raises(ValueError, match="boom"), \
+             _sut.track_call("bad_tool") as ev:
+            raise ValueError("boom")
         line = (tmp_path / _sut._events_filename()).read_text().strip()
         ev = json.loads(line)
         assert ev["tool"] == "bad_tool"
@@ -187,7 +187,9 @@ class TestTrackDecorator:
         ev = json.loads(line)
         assert "doc_type" not in ev
 
-    def test_default_tool_name_from_function(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_default_tool_name_from_function(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         monkeypatch.setenv("MINT_TELEMETRY_DIR", str(tmp_path))
         importlib.reload(_sut)
 
@@ -215,7 +217,12 @@ class TestComputeSnapshot:
         importlib.reload(_sut)
         events = [
             {"ts": "2026-01-01T00:00:00Z", "tool": "a", "total_wall_s": 0.5, "doc_type": "docx"},
-            {"ts": "2026-01-01T00:01:00Z", "tool": "a", "total_wall_s": 1.5, "error_type": "ValueError"},
+            {
+                "ts": "2026-01-01T00:01:00Z",
+                "tool": "a",
+                "total_wall_s": 1.5,
+                "error_type": "ValueError",
+            },
             {"ts": "2026-01-01T00:02:00Z", "tool": "b", "total_wall_s": 2.0, "doc_type": "pptx"},
             {"ts": "2026-01-01T00:03:00Z", "tool": "b", "doc_type": "docx"},
         ]
