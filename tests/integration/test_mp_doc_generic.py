@@ -687,3 +687,22 @@ def test_report_filled_covers_author_summary_conclusions() -> None:
     assert spec.filled(report_fields) == [
         "title", "author", "date", "summary", "sections", "conclusions",
     ]
+
+
+def test_comma_separated_labelled_intent() -> None:
+    """Comma-separated "label: value, label: value" on one line should
+    extract all fields (BUG-1 regression test from smoke test v4)."""
+    from mint_python.mcp.document import _heuristic_extract
+
+    intent = (
+        "sender: QE Team, recipient: Engineering Team, "
+        "date: May 15, 2026, "
+        "subject: MINT v0.4.0 Release, "
+        "body: We are pleased to announce MINT v0.4.0."
+    )
+    spec = _heuristic_extract(intent, source_md=None)
+    assert spec.sender == "QE Team"
+    assert spec.recipient == "Engineering Team"
+    assert spec.date == "May 15, 2026"
+    assert spec.subject == "MINT v0.4.0 Release"
+    assert spec.body == "We are pleased to announce MINT v0.4.0"

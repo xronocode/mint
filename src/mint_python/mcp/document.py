@@ -455,6 +455,16 @@ _INLINE_LABEL_SPLIT_RE = re.compile(
     r"|title|purpose|sections|notes|scope_warning)\s*:)",
     re.IGNORECASE,
 )
+# Comma-separated labelled keys: "sender: X, recipient: Y, date: Z" on one
+# line.  Injects a newline before each label so the line-mode _LABEL_RE
+# picks them all up.  Guarded by positive lookahead requiring a known label
+# + colon, so ordinary commas in prose are untouched.
+_COMMA_LABEL_SPLIT_RE = re.compile(
+    r",\s+(?=(?:sender|from|recipient|to|date|subject|body"
+    r"|author|summary|conclusions"
+    r"|title|purpose|sections|notes|scope_warning)\s*:)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -502,6 +512,8 @@ def _heuristic_extract(
     # transitions and inject newlines so each label lands on its own
     # line for the regex below.
     intent = _INLINE_LABEL_SPLIT_RE.sub(".\n", intent)
+    # Same for comma-separated: "sender: X, recipient: Y, date: Z".
+    intent = _COMMA_LABEL_SPLIT_RE.sub(",\n", intent)
 
     # ---- Layer 1: labelled-line form -----------------------------------
     label_to_field = {
@@ -527,11 +539,11 @@ def _heuristic_extract(
         label, value = match.group(1).lower(), match.group(2).strip()
         target = label_to_field.get(label)
         if target and value and not getattr(spec, target):
-            # Strip a trailing sentence-period if present — values like
-            # "M. Yevdokimov (CPO)." come from inline-label splitting
-            # and the trailing period is a sentence terminator, not
-            # part of the name.
-            setattr(spec, target, value.rstrip("."))
+            # Strip trailing sentence-period or comma — values like
+            # "M. Yevdokimov (CPO)." or "QE Team," come from
+            # inline/comma-label splitting and the trailing punctuation
+            # is a separator, not part of the value.
+            setattr(spec, target, value.rstrip(".,"))
 
     # ---- Layer 2: prose patterns ---------------------------------------
     if not spec.date:
